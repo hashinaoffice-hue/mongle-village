@@ -18,6 +18,14 @@ npm start
 - 이 PC: http://localhost:8787
 - 같은 와이파이의 다른 기기: http://(표시된 IP):8787
 
+## 인터넷에 배포 (Render)
+
+1. 이 폴더를 GitHub 저장소에 올려요.
+2. [Render](https://render.com)에서 **New → Blueprint**를 누르고 저장소를 고르면 `render.yaml` 설정대로 서버가 만들어져요.
+3. 배포가 끝나면 `https://(서비스 이름).onrender.com` 주소로 누구나 접속할 수 있어요.
+
+무료 요금제는 15분 동안 아무도 없으면 잠들어서, 그다음 첫 접속은 30초~1분 정도 걸려요.
+
 ## 설정
 
 | 환경 변수 | 기본값 | 뜻 |
