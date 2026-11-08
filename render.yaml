@@ -1,0 +1,12 @@
+# Render 배포 설정 (Blueprint). 저장소를 Render에 연결하면 이 내용대로 웹 서비스가 만들어져요.
+services:
+  - type: web
+    name: mongle-village
+    runtime: node
+    plan: free
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /api/channels
+    envVars:
+      - key: MAX_PER_CHANNEL
+        value: "20"
