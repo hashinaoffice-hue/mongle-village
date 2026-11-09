@@ -78,7 +78,10 @@ button{font:inherit;color:inherit}
 .btn.snd svg{width:17px;height:17px}
 .btn.snd[aria-pressed="false"]{background:#e9e2d6;opacity:.7;text-decoration:line-through}
 @media (max-width:520px){#bar .btn{font-size:14px}#bar .btn.snd{font-size:0;gap:0;padding:.5em}.btn.snd svg{width:19px;height:19px}}
-#help{position:absolute;left:calc(14px + env(safe-area-inset-left,0px));bottom:calc(14px + env(safe-area-inset-bottom,0px));padding:10px 14px;font-size:13.5px;line-height:1.7;max-width:270px}
+#help{position:absolute;left:calc(14px + env(safe-area-inset-left,0px));bottom:calc(14px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;align-items:flex-start;gap:8px}
+#helpBody{padding:10px 14px;font-size:13.5px;line-height:1.7;max-width:270px}
+#bHelp{pointer-events:auto;width:40px;height:40px;padding:0;font-size:22px;line-height:1}
+#bHelp[aria-expanded="true"]{background:var(--butter)}
 #help kbd{font-family:var(--display);font-size:13px;border:1.5px solid var(--ink);border-bottom-width:3px;border-radius:6px;padding:0 5px;background:#fff}
 #toast{position:absolute;left:50%;top:calc(80px + env(safe-area-inset-top,0px));transform:translateX(-50%);font-family:var(--display);font-size:20px;padding:.4em 1.1em;white-space:nowrap;opacity:0;transition:opacity .3s, transform .3s}
 #toast.show{opacity:1;transform:translateX(-50%) translateY(4px)}
@@ -162,7 +165,8 @@ button{font:inherit;color:inherit}
 
 <div id="hud" hidden>
   <div id="who" class="chip"><img id="whoImg" alt=""><div><div class="nm" id="whoName">몽실</div><div class="nick" id="whoNick"></div><div class="cnt">별사탕 <b id="cnt">0</b> / <span id="tot">12</span> · <span id="chInfo"></span></div></div></div>
-  <div id="help" class="chip">
+  <div id="help">
+    <div id="helpBody" class="chip">
     <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 이동 · <kbd>Shift</kbd> 달리기<br>
     <kbd>Space</kbd> 점프 · <kbd>E</kbd> 인사하기<br>
     <kbd>1</kbd>~<kbd>4</kbd> 한마디 보내기 · <kbd>Enter</kbd> 채팅<br>
@@ -170,6 +174,8 @@ button{font:inherit;color:inherit}
     마우스 드래그로 시점 회전, 휠로 확대<br>
     푸딩 산 쿠키 계단 꼭대기에 금별사탕이 있어요<br>
     북쪽 이정표를 따라가면 숲이 나와요
+    </div>
+    <button class="btn" id="bHelp" type="button" aria-expanded="true" aria-controls="helpBody" title="도움말 접기/펼치기" aria-label="도움말">?</button>
   </div>
   <div id="toast" class="chip"></div>
   <div id="chatlog" aria-live="polite"></div>
@@ -2657,6 +2663,24 @@ const falls = { mist: [], rainbow: null, base: new V3(), t: 0, top: 0 };
     if (!(row === 3 && Math.abs(z - stairTopZ) < 4.5)) boulder(PLAT.x1 - 2.7 + rand(-0.3, 0.3), rowY(row), z + rand(-0.5, 0.5), rand(3.0, 3.6) * (row === 3 ? 0.8 : 1), 10);
   }
   for (let x = PLAT.x0 + 2; x < PLAT.x1 - 1; x += 3.8) for (let row = 0; row < 4; row++) boulder(x + rand(-0.6, 0.6), rowY(row), PLAT.z0 - 0.5 + rand(-0.5, 0.5), rand(3.0, 3.8) * (row === 3 ? 0.8 : 1), 10);
+  // the front rows step back as they rise, which left the meadow sticking out past the rock like a thin tabletop.
+  // a mossy rim rolls the grass over the edge, a row of rocks fills the face beneath it, and the stream gets a notch
+  // with ledge rocks tucked behind the falling water (the water's arc is set further down: it leaves the lip at PLAT.z1 + 0.8)
+  { const rz = PLAT.z1 + 0.45, lumpRot = () => [0, rand(0, 6), 0];
+    for (let x = PLAT.x0 - 0.3; x <= PLAT.x1 + 0.3; x += rand(1.7, 2.2)) {
+      const ax = Math.abs(x - fx);
+      if (ax > 3.6 && Math.abs(x - deck.x) > 3.3) {
+        R.add(lumpy(1, 12, 9, 0.2, 1.6), rockCol, [x - fx, TOP - 0.55 - wy, rz + rand(-0.25, 0.25) - pz], lumpRot(), [rand(1.1, 1.5), rand(0.7, 0.8), rand(1.1, 1.35)]);
+        const so = solid(x, rz, 1.05, TOP + 0.15, TOP - 1); so.up = 0.62; so.nocam = true;
+      }
+      if (ax > 4.8) R.add(lumpy(1, 12, 9, 0.22, 1.2), rockCol, [x - fx + rand(-0.4, 0.4), TOP - 3.0 - wy, PLAT.z1 - 0.5 - pz], lumpRot(), [rand(1.8, 2.3), rand(2.0, 2.4), rand(1.5, 1.8)]);
+    }
+    for (const sg of [-1, 1]) {   // the two rocks either side of the spill, and smaller ones stepping down beside the water
+      R.add(lumpy(1, 12, 9, 0.2, 1.6), rockCol, [sg * 2.75, TOP - 0.7 - wy, PLAT.z1 - 0.1 - pz], lumpRot(), [1.15, 0.85, 1.2]);
+      R.add(lumpy(1, 12, 9, 0.22, 1.4), rockCol, [sg * 3.6, TOP - 2.8 - wy, PLAT.z1 - 0.6 - pz], lumpRot(), [1.3, 1.9, 1.4]);
+    }
+    R.add(lumpy(1, 12, 9, 0.18, 1.4), rockCol, [0, TOP - 2.3 - wy, PLAT.z1 - 0.8 - pz], lumpRot(), [2.6, 2.0, 1.6]);   // ledge the water slides over
+    R.add(lumpy(1, 12, 9, 0.2, 1.2), rockCol, [0, TOP - 6.0 - wy, PLAT.z1 - 1.0 - pz], lumpRot(), [3.0, 2.6, 1.8]); }
   scene.add(mk(R.build(), rockMat2, { pos: [fx, wy, pz], outline: 0.08 }));
   // solid rock core behind the boulders so no light shows through the gaps between them
   { const t = TEX.stone.clone(); t.repeat.set(10, 4); t.needsUpdate = true;
@@ -3668,6 +3692,11 @@ const syncSnd = () => { bM.setAttribute('aria-pressed', Snd.st.music); bS.setAtt
 syncSnd();
 bM.addEventListener('click', () => { Snd.init(); Snd.setMusic(!Snd.st.music); syncSnd(); });
 bS.addEventListener('click', () => { Snd.init(); Snd.setSfx(!Snd.st.sfx); syncSnd(); Snd.pop(); });
+// help panel: the ? button folds it away; the choice is remembered on this device only
+{ const b = $('bHelp'), body = $('helpBody');
+  const set = open => { body.hidden = !open; b.setAttribute('aria-expanded', open); };
+  try { if (localStorage.getItem('mongle-help') === '0') set(false); } catch (e) {}
+  b.addEventListener('click', () => { const open = body.hidden; set(open); Snd.pop(); canvas.focus(); try { localStorage.setItem('mongle-help', open ? '1' : '0'); } catch (e) {} }); }
 const wake = () => { Snd.init(); removeEventListener('pointerdown', wake, true); removeEventListener('keydown', wake, true); };
 addEventListener('pointerdown', wake, true); addEventListener('keydown', wake, true);
 
