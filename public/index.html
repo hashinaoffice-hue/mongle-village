@@ -410,6 +410,12 @@ const starField = (() => {
   return pts;
 })();
 // shooting stars now and then on clear nights
+// easter egg: gather every star candy and the sky turns violet while meteors pour out of one point overhead
+const SKY_SHOWER = SKYK(-14, 0x15195a, 0x5a4a9e, 0xff9ad0, 0.3, 0x34356c, 0x7c78c4, 0x3a4262, 0.46, 0xcac2ff, 0.4, 0x5c5a94, 0, 1, 0.85);
+function blendSky(S, K, k) {
+  for (const n of ['zen', 'hor', 'glow', 'fog', 'hs', 'hg', 'lc', 'cloud']) S[n].lerp(K[n], k);
+  for (const n of ['glowK', 'hi', 'li', 'shaft', 'night', 'fogMul']) S[n] += (K[n] - S[n]) * k;
+}
 const shooting = (() => {
   const c = document.createElement('canvas'); c.width = 256; c.height = 16; const x = c.getContext('2d');
   const gr = x.createLinearGradient(0, 0, 256, 0); gr.addColorStop(0, 'rgba(255,255,255,0)'); gr.addColorStop(0.8, 'rgba(210,228,255,.7)'); gr.addColorStop(1, 'rgba(255,255,255,1)');
@@ -417,6 +423,20 @@ const shooting = (() => {
   const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false, opacity: 0 }));
   s.visible = false; sky.add(s);
   return { s, t: 0, life: 0, vel: new V3(), next: 5 };
+})();
+const shower = (() => {
+  // a long tapering tail with a round glowing head (head at the right, so the sprite's rotation is its direction of travel)
+  const c = document.createElement('canvas'); c.width = 512; c.height = 32; const x = c.getContext('2d');
+  const tail = x.createLinearGradient(0, 0, 490, 0); tail.addColorStop(0, 'rgba(255,255,255,0)'); tail.addColorStop(0.7, 'rgba(255,255,255,.35)'); tail.addColorStop(1, 'rgba(255,255,255,.95)');
+  x.fillStyle = tail; x.beginPath(); x.moveTo(0, 16); x.lineTo(490, 11); x.lineTo(490, 21); x.closePath(); x.fill();
+  const head = x.createRadialGradient(490, 16, 0, 490, 16, 15); head.addColorStop(0, 'rgba(255,255,255,1)'); head.addColorStop(0.35, 'rgba(255,255,255,.8)'); head.addColorStop(1, 'rgba(255,255,255,0)');
+  x.fillStyle = head; x.fillRect(470, 0, 42, 32);
+  const tex = new THREE.CanvasTexture(c), pool = [];
+  for (let i = 0; i < 120; i++) {
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false, opacity: 0 }));
+    s.visible = false; sky.add(s); pool.push({ s, t: 0, life: 0, vel: new V3() });
+  }
+  return { pool, t: -1, k: 0, dur: 36, acc: 0, ding: 0, rad: new V3() };
 })();
 
 /* ---------------- shader patching: cloud shadows, rim light, wind ---------------- */
@@ -2496,7 +2516,7 @@ function makeWoodcutter() {
     const sx = cx - 6.65 + i * 1.9;
     scene.add(mk(lumpy(1, 18, 10, 0.05, 2), i % 2 ? cushA : cushB, { pos: [sx, fy + 0.62, sz - 0.1], scale: [0.93, 0.17, 0.62], outline: 0.02 }));
     scene.add(mk(lumpy(1, 16, 10, 0.08, 2), i % 2 ? cushB : cushA, { pos: [sx, fy + 1.14, sz + 0.34], rot: [-0.25, 0, 0], scale: [0.9, 0.45, 0.2], outline: 0.02 }));
-    seats.push({ p: new V3(sx, fy + 0.7, sz - 0.12), yaw: Math.PI, i });
+    seats.push({ p: new V3(sx, fy + 0.7, sz - 0.12), yaw: Math.PI, i, fp: true });   // fp: the view drops to your own eyes
     const so = solid(sx, sz, 0.85, fy + 0.76); so.nocam = true;
   }
   for (const [sx, c] of [[cx - 7.3, 0xf6a9c0], [cx + 7.3, 0xffd76a], [cx + 0.95, 0x8ea8f2]]) scene.add(mk(lumpy(1, 12, 10, 0.15, 2.5), soft(c, 0.12), { pos: [sx, fy + 1.0, sz + 0.15], rot: [0.3, 0, 0], scale: [0.35, 0.32, 0.14], outline: 0.02 }));
@@ -2955,6 +2975,37 @@ function updateLamps(f, night, T) {
       : 0.4 + 0.45 * night;
   }
 }
+const SHOWER_COLS = [0xffffff, 0xfff1a8, 0xffc4e4, 0xbfe0ff, 0xd4ffc8, 0xffd9a8].map(c => new THREE.Color(c));
+function startShower() {
+  const f = new V3(); camera.getWorldDirection(f); const yaw = Math.atan2(f.x, f.z);
+  shower.rad.set(Math.sin(yaw) * Math.cos(1.05), Math.sin(1.05), Math.cos(yaw) * Math.cos(1.05));   // in front of you, high up
+  shower.t = 0; shower.acc = 0;
+}
+function tickShower(dt) {
+  const sw = shower;
+  if (sw.t >= 0) { sw.t += dt; sw.k = smooth(0, 3, sw.t) * (1 - smooth(sw.dur - 6, sw.dur, sw.t)); if (sw.t > sw.dur) { sw.t = -1; sw.k = 0; } }
+  // new meteors: up to ~22 a second at the peak, each running away from the radiant
+  sw.acc += dt * 22 * sw.k * (0.6 + 0.4 * Math.sin(sw.t * 1.7) ** 2);
+  const pos = new V3(), a = new V3(), b = new V3();
+  while (sw.acc >= 1) {
+    sw.acc--;
+    const m = sw.pool.find(q => q.life === 0); if (!m) break;
+    pos.copy(sw.rad).add(new V3(rand(-0.75, 0.75), rand(-0.45, 0.35), rand(-0.75, 0.75))); if (pos.y < 0.12) continue; pos.normalize();
+    const away = new V3().copy(pos).addScaledVector(sw.rad, -pos.dot(sw.rad)); if (away.lengthSq() < 1e-4) continue;
+    m.vel.copy(away.normalize()).multiplyScalar(rand(180, 330)); m.s.position.copy(pos).multiplyScalar(380);
+    a.copy(m.s.position).add(camera.position).project(camera); b.copy(m.s.position).addScaledVector(m.vel, 0.05).add(camera.position).project(camera);
+    m.s.material.rotation = Math.atan2((b.y - a.y) * innerHeight, (b.x - a.x) * innerWidth);
+    m.s.material.color.copy(pick(SHOWER_COLS)); const big = Math.random() < 0.12;
+    m.s.scale.set(rand(60, 110) * (big ? 1.5 : 1), rand(4.5, 6.5) * (big ? 1.6 : 1), 1);
+    m.t = 0; m.life = rand(0.6, 1.3) * (big ? 1.4 : 1); m.s.visible = true;
+    if ((sw.ding -= 1) <= 0 && Math.random() < 0.35) { Snd.twinkle(); sw.ding = 3; }
+  }
+  for (const m of sw.pool) if (m.life > 0) {
+    m.t += dt; const u = m.t / m.life; m.s.position.addScaledVector(m.vel, dt);
+    m.s.material.opacity = Math.sin(Math.PI * Math.min(1, u)) * (0.35 + 0.65 * sw.k);
+    if (u >= 1) { m.life = 0; m.s.visible = false; }
+  }
+}
 const phaseOf = (e, am) => e < -8 ? '밤' : am ? (e < 2 ? '새벽' : e < 22 ? '아침' : '낮') : (e >= 8 ? '낮' : '노을');
 const hhmm = d => String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
 function chSky(ch) { const d = skyNow(ch); return { phase: phaseOf(Math.asin(celestial(d).y) * 180 / Math.PI, solarHour(d) < 12), time: hhmm(d) }; }
@@ -2962,8 +3013,9 @@ function updateSky(dt, T) {
   const date = skyNow(), sunD = celestial(date), ph = moonPhase(date), moonD = celestial(date, ph, Math.cos(ph * 2 * Math.PI));
   const e = Math.asin(sunD.y) * 180 / Math.PI, am = solarHour(date) < 12;
   const S = sampleSky(am ? SKY_AM : SKY_PM, e);
+  tickShower(dt); if (shower.k > 0) blendSky(S, SKY_SHOWER, shower.k);
   skyU.zenith.value.copy(S.zen); skyU.horizon.value.copy(S.hor); skyU.glow.value.copy(S.glow); skyU.glowK.value = S.glowK;
-  skyU.sunDir.value.copy(sunD); skyU.sunCol.value.copy(SUN_LOW).lerp(SUN_HIGH, smooth(0, 20, e)); skyU.sunVis.value = smooth(-2.5, 0.5, e);
+  skyU.sunDir.value.copy(sunD); skyU.sunCol.value.copy(SUN_LOW).lerp(SUN_HIGH, smooth(0, 20, e)); skyU.sunVis.value = smooth(-2.5, 0.5, e) * (1 - shower.k);
   skyU.moonDir.value.copy(moonD); skyU.phase.value = ph; skyU.night.value = S.night;
   skyU.moonVis.value = smooth(-0.03, 0.04, moonD.y) * (0.3 + 0.7 * S.night);
   skyU.uTime.value = T; skyU.uPR.value = renderer.getPixelRatio();
@@ -3141,6 +3193,10 @@ const Snd = (() => {
     [[72, 0], [76, 0.14], [79, 0.28], [84, 0.42], [79, 0.7], [84, 0.84]].forEach(([n, dt], i) => tone({ t: t + dt, f: mtof(n), d: i === 5 ? 1.4 : 0.3, v: 0.09, type: 'triangle', lp: 3000 }));
     [60, 64, 67, 72].forEach(n => tone({ t: t + 0.84, f: mtof(n), a: 0.03, d: 1.8, v: 0.045, type: 'triangle', lp: 1500 }));
   }
+  function twinkle() {   // a far-off glassy note, pentatonic so any mix of them sounds sweet
+    if (!on()) return; const f = mtof(pick([84, 86, 88, 91, 93, 96])), t = ctx.currentTime;
+    tone({ t, f, d: 1.4, v: 0.028 }); tone({ t: t + 0.02, f: f * 2.01, d: 0.6, v: 0.008 });
+  }
   function chime() {
     if (!on()) return;
     [[84, 0], [88, 0.12]].forEach(([n, dt]) => { const f = mtof(n); tone({ t: ctx.currentTime + dt, f, d: 0.9, v: 0.06 }); tone({ t: ctx.currentTime + dt, f: f * 2.76, d: 0.35, v: 0.018 }); });
@@ -3224,7 +3280,7 @@ const Snd = (() => {
     tone({ f: 180, f2: 70, glide: 0.08, d: 0.12, v: 0.22 * k, pan }); hiss({ ft: 'bandpass', f: 1200, q: 2, d: 0.08, v: 0.12 * k, pan });
     tone({ t: t + 0.13, f: 520, f2: 380, glide: 0.05, d: 0.08, v: 0.06 * k, type: 'triangle', pan }); tone({ t: t + 0.2, f: 430, f2: 300, glide: 0.05, d: 0.08, v: 0.05 * k, type: 'triangle', pan });
   }
-  return { init, pop, step, jump, land, wobble, bloom, splash, door, chop, setFalls, setForest, star, fanfare, chime, speak, setMusic, setSfx, st };
+  return { init, pop, step, jump, land, wobble, bloom, splash, door, chop, setFalls, setForest, star, fanfare, twinkle, chime, speak, setMusic, setSfx, st };
 })();
 const tmpE = new V3();
 // loudness (0..1) and stereo pan of a sound at `pos`, heard from the player
@@ -3520,7 +3576,7 @@ function backToSelect() {
   Snd.pop();
   closeChat(); $('chatlog').innerHTML = '';
   promptPortal = null; promptKey = null; $('prompt').hidden = true;
-  if (player) { player.zone = 'world'; player.sitting = null; player.pos.set(6, terrain(6, 22), 22); }
+  if (player) { player.zone = 'world'; player.sitting = null; player.obj.visible = player.blobShadow.visible = true; player.pos.set(6, terrain(6, 22), 22); }
   leaveServer();
   mode = 'select'; player = null;
   showPickStep();
@@ -3791,7 +3847,7 @@ addEventListener('resize', () => { renderer.setSize(innerWidth, innerHeight); ca
 
 /* ---------------- loop ---------------- */
 const clock = new THREE.Clock();
-const tmpV = new V3(), UP15 = new V3(0, 1.5, 0), UP1 = new V3(0, 1, 0), FAR = new V3(0, -99, 0);
+const FP_EYE = new V3(), tmpV = new V3(), UP15 = new V3(0, 1.5, 0), UP1 = new V3(0, 1, 0), FAR = new V3(0, -99, 0);
 let selT = 0;
 let viewBoost = 1, camSnap = false, promptPortal = null, portalBusy = false, indoorAmb = 0, stairTip = false;
 const HEMI_SKY = new THREE.Color(0xe8f5ff), HEMI_GND = new THREE.Color(0x9fcf80), SUN_COL = new THREE.Color(0xfff0d6);
@@ -3820,12 +3876,15 @@ function seatTaken(s) { for (const r of Net.remotes.values()) if (r.sit && Math.
 function sitDown(s) {
   if (seatTaken(s)) return;
   player.sitting = s; player.pos.copy(s.p); player.vy = 0; player.ground = true; player.speed = 0;
-  player.yaw = s.yaw; camYaw = s.yaw + Math.PI; camPitch = 0.16; promptKey = null;
-  Snd.pop(); setTimeout(() => player && player.sitting === s && player.talk(pick(s.say || ['폭신해~', '밖이 다 보여!', '여기 좋다~']), 2), 300);
+  player.yaw = s.yaw; camYaw = s.yaw + Math.PI; camPitch = s.fp ? 0.04 : 0.16; promptKey = null;
+  Snd.pop();
+  if (s.fp) toast(IS_TOUCH ? '화면을 끌어서 둘러보세요' : '드래그해서 둘러보세요 · F를 누르면 일어나요', 2800);
+  else setTimeout(() => player && player.sitting === s && player.talk(pick(s.say || ['폭신해~', '밖이 다 보여!', '여기 좋다~']), 2), 300);
 }
 function standUp() {
   const s = player.sitting; if (!s) return;
   player.sitting = null; promptKey = null;
+  if (s.fp) camPitch = 0.3;   // back to the usual over-the-shoulder view
   player.pos.set(s.p.x - Math.sin(s.yaw) * 1.3, s.floor != null ? s.floor : CAB.fy, s.p.z - Math.cos(s.yaw) * 1.3); player.ground = true; player.vy = 0;
 }
 // a dark iris closes over the screen, you move, and it opens on the new place
@@ -3905,10 +3964,20 @@ function frame() {
       if (got === stars.length) {
         Snd.fanfare(); setTimeout(() => player && player.talk('다 모았다~!', 2.5), 1800);
         toast('별사탕 ' + stars.length + '개를 모두 모았어요!', 4500); emit(sparkTex, player.pos.clone().add(new V3(0, 3, 0)), 40, { size: 0.6, spread: 6, up: 5, life: 2, g: 8 });
+        setTimeout(() => { if (mode !== 'play') return; startShower(); toast('하늘에서 별똥별이 쏟아져요! 소원을 빌어 보세요', 5000); }, 3200);
+        setTimeout(() => { if (mode === 'play' && shower.t >= 0 && !IS_TOUCH) toast('화면을 위로 끌면 하늘을 올려다볼 수 있어요', 3500); }, 9000);
       } else toast(s.gold ? '금별사탕 발견! 푸딩 산 정복!' : '별사탕 ' + got + ' / ' + stars.length);
     }
     if (camSnap) camTarget.copy(player.pos).add(UP15);
     else camTarget.lerp(tmpV.copy(player.pos).add(UP15), 1 - Math.exp(-dt * 10));
+    const fpSeat = player.sitting && player.sitting.fp ? player.sitting : null;
+    player.obj.visible = player.blobShadow.visible = !fpSeat;
+    if (fpSeat) { // sitting on the cabin sofa: look through your own eyes, drag to look round the room and out of the window
+      const yaw = camYaw + Math.PI, p = clamp(camPitch, -0.5, 0.7);
+      FP_EYE.copy(fpSeat.p); FP_EYE.y += 1.15;
+      camera.position.lerp(FP_EYE, camSnap ? 1 : 1 - Math.exp(-dt * 7)); camSnap = false;
+      camera.lookAt(camera.position.x + Math.sin(yaw) * Math.cos(p), camera.position.y - Math.sin(p), camera.position.z + Math.cos(yaw) * Math.cos(p));
+    } else {
     const cp = Math.cos(camPitch);
     let dist = camDist;
     if (player.zone === 'tower') { // inside the trunk, shorten the boom so the camera stays within the walls at the same angle
@@ -3953,6 +4022,7 @@ function frame() {
     else camera.position.lerp(want, 1 - Math.exp(-dt * 12));
     // tilting the view below level turns it into stargazing: the camera aims up past your head into the sky
     if (camPitch < 0) camera.lookAt(tmpV.copy(camTarget).add(new V3(0, -camPitch * 16, 0))); else camera.lookAt(camTarget);
+    }
     if (player.zone === 'world' && (bloomTimer -= dt) <= 0) { spawnBloom(); bloomTimer = rand(2.5, 5.5); }
     updatePrompt();
     const zn = player.zone === 'tower' ? '할아버지 나무 안' : player.zone === 'terrace' ? '나무 꼭대기 테라스' : player.zone === 'cabin' ? '나무꾼 오두막 안' : zoneOf(player.pos.x, player.pos.z);
