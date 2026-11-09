@@ -16,6 +16,7 @@ const PHRASE_COUNT = 4;
 const CHAT_MAX = 60;       // 채팅 최대 글자 수
 const CHAT_GAP_MS = 700;   // 채팅 최소 간격
 const NICK_MAX = 12;       // 닉네임 최대 글자 수
+const UFO_CHANCE = process.env.UFO_CHANCE != null ? Number(process.env.UFO_CHANCE) : 0.1;   // 별사탕을 다 모았을 때 UFO가 떨어질 확률
 
 const ADJ = ['말랑한', '폭신한', '졸린', '배고픈', '수줍은', '용감한', '느긋한', '반짝이는', '동글동글한', '콩닥이는',
   '신난', '꼬물꼬물', '달콤한', '포근한', '깡총깡총', '엉뚱한', '조그만', '부지런한', '방긋 웃는', '살금살금'];
@@ -23,6 +24,7 @@ const NOUN = ['도토리', '구름', '푸딩', '쿠키', '민들레', '솜사탕
   '고구마', '찹쌀떡', '별사탕', '호빵', '올챙이', '클로버', '눈송이', '마카롱', '떡볶이', '달팽이'];
 
 const channels = Array.from({ length: CHANNELS }, () => new Map()); // id -> player
+const ufos = Array(CHANNELS).fill(null);                          // 채널마다 광장에 박힌 UFO (사람이 0명이 되면 사라져요)
 let nextId = 1;
 
 function makeNick(room) {
@@ -84,7 +86,7 @@ wss.on('connection', ws => {
       if (want && [...room.values()].some(p => p.nick === want)) { send(ws, { t: 'taken' }); return ws.close(); }
       me = { id: nextId++, ws, ch, char: m.char, nick: want || makeNick(room), s: [6, 0, 22, 0, 0, 1, 0], lastChat: 0 };
       room.set(me.id, me);
-      send(ws, { t: 'welcome', id: me.id, nick: me.nick, ch, max: MAX_PER_CHANNEL, players: [...room.values()].filter(p => p !== me).map(info) });
+      send(ws, { t: 'welcome', id: me.id, nick: me.nick, ch, max: MAX_PER_CHANNEL, ufo: ufos[ch] ? 1 : 0, players: [...room.values()].filter(p => p !== me).map(info) });
       broadcast(room, { t: 'join', ...info(me) }, me);
       console.log(`[채널 ${ch + 1}] ${me.nick} 입장 (${room.size}/${MAX_PER_CHANNEL})`);
       return;
@@ -96,6 +98,14 @@ wss.on('connection', ws => {
     } else if (m.t === 'e') {
       const k = Number.isInteger(m.k) ? m.k : -1;
       if (k >= 0 && k < PHRASE_COUNT) broadcast(channels[me.ch], { t: 'e', id: me.id, k }, me);
+    } else if (m.t === 'stars') {
+      // 별사탕을 다 모았어요: 접속마다 한 번만, 서버가 확률을 굴려 채널 모두에게 UFO를 떨어뜨려요
+      if (me.starsDone) return; me.starsDone = true;
+      if (!ufos[me.ch] && Math.random() < UFO_CHANCE) {
+        ufos[me.ch] = { at: Date.now() };
+        broadcast(channels[me.ch], { t: 'ufo' });
+        console.log(`[채널 ${me.ch + 1}] UFO가 광장에 떨어졌어요 (${me.nick})`);
+      }
     } else if (m.t === 'c') {
       // 채팅: 0.7초에 한 번, 60자까지. 내용은 저장하지 않아요.
       if (typeof m.text !== 'string' || now - me.lastChat < CHAT_GAP_MS) return;
@@ -110,6 +120,7 @@ wss.on('connection', ws => {
     if (!me) return;
     const room = channels[me.ch];
     room.delete(me.id);
+    if (room.size === 0) ufos[me.ch] = null;   // 채널이 비면 UFO도 사라져요
     broadcast(room, { t: 'leave', id: me.id });
     console.log(`[채널 ${me.ch + 1}] ${me.nick} 퇴장 (${room.size}/${MAX_PER_CHANNEL})`);
   });
