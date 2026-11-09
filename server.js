@@ -16,7 +16,7 @@ const PHRASE_COUNT = 4;
 const CHAT_MAX = 60;       // 채팅 최대 글자 수
 const CHAT_GAP_MS = 700;   // 채팅 최소 간격
 const NICK_MAX = 12;       // 닉네임 최대 글자 수
-const UFO_CHANCE = process.env.UFO_CHANCE != null ? Number(process.env.UFO_CHANCE) : 0.1;   // 별사탕을 다 모았을 때 UFO가 떨어질 확률
+const UFO_CHANCE = process.env.UFO_CHANCE != null ? Number(process.env.UFO_CHANCE) : 0.1;   // 유성우가 내릴 때 UFO가 떨어질 확률
 
 const ADJ = ['말랑한', '폭신한', '졸린', '배고픈', '수줍은', '용감한', '느긋한', '반짝이는', '동글동글한', '콩닥이는',
   '신난', '꼬물꼬물', '달콤한', '포근한', '깡총깡총', '엉뚱한', '조그만', '부지런한', '방긋 웃는', '살금살금'];
@@ -31,10 +31,18 @@ const showerEnd = Array(CHANNELS).fill(0);
 const SHOUT = '별똥별이다';                                         // 별사탕을 다 모은 사람이 채팅으로 외치면 유성우가 다시 내려요
 function callShower(me, why) {
   const now = Date.now();
-  if (now < showerEnd[me.ch]) { if (why === 'shout') send(me.ws, { t: 'shower', busy: 1 }); return; }   // 별사탕을 막 다 모았다면 이미 내리는 유성우를 같이 보면 돼요
+  if (now < showerEnd[me.ch]) { if (why === 'shout') send(me.ws, { t: 'shower', busy: 1 }); return false; }   // 별사탕을 막 다 모았다면 이미 내리는 유성우를 같이 보면 돼요
   showerEnd[me.ch] = now + SHOWER_MS + SHOWER_GAP_MS;
   broadcast(channels[me.ch], { t: 'shower', id: me.id, nick: me.nick, why, left: SHOWER_MS });
   console.log(`[채널 ${me.ch + 1}] 유성우 (${me.nick}, ${why === 'stars' ? '별사탕 완성' : '외침'})`);
+  return true;
+}
+// 유성우가 내릴 때마다(처음 다 모았을 때도, 외쳤을 때도) 확률을 굴려 UFO를 떨어뜨려요. 이미 박혀 있으면 더 오지 않아요
+function rollUfo(me) {
+  if (ufos[me.ch] || Math.random() >= UFO_CHANCE) return;
+  ufos[me.ch] = { at: Date.now() };
+  broadcast(channels[me.ch], { t: 'ufo' });
+  console.log(`[채널 ${me.ch + 1}] UFO가 광장에 떨어졌어요 (${me.nick})`);
 }
 let nextId = 1;
 
@@ -114,11 +122,7 @@ wss.on('connection', ws => {
       // 별사탕을 다 모았어요: 접속마다 한 번만, 서버가 확률을 굴려 채널 모두에게 UFO를 떨어뜨려요
       if (me.starsDone) return; me.starsDone = true;
       callShower(me, 'stars');
-      if (!ufos[me.ch] && Math.random() < UFO_CHANCE) {
-        ufos[me.ch] = { at: Date.now() };
-        broadcast(channels[me.ch], { t: 'ufo' });
-        console.log(`[채널 ${me.ch + 1}] UFO가 광장에 떨어졌어요 (${me.nick})`);
-      }
+      rollUfo(me);
     } else if (m.t === 'c') {
       // 채팅: 0.7초에 한 번, 60자까지. 내용은 저장하지 않아요.
       if (typeof m.text !== 'string' || now - me.lastChat < CHAT_GAP_MS) return;
@@ -126,7 +130,7 @@ wss.on('connection', ws => {
       if (!text) return;
       me.lastChat = now;
       broadcast(channels[me.ch], { t: 'c', id: me.id, text }, me);
-      if (me.starsDone && text.replace(/[\s!~.?,…]+/g, '') === SHOUT) callShower(me, 'shout');
+      if (me.starsDone && text.replace(/[\s!~.?,…]+/g, '') === SHOUT && callShower(me, 'shout')) rollUfo(me);
     }
   });
 
