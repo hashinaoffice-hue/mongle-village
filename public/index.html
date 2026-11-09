@@ -1752,6 +1752,7 @@ function tickBlooms(dt) {
 
 /* ---------------- ambient life: butterflies and sunlit motes ---------------- */
 const butterflies = [];
+let makeFlutter = null;   // builds one butterfly (used by the fox's own butterfly too)
 {
   const texCache = {};
   const wingTex = c => texCache[c] || (texCache[c] = canvasTex(64, 64, (x) => {
@@ -1762,6 +1763,11 @@ const butterflies = [];
   }));
   const wingGeo = new THREE.PlaneGeometry(0.55, 0.55); wingGeo.translate(0.275, 0, 0); wingGeo.rotateX(-Math.PI / 2);
   const cs = ['#ffe58a', '#f8b4c8', '#b9d4f6', '#ffffff', '#c9b2f2', '#ffc58f'];
+  makeFlutter = c => {
+    const m = new THREE.MeshBasicMaterial({ map: wingTex(c), transparent: true, alphaTest: 0.4, side: THREE.DoubleSide });
+    const b = new THREE.Group(), wl = new THREE.Mesh(wingGeo, m), wr = new THREE.Mesh(wingGeo, m); wr.scale.x = -1;
+    const bd = new THREE.Mesh(SPH_LO, basic(INK)); bd.scale.set(0.035, 0.035, 0.16); b.add(wl, wr, bd); scene.add(b); return { b, wl, wr };
+  };
   // homes spread over the map: the meadow, along the forest trails, the lodge garden and the waterfall
   const homes = [];
   for (let i = 0; i < 10; i++) { let hx, hz, n = 0; do { hx = rand(-65, 65); hz = rand(-65, 65); n++; } while (!free(hx, hz) && n < 20); homes.push([hx, hz]); }
@@ -2131,6 +2137,217 @@ function tickResidents(dt) {
     if ((r.cool -= dt) <= 0 && near) { residentTalk(r, pick(r.lines)); r.cool = rand(6, 10); }
     if (r.update) r.update(r, dt, near);
     placeBubble(r, dt);
+  }
+}
+
+/* ---------------- animal friends who walk about: a fox chasing a butterfly in the lodge woods, a duck family on the
+   forest pond, a mouse carrying the post between the village and the lodge, and an old turtle strolling the village path ---------------- */
+function makeFox() {
+  const g = new THREE.Group(), body = new THREE.Group(); g.add(body);
+  const fur = soft(0xf0904a), cream = soft(0xfff3e2);
+  const blob = mk(SPH, fur, { parent: body, pos: [0, 0.62, 0], scale: [0.56, 0.56, 0.54], outline: 0.035 });
+  mk(SPH_MED, cream, { parent: body, pos: [0, 0.5, 0.3], scale: [0.36, 0.34, 0.26], outline: 0 });
+  for (const s of [-1, 1]) {
+    const e = mk(new THREE.ConeGeometry(0.16, 0.42, 10), fur, { parent: body, pos: [s * 0.28, 1.2, -0.02], rot: [0, 0, -s * 0.28], outline: 0.025 });
+    mk(new THREE.ConeGeometry(0.07, 0.16, 8), soft(0x5a3a2a), { parent: e, pos: [0, 0.14, 0.02], outline: 0 });
+    mk(SPH_LO, soft(0x5a3a2a), { parent: g, pos: [s * 0.2, 0.08, 0.12], scale: [0.13, 0.09, 0.18], outline: 0.02 });
+  }
+  const put = animalFace(blob, { eyeY: 0.14 });
+  const snout = new THREE.Mesh(SPH_MED, cream); snout.scale.set(0.26, 0.17, 0.2); put(0, -0.05, -0.06, snout);
+  const nose = new THREE.Mesh(SPH_LO, basic(0x2b2220)); nose.scale.set(0.07, 0.055, 0.05); put(0, 0.0, 0.1, nose);
+  const tail = new THREE.Group(); tail.position.set(0, 0.42, -0.42); body.add(tail);   // a big bushy tail with a white tip
+  for (let i = 0; i < 6; i++) { const t = i / 5; mk(SPH_MED, t > 0.75 ? cream : fur, { parent: tail, pos: [0, Math.sin(t * 1.6) * 0.55, -t * 0.62], scale: 0.2 + 0.14 * Math.sin(t * Math.PI * 0.9), outline: 0.03 }); }
+  const arm = new THREE.Group(); arm.position.set(0.48, 0.66, 0.12); body.add(arm);   // the butterfly net
+  mk(SPH_LO, fur, { parent: arm, scale: 0.13, outline: 0.02 });
+  mk(new THREE.CylinderGeometry(0.03, 0.035, 1.5, 6), 0x9a6b4c, { parent: arm, pos: [0, 0.7, 0.12], rot: [0.18, 0, 0], outline: 0.015 });
+  const ring = new THREE.Group(); ring.position.set(0, 1.5, 0.27); arm.add(ring);
+  mk(new THREE.TorusGeometry(0.3, 0.025, 6, 20), soft(0xf3a5b6), { parent: ring, rot: [Math.PI / 2, 0, 0], outline: 0.01 });
+  const net = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.55, 14, 1, true), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55, side: THREE.DoubleSide }));
+  net.position.y = -0.27; net.rotation.x = Math.PI; ring.add(net);
+  return { g, body, h: 1.55, arm, tail };
+}
+function makeDuck() {
+  const g = new THREE.Group(), body = new THREE.Group(); g.add(body);
+  const wht = soft(0xffffff), org = soft(0xf6a43c);
+  mk(SPH, wht, { parent: body, pos: [0, 0.42, 0], scale: [0.5, 0.4, 0.64], outline: 0.035 });
+  const head = mk(SPH_MED, wht, { parent: body, pos: [0, 0.92, 0.36], scale: 0.32, outline: 0.03 });
+  const put = animalFace(head, { eyeY: 0.2, eyeX: 0.4, mouth: false });
+  const beak = new THREE.Mesh(SPH_LO, org); beak.scale.set(0.36, 0.13, 0.42); put(0, -0.05, 0.12, beak);
+  for (const s of [-1, 1]) mk(SPH_MED, soft(0xf1f1ea), { parent: body, pos: [s * 0.44, 0.48, -0.05], scale: [0.1, 0.24, 0.4], rot: [0.2, 0, s * 0.25], outline: 0.025 });
+  mk(new THREE.ConeGeometry(0.14, 0.32, 8), wht, { parent: body, pos: [0, 0.58, -0.62], rot: [-1.0, 0, 0], outline: 0.02 });
+  mk(new THREE.TorusGeometry(0.22, 0.04, 6, 18), soft(0x9fd3f0), { parent: body, pos: [0, 0.76, 0.3], rot: [Math.PI / 2 - 0.4, 0, 0], outline: 0.01 });   // a little blue scarf
+  return { g, body, h: 1.4 };
+}
+function makeDuckling() {
+  const m = makeChick();
+  m.body.children.forEach(c => { if (c.geometry && c.geometry.type === 'ConeGeometry') c.scale.set(1, 0.6, 1); });
+  return m;
+}
+function makePostMouse() {
+  const m = makeMouse(false);
+  mk(new THREE.CylinderGeometry(0.24, 0.26, 0.2, 16), soft(0x4f7fc4), { parent: m.body, pos: [0, 0.96, 0], outline: 0.02 });     // post cap
+  mk(new THREE.CylinderGeometry(0.2, 0.2, 0.04, 16, 1, false, -Math.PI / 2, Math.PI), soft(0x2f5a96), { parent: m.body, pos: [0, 0.88, 0.2], outline: 0.012 });
+  mk(SPH_LO, soft(0xffd84a), { parent: m.body, pos: [0, 1.0, 0.25], scale: 0.05, outline: 0 });
+  mk(new THREE.BoxGeometry(0.34, 0.28, 0.14), soft(0xb5793f), { parent: m.body, pos: [0.42, 0.32, 0.06], rot: [0, 0, 0.1], outline: 0.02 });   // satchel
+  mk(new THREE.BoxGeometry(0.2, 0.12, 0.02), soft(0xffffff), { parent: m.body, pos: [0.42, 0.5, 0.06], rot: [0, 0, 0.1], outline: 0.008 });   // a letter peeking out
+  mk(new THREE.TorusGeometry(0.42, 0.025, 6, 24), soft(0x7a4f2c), { parent: m.body, pos: [0.06, 0.6, 0.02], rot: [0, Math.PI / 2, 0.7], outline: 0 });
+  return m;
+}
+function makeTurtle() {
+  const g = new THREE.Group(), body = new THREE.Group(); g.add(body);
+  const skin = soft(0xb6d99a);
+  mk(new THREE.SphereGeometry(1, 28, 14, 0, Math.PI * 2, 0, Math.PI / 2), soft(0x6fa65c), { parent: body, pos: [0, 0.22, 0], scale: [0.72, 0.55, 0.82], outline: 0.035 });
+  mk(new THREE.TorusGeometry(0.75, 0.07, 8, 30), soft(0xd8c08a), { parent: body, pos: [0, 0.24, 0], rot: [Math.PI / 2, 0, 0], scale: [1, 1.1, 1], outline: 0.015 });
+  for (const [a, r] of [[0, 0], [0.5, 0.42], [2.6, 0.42], [4.7, 0.42]]) mk(new THREE.CylinderGeometry(0.17, 0.2, 0.06, 6), soft(0x8cc06f), { parent: body, pos: [Math.sin(a) * r, 0.74 - r * 0.32, Math.cos(a) * r], rot: [Math.cos(a) * r * 0.7, 0, -Math.sin(a) * r * 0.7], outline: 0 });
+  const head = mk(SPH_MED, skin, { parent: body, pos: [0, 0.42, 0.86], scale: [0.3, 0.28, 0.3], outline: 0.03 });
+  animalFace(head, { eyeY: 0.18, eyeX: 0.4 });
+  for (const s of [-1, 1]) for (const f of [-1, 1]) mk(SPH_LO, skin, { parent: g, pos: [s * 0.5, 0.12, f * 0.48], scale: [0.16, 0.13, 0.2], outline: 0.02 });
+  mk(SPH_LO, soft(0xf6a9c0), { parent: body, pos: [0.12, 0.92, 0.1], scale: [0.12, 0.08, 0.12], outline: 0.012 });   // a flower on her shell
+  mk(SPH_LO, soft(0xffe27a), { parent: body, pos: [0.12, 0.96, 0.1], scale: 0.05, outline: 0 });
+  return { g, body, h: 1.2 };
+}
+const wanderers = [];
+function addWanderer(m, o) {
+  m.g.scale.setScalar(o.scale || 1); scene.add(m.g);
+  const el = document.createElement('div'); el.className = 'bubble'; $('bubbles').appendChild(el);
+  const w = { ...m, ...o, pos: o.pos.clone(), yaw: o.yaw || 0, speed: 0, step: rand(0, 6), say: 0, el, bubbleH: m.h * (o.scale || 1) + 0.8, cool: rand(1, 4), pause: 0, oy: 0, vy: 0, st: {} };
+  wanderers.push(w); return w;
+}
+function wTalk(w, text) { w.say = 3.4; w.el.innerHTML = '<b>' + esc(w.name) + '</b>' + esc(text); const [k, p] = ear(w.pos); Snd.speak(w.voice, text, Math.max(k, 0.3), p); }
+// head for a point, turning smoothly; returns the distance still to go
+function wGo(w, tx, tz, sp, dt) {
+  const dx = tx - w.pos.x, dz = tz - w.pos.z, d = Math.hypot(dx, dz);
+  if (d < 0.05) { w.speed = 0; return d; }
+  let a = Math.atan2(dx, dz) - w.yaw; a = Math.atan2(Math.sin(a), Math.cos(a)); w.yaw += a * Math.min(1, dt * 7);
+  const k = Math.min(sp * dt, d) * Math.max(0, Math.cos(a)); w.pos.x += dx / d * k; w.pos.z += dz / d * k; w.speed = sp; return d;
+}
+function wFace(w, x, z, dt) { let a = Math.atan2(x - w.pos.x, z - w.pos.z) - w.yaw; a = Math.atan2(Math.sin(a), Math.cos(a)); w.yaw += a * Math.min(1, dt * 5); }
+// keep walkers out of tree trunks, rocks and the lodge
+function wPush(w, rad) {
+  for (const o of solids) {
+    if (o.water || o.top < w.pos.y + 0.3 || o.bottom > w.pos.y + 1) continue;
+    const dx = w.pos.x - o.x, dz = w.pos.z - o.z, d = Math.hypot(dx, dz), m = o.r + rad;
+    if (d < m && d > 1e-4) { w.pos.x = o.x + dx / d * m; w.pos.z = o.z + dz / d * m; }
+  }
+}
+// polyline walking (the post route and the turtle's stroll)
+function polyLen(pts) { const L = [0]; for (let i = 1; i < pts.length; i++) L.push(L[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1])); return L; }
+function polyAt(pts, L, s) { let i = 1; while (i < pts.length - 1 && L[i] < s) i++; const t = clamp((s - L[i - 1]) / ((L[i] - L[i - 1]) || 1), 0, 1); return [pts[i - 1][0] + (pts[i][0] - pts[i - 1][0]) * t, pts[i - 1][1] + (pts[i][1] - pts[i - 1][1]) * t]; }
+{
+  // 1. little fox Popo chases her own butterfly round the clearing between the lodge and the falls
+  const C = { x: CAB.x + 3, z: CAB.z - 23, r: 10 }, home = { x: CAB.x + CAB.hw + 3.2, z: CAB.z + 5 };
+  const bf = makeFlutter('#c9b2f2'); bf.b.scale.setScalar(1.15);
+  const fox = addWanderer(makeFox(), { name: '꼬마 여우 포포', voice: 'fox', pos: new V3(C.x, 0, C.z), rad: 0.55,
+    lines: ['나비야 거기 서~!', '이번엔 꼭 잡을 거야!', '너도 나비 좋아해?', '폭포 근처엔 나비가 많아', '같이 잡을래?'],
+    nightLines: ['쿨쿨…', '음냐… 나비야…', 'Zzz…'] });
+  const B = { pos: new V3(C.x + 3, 1.6, C.z), tgt: new V3(), t: 0, fast: 0 };
+  fox.tick = (w, dt, T, night) => {
+    const st = w.st, sleepy = night > 0.6;
+    bf.b.visible = !sleepy && w.near;
+    if (sleepy) {   // night: curl up beside the lodge porch, walking round the lodge's south-east corner to get there
+      const viaCorner = w.pos.x < home.x - 0.5 && w.pos.z < CAB.z - CAB.hd;
+      const d = viaCorner ? (wGo(w, home.x, CAB.z - CAB.hd - 2.5, 2.2, dt), 9) : wGo(w, home.x, home.z, 2.2, dt);
+      if (inCabinRect(w.pos.x, w.pos.z, 0.8)) w.pos.x = Math.max(w.pos.x, CAB.x + CAB.hw + 0.8);
+      if (d < 0.4) { w.speed = 0; w.yaw += (0.6 - w.yaw) * Math.min(1, dt * 2); w.body.scale.set(1.08, 0.82 + Math.sin(T * 1.6) * 0.03, 1.08); w.lines = w.nightLines; }
+      return;
+    }
+    w.body.scale.set(1, 1, 1); w.lines = fox.dayLines;
+    // the butterfly: drifts to new spots in the clearing, darting off after a pounce
+    if ((B.t -= dt) <= 0 || B.pos.distanceTo(B.tgt) < 0.6) { const a = rand(0, 6.28), r = rand(0, C.r); B.tgt.set(C.x + Math.cos(a) * r, rand(1.2, 2.4), C.z + Math.sin(a) * r); B.t = rand(1.5, 3.5); }
+    const bsp = B.fast > 0 ? 6 : 2.1; B.fast -= dt;
+    _bw.subVectors(B.tgt, B.pos); const bl = _bw.length(); if (bl > 0.01) B.pos.addScaledVector(_bw, Math.min(1, bsp * dt / bl));
+    bf.b.position.set(B.pos.x, B.pos.y + Math.sin(T * 6) * 0.12, B.pos.z); bf.b.rotation.y = Math.atan2(_bw.x, _bw.z);
+    const f = Math.sin(T * 22) * 0.9; bf.wl.rotation.z = f; bf.wr.rotation.z = -f;
+    if (w.pause > 0) { w.speed = 0; wFace(w, player.pos.x, player.pos.z, dt); return; }
+    if (st.rest > 0) { st.rest -= dt; w.speed = 0; wFace(w, B.pos.x, B.pos.z, dt); return; }
+    const d = wGo(w, B.pos.x, B.pos.z, 4.4, dt);
+    if (d < 1.9 && w.oy === 0) {   // pounce with the net; it always gets away
+      w.vy = 5.2; st.swing = 1; B.fast = 1.2; const a = rand(0, 6.28); B.tgt.set(C.x + Math.cos(a) * C.r * 0.8, 2.2, C.z + Math.sin(a) * C.r * 0.8); B.t = 2;
+      if (Math.random() < 0.35) st.rest = rand(1.2, 2.5);
+      if (w.near && Math.random() < 0.5 && w.say <= 0) wTalk(w, pick(['앗, 놓쳤다!', '거의 잡았는데~', '흐잉, 또 날아갔어', '조금만 더!']));
+    }
+    if (st.swing > 0) { st.swing = Math.max(0, st.swing - dt * 2.5); w.arm.rotation.x = Math.sin(st.swing * Math.PI) * 1.5; }
+    // stay in the clearing, clear of the lodge and the pool
+    const ox = w.pos.x - C.x, oz = w.pos.z - C.z, od = Math.hypot(ox, oz); if (od > C.r + 2) { w.pos.x = C.x + ox / od * (C.r + 2); w.pos.z = C.z + oz / od * (C.r + 2); }
+  };
+  fox.dayLines = fox.lines; fox.onFar = () => { bf.b.visible = false; };
+
+  // 2. a duck family swimming round the forest pond, three ducklings in a row behind their mother
+  const waterY = POND_TOP - 0.95, PR = (a) => POND.r * 0.52 + Math.sin(a * 2) * 0.7;
+  const mom = addWanderer(makeDuck(), { name: '오리 엄마', voice: 'duck', pos: new V3(POND.x + 3, waterY, POND.z), float: true, scale: 0.9,
+    lines: ['꽥꽥! 우리 아기들 귀엽죠?', '아가들아, 엄마 따라오렴~', '연못 물이 참 시원해요', '꽥! 반가워요~'] });
+  const kids = [0, 1, 2].map(() => { const k = makeDuckling(); k.g.scale.setScalar(0.85); scene.add(k.g); return k; });
+  mom.st.a = rand(0, 6.28);
+  mom.tick = (w, dt, T) => {
+    const st = w.st, sp = w.pause > 0 ? 0 : 0.42 * (0.75 + 0.25 * Math.sin(T * 0.3));
+    st.a += sp * dt;
+    const at = a => [POND.x + Math.cos(a) * PR(a), POND.z + Math.sin(a) * PR(a)];
+    const [x, z] = at(st.a), [x2, z2] = at(st.a + 0.05); w.pos.set(x, waterY, z); w.speed = sp > 0 ? 0.6 : 0;
+    if (w.pause > 0) wFace(w, player.pos.x, player.pos.z, dt); else { let d = Math.atan2(x2 - x, z2 - z) - w.yaw; w.yaw += Math.atan2(Math.sin(d), Math.cos(d)) * Math.min(1, dt * 5); }
+    kids.forEach((k, i) => {
+      const a = st.a - 0.42 * (i + 1), [kx, kz] = at(a), [kx2, kz2] = at(a + 0.05);
+      k.g.position.set(kx, waterY - 0.05 + Math.sin(T * 3 + i) * 0.04, kz); k.g.rotation.y = Math.atan2(kx2 - kx, kz2 - kz); k.g.rotation.z = Math.sin(T * 4 + i * 2) * 0.08;
+      k.g.visible = true;
+    });
+  };
+  mom.onFar = () => kids.forEach(k => { k.g.visible = false; });
+
+  // 3. the post mouse walks the trail between the village and the lodge, resting at each end
+  const route = TRAILS.cabin, RL = polyLen(route), RT = RL[RL.length - 1];
+  const post = addWanderer(makePostMouse(), { name: '우체부 찍찍이', voice: 'mouse', pos: new V3(route[0][0], 0, route[0][1]), scale: 1.25,
+    lines: ['편지 배달 중이에요!', '나무꾼 아저씨께 소포가 왔어요', '마을이랑 오두막을 매일 오가요', '숲길은 지도를 보면 안 헤매요~'] });
+  post.st.s = rand(0, RT); post.st.dir = 1; post.st.wait = 0;
+  post.tick = (w, dt) => {
+    const st = w.st;
+    if (w.pause > 0) { w.speed = 0; wFace(w, player.pos.x, player.pos.z, dt); return; }
+    if (st.wait > 0) { st.wait -= dt; w.speed = 0; return; }
+    st.s += st.dir * 2.3 * dt;
+    if (st.s >= RT || st.s <= 0) { st.s = clamp(st.s, 0, RT); st.dir *= -1; st.wait = rand(4, 7); if (w.near && w.say <= 0) wTalk(w, st.dir < 0 ? '편지 왔어요~!' : '다녀오겠습니다~'); }
+    const [x, z] = polyAt(route, RL, st.s), [x2, z2] = polyAt(route, RL, clamp(st.s + st.dir * 0.5, 0, RT));
+    w.pos.x = x; w.pos.z = z; w.speed = 2.3;
+    let d = Math.atan2(x2 - x, z2 - z) - w.yaw; w.yaw += Math.atan2(Math.sin(d), Math.cos(d)) * Math.min(1, dt * 6);
+  };
+
+  // 4. grandma turtle strolls the village path, very slowly, stopping now and then to enjoy the view
+  const walk = PATH_SAMPLES.map(q => [q.x + 1.6, q.z]), WL = polyLen(walk), WT = WL[WL.length - 1];
+  const turtle = addWanderer(makeTurtle(), { name: '거북이 할머니', voice: 'turtle', pos: new V3(walk[0][0], 0, walk[0][1]), scale: 1.1,
+    lines: ['천천히 가도 괜찮단다~', '오늘 햇살이 참 좋구나', '푸딩 산 꼭대기엔 가 봤니?', '나는 이 길을 백 년째 걷는단다', '서두르지 말고 꽃도 보렴'] });
+  turtle.st.s = rand(0, WT); turtle.st.dir = 1; turtle.st.wait = 0;
+  turtle.tick = (w, dt) => {
+    const st = w.st;
+    if (w.pause > 0) { w.speed = 0; wFace(w, player.pos.x, player.pos.z, dt); return; }
+    if (st.wait > 0) { st.wait -= dt; w.speed = 0; return; }
+    if (Math.random() < dt * 0.04) st.wait = rand(3, 6);
+    st.s += st.dir * 0.7 * dt;
+    if (st.s >= WT || st.s <= 0) { st.s = clamp(st.s, 0, WT); st.dir *= -1; st.wait = rand(3, 5); }
+    const [x, z] = polyAt(walk, WL, st.s), [x2, z2] = polyAt(walk, WL, clamp(st.s + st.dir * 0.5, 0, WT));
+    w.pos.x = x; w.pos.z = z; w.speed = 0.7;
+    let d = Math.atan2(x2 - x, z2 - z) - w.yaw; w.yaw += Math.atan2(Math.sin(d), Math.cos(d)) * Math.min(1, dt * 3);
+  };
+}
+const MAP_MID = new V3(0, 0, 0);
+function tickWanderers(dt, T, night) {
+  // on the select screen the camera circles the village, so the village walkers keep going there too
+  const focus = player ? (player.zone !== 'tower' && player.zone !== 'terrace' ? player.pos : null) : MAP_MID;
+  for (const w of wanderers) {
+    const dist = focus ? Math.hypot(focus.x - w.pos.x, focus.z - w.pos.z) : 999;
+    w.near = dist < 80;
+    w.g.visible = w.near;
+    if (!w.near) { w.el.classList.remove('show'); w.say = 0; if (w.onFar) w.onFar(); continue; }   // far away: rest until someone comes by
+    // someone close: stop, turn to them and say hello
+    if (!player) w.pause = 0;
+    else if (Math.hypot(player.pos.x - w.pos.x, player.pos.z - w.pos.z) < 4.5 && Math.abs(player.pos.y - w.pos.y) < 3 && (w.cool -= dt) <= 0) { wTalk(w, pick(w.lines)); w.cool = rand(7, 11); w.pause = 2.6; }
+    if (w.pause > 0) w.pause -= dt;
+    w.tick(w, dt, T, night);
+    if (!w.float) { wPush(w, w.rad || 0.5); w.pos.y = terrain(w.pos.x, w.pos.z); }
+    // little hops and a waddle while walking
+    if (w.vy > 0 || w.oy > 0) { w.vy -= 16 * dt; w.oy = Math.max(0, w.oy + w.vy * dt); if (w.oy === 0) w.vy = 0; }
+    w.step += dt * (w.speed > 0.1 ? 4 + w.speed * 2 : 0);
+    const wob = w.speed > 0.1 ? Math.sin(w.step) : 0;
+    w.body.rotation.z = wob * (w.float ? 0.05 : 0.12); w.body.position.y = Math.abs(wob) * (w.float ? 0.02 : 0.08);
+    if (w.tail) w.tail.rotation.y = Math.sin(T * 5) * 0.35;
+    w.g.position.set(w.pos.x, w.pos.y + w.oy + (w.float ? Math.sin(T * 2.4) * 0.04 : 0), w.pos.z); w.g.rotation.y = w.yaw;
+    placeBubble(w, dt);
   }
 }
 
@@ -3220,6 +3437,9 @@ const Snd = (() => {
     owl:      { base: 290, type: 'triangle', fm: 1.0, syl: 0.15, vib: 3, depth: 0.02 },
     mouse:    { base: 1000, type: 'square', fm: 1.65, syl: 0.06, vib: 9, depth: 0.04 },
     chick:    { base: 1250, type: 'triangle', fm: 1.7, syl: 0.07, vib: 12, depth: 0.06 },
+    fox:      { base: 720, type: 'triangle', fm: 1.5, syl: 0.075, vib: 9, depth: 0.05 },   // bright and quick
+    duck:     { base: 520, type: 'sawtooth', fm: 1.6, syl: 0.09, vib: 7, depth: 0.04 },   // a little nasal, quack-ish
+    turtle:   { base: 330, type: 'triangle', fm: 1.05, syl: 0.17, vib: 3, depth: 0.02 },  // slow and gentle
     woodcutter: { base: 205, type: 'sawtooth', fm: 0.95, syl: 0.13, vib: 3, depth: 0.02 }, // deep, slow and warm
     mongsil: { base: 470, type: 'triangle', fm: 1.25, syl: 0.12, vib: 5, depth: 0.03 },  // soft & slow
     tosil:   { base: 780, type: 'square',   fm: 1.45, syl: 0.075, vib: 8, depth: 0.045 }, // squeaky & quick
@@ -4174,6 +4394,7 @@ function frame() {
   viewBoost += ((player && player.zone === 'terrace' ? 1.9 : 1) - viewBoost) * Math.min(1, dt * 2);
   scene.fog.near = LEVELS[level].fogN * viewBoost * S.fogMul; scene.fog.far = LEVELS[level].fogF * viewBoost * (0.6 + 0.4 * S.fogMul);
   if (player) tickResidents(dt);
+  tickWanderers(dt, T, skyU.night.value);
   for (const l of lanterns) l.s.material.opacity = 0.7 + 0.15 * Math.sin(T * 3 + l.ph);
   fires.forEach((f, i) => f.scale.set(1 + 0.08 * Math.sin(T * 17 + i), 1 + 0.15 * Math.sin(T * 11 + 1 + i), 1));
   tickSmoke(dt);
