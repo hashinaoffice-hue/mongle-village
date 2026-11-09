@@ -96,6 +96,7 @@ wss.on('connection', ws => {
       const want = clean(m.nick, NICK_MAX);
       if (want && [...room.values()].some(p => p.nick === want)) { send(ws, { t: 'taken' }); return ws.close(); }
       me = { id: nextId++, ws, ch, char: m.char, nick: want || makeNick(room), s: [6, 0, 22, 0, 0, 1, 0], lastChat: 0 };
+      if (m.stars === true) me.starsDone = true;   // 다른 채널에서 이미 별사탕을 다 모았어요: 외치기는 되지만 첫 유성우·UFO는 다시 굴리지 않아요
       room.set(me.id, me);
       send(ws, { t: 'welcome', id: me.id, nick: me.nick, ch, max: MAX_PER_CHANNEL, ufo: ufos[ch] ? 1 : 0, shower: Math.max(0, showerEnd[ch] - SHOWER_GAP_MS - Date.now()), players: [...room.values()].filter(p => p !== me).map(info) });
       broadcast(room, { t: 'join', ...info(me) }, me);

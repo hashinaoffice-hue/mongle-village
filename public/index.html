@@ -2453,6 +2453,8 @@ function tickUfo(dt, T) {
   }
   // crashed: a curl of smoke, and the pilot pops out, flops over and lies there seeing stars
   UFO.t += dt;
+  g.position.set(UFO.x, UFO.y + 0.45, UFO.z); g.rotation.set(0.12, 0.6, 0.42);   // keep every part pinned to the crash site
+  UFO.crater.position.set(UFO.x, UFO.y, UFO.z); UFO.alien.g.position.set(UFO.x + 4.2, UFO.y + 0.55, UFO.z + 2.2);
   if ((UFO.smoke -= dt) <= 0) { UFO.smoke = rand(0.35, 0.7); emit(puffTex, new V3(UFO.x - 1.2, UFO.y + 1.3, UFO.z - 0.4), 1, { size: 0.8, spread: 0.25, up: 0.9, life: 2.4, g: -0.35 }); }
   const al = UFO.alien, pop = smooth(0.4, 1.0, UFO.t);
   al.body.scale.setScalar(Math.max(0.01, pop * (1 + 0.25 * Math.sin(Math.min(1, UFO.t - 0.4) * Math.PI * 3) * (1 - smooth(0.6, 1.6, UFO.t)))));
@@ -4056,7 +4058,7 @@ function connect(ch, charId, nick) {
     let ws, settled = false;
     try { ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws'); }
     catch (e) { return reject('noserver'); }
-    ws.onopen = () => ws.send(JSON.stringify({ t: 'join', ch, char: charId, nick }));
+    ws.onopen = () => ws.send(JSON.stringify({ t: 'join', ch, char: charId, nick, stars: got === stars.length }))   // stars you've gathered count in every channel;
     ws.onmessage = ev => {
       let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
       if (!settled) {
