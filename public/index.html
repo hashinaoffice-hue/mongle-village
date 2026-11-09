@@ -3318,14 +3318,16 @@ function updateLamps(f, night, T) {
   }
 }
 const SHOWER_COLS = [0xffffff, 0xfff1a8, 0xffc4e4, 0xbfe0ff, 0xd4ffc8, 0xffd9a8].map(c => new THREE.Color(c));
-function startShower() {
+// the server starts showers for the whole channel (one at a time); leftSec < dur means we joined part way through
+function startShower(leftSec = shower.dur) {
   const f = new V3(); camera.getWorldDirection(f); const yaw = Math.atan2(f.x, f.z);
   shower.rad.set(Math.sin(yaw) * Math.cos(1.05), Math.sin(1.05), Math.cos(yaw) * Math.cos(1.05));   // in front of you, high up
-  shower.t = 0; shower.acc = 0;
+  shower.t = Math.max(0, shower.dur - leftSec); shower.acc = 0;
 }
+function stopShower() { shower.t = -1; shower.k = 0; shower.acc = 0; for (const m of shower.pool) { m.life = 0; m.s.visible = false; } }
 function tickShower(dt) {
   const sw = shower;
-  if (sw.t >= 0) { sw.t += dt; sw.k = smooth(0, 3, sw.t) * (1 - smooth(sw.dur - 6, sw.dur, sw.t)); if (sw.t > sw.dur) { sw.t = -1; sw.k = 0; } }
+  if (sw.t >= 0) { sw.t += dt; sw.k = smooth(0, 3, sw.t) * (1 - smooth(sw.dur - 6, sw.dur, sw.t)); if (sw.t > sw.dur) { sw.t = -1; sw.k = 0; onShowerEnd(); } }
   // new meteors: up to ~22 a second at the peak, each running away from the radiant
   sw.acc += dt * 22 * sw.k * (0.6 + 0.4 * Math.sin(sw.t * 1.7) ** 2);
   const pos = new V3(), a = new V3(), b = new V3();
@@ -3837,7 +3839,10 @@ const stars = STAR_SPOTS.map((s, i) => {
 const STAR_TERRACE = STAR_SPOTS.findIndex(q => q[0] === TERRACE_STAR.x && q[1] === TERRACE_STAR.z);
 $('tot').textContent = stars.length;
 $('starHint').textContent = '마을·숲·오두막·폭포 곳곳에 숨은 별사탕 ' + stars.length + '개를 모아 보세요 · 지도에 위치가 나와요';
-let got = 0;
+let got = 0, shoutTip = false;
+function onShowerEnd() {   // after a shower, tell someone who has every star that they can call another
+  if (mode === 'play' && got === stars.length && !shoutTip) { shoutTip = true; toast('채팅으로 "별똥별이다!"라고 외치면 유성우를 또 볼 수 있어요', 5000); }
+}
 
 /* ---------------- map: a little paper map of the whole village, with the star candies still to find ---------------- */
 // seen from above, screen right is -x and screen up is +z (north, toward the forest)
@@ -4015,6 +4020,7 @@ async function start(i) {
   camYaw = Math.atan2(player.pos.x - 6, player.pos.z - 16) || 0.35;
   mode = 'play';
   ufoSet(Net.ufo ? 'crashed' : null);
+  if (Net.shower > 1500) { startShower(Net.shower / 1000); setTimeout(() => toast('지금 이 채널에 별똥별이 쏟아지고 있어요!', 3500), 1200); }
   setTimeout(() => setMap(MAP.open), 0);
   $('select').hidden = true; $('hud').hidden = false; $('bSwap').hidden = false; $('bMap').hidden = false;
   $('whoImg').src = thumbs[player.d.id]; $('whoName').textContent = player.d.name; $('whoNick').textContent = Net.nick;
@@ -4030,7 +4036,7 @@ function backToSelect() {
   closeChat(); $('chatlog').innerHTML = '';
   promptPortal = null; promptKey = null; $('prompt').hidden = true;
   if (player) { player.zone = 'world'; player.sitting = null; player.obj.visible = player.blobShadow.visible = true; player.pos.set(6, terrain(6, 22), 22); }
-  leaveServer(); ufoSet(null);
+  leaveServer(); ufoSet(null); stopShower();
   mode = 'select'; player = null;
   showPickStep();
   $('select').hidden = false; $('hud').hidden = true; $('bSwap').hidden = true; $('bMap').hidden = true; $('map').hidden = true;
@@ -4054,7 +4060,7 @@ function connect(ch, charId, nick) {
     ws.onmessage = ev => {
       let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
       if (!settled) {
-        if (m.t === 'welcome') { settled = true; Object.assign(Net, { ws, id: m.id, nick: m.nick, ch: m.ch, max: m.max, ufo: !!m.ufo }); skyCh = m.ch; m.players.forEach(addRemote); resolve(m); }
+        if (m.t === 'welcome') { settled = true; Object.assign(Net, { ws, id: m.id, nick: m.nick, ch: m.ch, max: m.max, ufo: !!m.ufo, shower: m.shower || 0 }); skyCh = m.ch; m.players.forEach(addRemote); resolve(m); }
         else if (m.t === 'full') { settled = true; reject('full'); }
         else if (m.t === 'taken') { settled = true; reject('taken'); }
         return;
@@ -4100,6 +4106,13 @@ function onNet(m) {
   else if (m.t === 'join') { addRemote(m); toast(m.nick + '님이 놀러 왔어요'); addLog(null, m.nick + '님이 놀러 왔어요'); updateCount(); }
   else if (m.t === 'leave') { const r = Net.remotes.get(m.id); if (r) { toast(r.c.nick + '님이 돌아갔어요'); addLog(null, r.c.nick + '님이 돌아갔어요'); } removeRemote(m.id); updateCount(); }
   else if (m.t === 'ufo') ufoArrive();
+  else if (m.t === 'shower') {
+    if (m.busy) { toast('지금은 유성우가 내리는 중이에요. 끝나면 다시 외쳐 보세요', 3200); return; }
+    startShower(m.left / 1000);
+    const mine = m.id === Net.id;
+    toast(mine ? (m.why === 'stars' ? '하늘에서 별똥별이 쏟아져요! 소원을 빌어 보세요' : '별똥별이 쏟아져요!')
+      : m.nick + (m.why === 'stars' ? '님이 별사탕을 다 모았어요! 별똥별이 쏟아져요' : '님이 별똥별을 불렀어요!'), 5000);
+  }
   else if (m.t === 'c') { const r = Net.remotes.get(m.id); if (r && typeof m.text === 'string') { sayChat(r.c, m.text); addLog(r.c.nick, m.text); } }
   else if (m.t === 'e') {
     const r = Net.remotes.get(m.id); if (!r || !PHRASES[m.k]) return;
@@ -4420,8 +4433,8 @@ function frame() {
       if (got === stars.length) {
         Snd.fanfare(); setTimeout(() => player && player.talk('다 모았다~!', 2.5), 1800);
         toast('별사탕 ' + stars.length + '개를 모두 모았어요!', 4500); emit(sparkTex, player.pos.clone().add(new V3(0, 3, 0)), 40, { size: 0.6, spread: 6, up: 5, life: 2, g: 8 });
-        setTimeout(() => { if (mode !== 'play') return; startShower(); toast('하늘에서 별똥별이 쏟아져요! 소원을 빌어 보세요', 5000); netSend({ t: 'stars' }); }, 3200);
-        setTimeout(() => { if (mode === 'play' && shower.t >= 0 && !IS_TOUCH) toast('화면을 위로 끌면 하늘을 올려다볼 수 있어요', 3500); }, 9000);
+        setTimeout(() => { if (mode === 'play') netSend({ t: 'stars' }); }, 3200);   // the server starts the channel's shower (and rolls for the UFO)
+        setTimeout(() => { if (mode === 'play' && shower.t >= 0 && !IS_TOUCH) toast('화면을 위로 끌면 하늘을 올려다볼 수 있어요', 3500); }, 10000);
       } else toast(s.gold ? '금별사탕 발견! 푸딩 산 정복!' : '별사탕 ' + got + ' / ' + stars.length);
     }
     if (camSnap) camTarget.copy(player.pos).add(UP15);
