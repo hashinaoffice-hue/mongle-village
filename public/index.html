@@ -2675,7 +2675,7 @@ const falls = { mist: [], rainbow: null, base: new V3(), t: 0, top: 0 };
   for (let z = PLAT.z0 + 1.5; z <= PLAT.z1 - 1.5; z += 3) { solid(PLAT.x0 + 1.5, z, 2.4, TOP); solid(PLAT.x1 - 1.5, z, 2.4, TOP); }
   // --- the stream on top: from a little spring pond, winding to the lip of the falls
   const spring = { x: fx - 11, z: PLAT.z0 + 9 };
-  const sCurve = new THREE.CatmullRomCurve3([[spring.x, spring.z + 3.6], [fx - 15, PLAT.z0 + 21], [fx - 9, PLAT.z0 + 29], [fx - 3, PLAT.z0 + 36], [fx, PLAT.z1 + 0.6]].map(q => new V3(q[0], 0, q[1])));
+  const sCurve = new THREE.CatmullRomCurve3([[spring.x, spring.z + 3.6], [fx - 15, PLAT.z0 + 21], [fx - 9, PLAT.z0 + 29], [fx - 3, PLAT.z0 + 36], [fx - 0.5, PLAT.z1 - 3], [fx, PLAT.z1 + 0.8]].map(q => new V3(q[0], 0, q[1])));
   const flatRibbon = (curve, w, yAt, mat, n = 90) => {
     const pts = curve.getSpacedPoints(n), v = [], uv = [], idx = [], len = curve.getLength();
     for (let i = 0; i <= n; i++) {
@@ -2789,15 +2789,27 @@ const falls = { mist: [], rainbow: null, base: new V3(), t: 0, top: 0 };
         float cx = floor(vUv.x * 34.0), sp = (0.7 + h(cx) * 0.9) * uSpeed;
         float v = fract(vUv.y * 2.2 + uTime * sp * 0.55 + h(cx + 3.1));
         float streak = smoothstep(0.0, 0.18, v) * (1.0 - smoothstep(0.45, 1.0, v));
-        float edge = smoothstep(0.0, 0.14, vUv.x) * smoothstep(1.0, 0.86, vUv.x), foam = smoothstep(0.12, 0.0, vUv.y);
+        float edge = smoothstep(0.0, 0.14, vUv.x) * smoothstep(1.0, 0.86, vUv.x) * smoothstep(1.0, 0.955, vUv.y), foam = smoothstep(0.12, 0.0, vUv.y);
         vec3 c = mix(vec3(0.55, 0.78, 0.93), vec3(1.0), clamp(streak * 0.85 + foam, 0.0, 1.0)) * mix(vec3(0.32, 0.38, 0.55), vec3(1.0), uDay);
         gl_FragColor = vec4(c, edge * clamp(0.5 + 0.5 * streak + foam, 0.0, 1.0) * 0.92); }`
   });
-  for (const [w, dz, sp] of [[5.6, 0, 1], [3.2, 0.2, 1.35]]) {
-    const g = new THREE.PlaneGeometry(w, H + 1, 8, 24), p = g.attributes.position;
-    for (let i = 0; i < p.count; i++) { const v = (p.getY(i) + (H + 1) / 2) / (H + 1); p.setZ(i, Math.pow(v, 6) * 2.2 + Math.sin(p.getX(i) * 1.3) * 0.15); }
+  // the stream ends at the lip; from there the water keeps its forward speed while it drops, so it arcs out (z grows with the square root of the drop)
+  const LIP = PLAT.z1 + 0.8, Y0 = TOP + 0.09, DROP = Y0 - (wy - 0.6), OUT = 0.55, RUN = 2.2;
+  const fallFoot = LIP + OUT * Math.sqrt(DROP);   // where it lands in the pool
+  for (const [wTop, wBot, dz, sp] of [[2.6, 5.6, 0, 1], [1.6, 3.2, 0.2, 1.35]]) {
+    const prof = [];   // [z, y, how far it has fallen 0..1]
+    for (let k = 0; k <= 4; k++) prof.push([LIP - RUN * (1 - k / 4), Y0, 0]);
+    for (let k = 1; k <= 30; k++) { const t = k / 30, d = DROP * t * t; prof.push([LIP + OUT * Math.sqrt(d) + dz * t, Y0 - d, t]); }
+    const len = [0]; for (let k = 1; k < prof.length; k++) len.push(len[k - 1] + Math.hypot(prof[k][0] - prof[k - 1][0], prof[k][1] - prof[k - 1][1]));
+    const L = len[len.length - 1], C = 9, v = [], uv = [], idx = [];
+    prof.forEach(([z, y, f], k) => {
+      const w = wTop + (wBot - wTop) * smooth(0, 0.6, f);
+      for (let c = 0; c < C; c++) { const u = c / (C - 1), x = (u - 0.5) * w; v.push(fx + x, y, z + Math.sin(x * 1.3) * 0.15 * f); uv.push(u, 1 - len[k] / L); }
+      if (k) for (let c = 0; c < C - 1; c++) { const a = (k - 1) * C + c, b = a + C; idx.push(a, b, a + 1, a + 1, b, b + 1); }
+    });
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(v, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx); g.computeVertexNormals();
     const m = fallMat.clone(); m.uniforms = { uTime: U.uTime, uDay: U.uDay, uSpeed: { value: sp } };
-    const sheet = new THREE.Mesh(g, m); sheet.position.set(fx, wy + (H + 1) / 2 - 0.6, cz + 1.3 + dz); sheet.renderOrder = 2; scene.add(sheet);
+    const sheet = new THREE.Mesh(g, m); sheet.renderOrder = 2; sheet.frustumCulled = false; scene.add(sheet);
   }
   // --- plunge pool with a foamy landing, rim stones and a soft bank
   const blob = (r) => { const s = new THREE.Shape(); for (let i = 0; i <= 64; i++) { const a = i / 64 * Math.PI * 2, rr = r * (1 + 0.06 * Math.sin(a * 5 + 2)); i ? s.lineTo(Math.cos(a) * rr, Math.sin(a) * rr) : s.moveTo(Math.cos(a) * rr, Math.sin(a) * rr); } return s; };
@@ -2810,10 +2822,10 @@ const falls = { mist: [], rainbow: null, base: new V3(), t: 0, top: 0 };
   const outA = Math.atan2(1.2, pr - 1.0);
   const RG = new Geo();
   for (let i = 0; i < 26; i++) { const a = i / 26 * Math.PI * 2 + rand(-0.08, 0.08); if (Math.abs(Math.atan2(Math.sin(a - outA), Math.cos(a - outA))) < 0.22) continue; RG.add(lumpy(1, 10, 8, 0.3, 1.5), rockCol, [Math.cos(a) * (pr + 0.4), 0.05, Math.sin(a) * (pr + 0.4)], [0, rand(0, 6), 0], [rand(0.5, 0.95), rand(0.35, 0.6), rand(0.5, 0.85)]); }
-  for (let i = 0; i < 7; i++) RG.add(lumpy(1, 10, 8, 0.25, 2), 0xffffff, [rand(-2, 2), 0.12, cz + 2.4 - pz + rand(-0.6, 0.6)], [0, 0, 0], [rand(0.7, 1.2), 0.25, rand(0.5, 0.9)]);
+  for (let i = 0; i < 7; i++) RG.add(lumpy(1, 10, 8, 0.25, 2), 0xffffff, [rand(-2.4, 2.4), 0.12, fallFoot - pz + rand(-0.6, 0.6)], [0, 0, 0], [rand(0.7, 1.2), 0.25, rand(0.5, 0.9)]);
   scene.add(mk(RG.build(), rockMat2, { pos: [fx, wy, pz], outline: 0.04 }));
   const wall = solid(fx, pz, pr - 0.15, wy + 0.4); wall.water = true; wall.nocam = true;
-  falls.base.set(fx, wy + 0.4, cz + 2.4);
+  falls.base.set(fx, wy + 0.4, fallFoot);
   const cPts = flatRibbon(cCurve, 0.95, (x, z) => Math.max(terrain(x, z), x < fx + pr + 1 ? wy : -1e9) + 0.07, waterMat, 70);
   { const CR = new Geo(); cPts.forEach((q, i) => { if (i % 3 || i < 3) return; for (const sg2 of [-1, 1]) CR.add(lumpy(1, 8, 6, 0.3, 2), rockCol, [q.x + sg2 * rand(1.2, 1.6) - fx, terrain(q.x, q.z) - wy, q.z + rand(-0.3, 0.3) - pz], [0, rand(0, 6), 0], rand(0.22, 0.4)); });
     const e = cPts[cPts.length - 1]; for (let i = 0; i < 6; i++) CR.add(lumpy(1, 10, 8, 0.3, 1.5), rockCol, [e.x + rand(-1.2, 1.2) - fx, terrain(e.x, e.z) - wy, e.z + rand(-1.2, 1.2) - pz], [0, rand(0, 6), 0], rand(0.5, 0.9));
@@ -2826,7 +2838,7 @@ const falls = { mist: [], rainbow: null, base: new V3(), t: 0, top: 0 };
   const rb = document.createElement('canvas'); rb.width = 256; rb.height = 128; const rx = rb.getContext('2d');
   ['#ff6b6b', '#ffa94d', '#ffe066', '#69db7c', '#4dabf7', '#9775fa'].forEach((c, i) => { rx.strokeStyle = c; rx.lineWidth = 6; rx.globalAlpha = 0.9; rx.beginPath(); rx.arc(128, 128, 112 - i * 6, Math.PI, 0); rx.stroke(); });
   falls.rainbow = new THREE.Mesh(new THREE.PlaneGeometry(16, 8), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(rb), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0, side: THREE.DoubleSide, fog: false }));
-  falls.rainbow.position.set(fx, wy + 4.5, cz + 4.5); scene.add(falls.rainbow);
+  falls.rainbow.position.set(fx, wy + 4.5, fallFoot + 2.1); scene.add(falls.rainbow);
 }
 function tickFalls(dt, S) {
   const d = player ? player.pos.distanceTo(falls.base) : 999;
