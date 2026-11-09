@@ -25,6 +25,17 @@ const NOUN = ['도토리', '구름', '푸딩', '쿠키', '민들레', '솜사탕
 
 const channels = Array.from({ length: CHANNELS }, () => new Map()); // id -> player
 const ufos = Array(CHANNELS).fill(null);                          // 채널마다 광장에 박힌 UFO (사람이 0명이 되면 사라져요)
+// 유성우는 채널 모두가 같이 봐요. 한 채널에는 한 번에 하나만, 끝나고 조금 쉰 뒤에 다음 유성우를 부를 수 있어요
+const SHOWER_MS = 36000, SHOWER_GAP_MS = 3000;
+const showerEnd = Array(CHANNELS).fill(0);
+const SHOUT = '별똥별이다';                                         // 별사탕을 다 모은 사람이 채팅으로 외치면 유성우가 다시 내려요
+function callShower(me, why) {
+  const now = Date.now();
+  if (now < showerEnd[me.ch]) { if (why === 'shout') send(me.ws, { t: 'shower', busy: 1 }); return; }   // 별사탕을 막 다 모았다면 이미 내리는 유성우를 같이 보면 돼요
+  showerEnd[me.ch] = now + SHOWER_MS + SHOWER_GAP_MS;
+  broadcast(channels[me.ch], { t: 'shower', id: me.id, nick: me.nick, why, left: SHOWER_MS });
+  console.log(`[채널 ${me.ch + 1}] 유성우 (${me.nick}, ${why === 'stars' ? '별사탕 완성' : '외침'})`);
+}
 let nextId = 1;
 
 function makeNick(room) {
@@ -86,7 +97,7 @@ wss.on('connection', ws => {
       if (want && [...room.values()].some(p => p.nick === want)) { send(ws, { t: 'taken' }); return ws.close(); }
       me = { id: nextId++, ws, ch, char: m.char, nick: want || makeNick(room), s: [6, 0, 22, 0, 0, 1, 0], lastChat: 0 };
       room.set(me.id, me);
-      send(ws, { t: 'welcome', id: me.id, nick: me.nick, ch, max: MAX_PER_CHANNEL, ufo: ufos[ch] ? 1 : 0, players: [...room.values()].filter(p => p !== me).map(info) });
+      send(ws, { t: 'welcome', id: me.id, nick: me.nick, ch, max: MAX_PER_CHANNEL, ufo: ufos[ch] ? 1 : 0, shower: Math.max(0, showerEnd[ch] - SHOWER_GAP_MS - Date.now()), players: [...room.values()].filter(p => p !== me).map(info) });
       broadcast(room, { t: 'join', ...info(me) }, me);
       console.log(`[채널 ${ch + 1}] ${me.nick} 입장 (${room.size}/${MAX_PER_CHANNEL})`);
       return;
@@ -101,6 +112,7 @@ wss.on('connection', ws => {
     } else if (m.t === 'stars') {
       // 별사탕을 다 모았어요: 접속마다 한 번만, 서버가 확률을 굴려 채널 모두에게 UFO를 떨어뜨려요
       if (me.starsDone) return; me.starsDone = true;
+      callShower(me, 'stars');
       if (!ufos[me.ch] && Math.random() < UFO_CHANCE) {
         ufos[me.ch] = { at: Date.now() };
         broadcast(channels[me.ch], { t: 'ufo' });
@@ -113,6 +125,7 @@ wss.on('connection', ws => {
       if (!text) return;
       me.lastChat = now;
       broadcast(channels[me.ch], { t: 'c', id: me.id, text }, me);
+      if (me.starsDone && text.replace(/[\s!~.?,…]+/g, '') === SHOUT) callShower(me, 'shout');
     }
   });
 
@@ -120,7 +133,7 @@ wss.on('connection', ws => {
     if (!me) return;
     const room = channels[me.ch];
     room.delete(me.id);
-    if (room.size === 0) ufos[me.ch] = null;   // 채널이 비면 UFO도 사라져요
+    if (room.size === 0) { ufos[me.ch] = null; showerEnd[me.ch] = 0; }   // 채널이 비면 UFO도 유성우도 사라져요
     broadcast(room, { t: 'leave', id: me.id });
     console.log(`[채널 ${me.ch + 1}] ${me.nick} 퇴장 (${room.size}/${MAX_PER_CHANNEL})`);
   });
