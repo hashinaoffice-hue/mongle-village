@@ -15,6 +15,7 @@ const CHAR_IDS = new Set(['mongsil', 'tosil', 'haneul', 'leo']);
 const PHRASE_COUNT = 4;
 const CHAT_MAX = 60;       // 채팅 최대 글자 수
 const CHAT_GAP_MS = 700;   // 채팅 최소 간격
+const NICK_MAX = 12;       // 닉네임 최대 글자 수
 
 const ADJ = ['말랑한', '폭신한', '졸린', '배고픈', '수줍은', '용감한', '느긋한', '반짝이는', '동글동글한', '콩닥이는',
   '신난', '꼬물꼬물', '달콤한', '포근한', '깡총깡총', '엉뚱한', '조그만', '부지런한', '방긋 웃는', '살금살금'];
@@ -56,6 +57,8 @@ const broadcast = (room, obj, except) => { const s = JSON.stringify(obj); for (c
 const info = p => ({ id: p.id, nick: p.nick, char: p.char, s: p.s });
 const num = (v, lo, hi) => (typeof v === 'number' && Number.isFinite(v)) ? Math.max(lo, Math.min(hi, v)) : 0;
 const r2 = v => Math.round(v * 100) / 100;
+// 제어 문자와 방향 바꾸는 보이지 않는 문자를 지우고 공백을 하나로 모아요
+const clean = (v, max) => typeof v === 'string' ? [...v.replace(/[\u0000-\u001f\u007f​-‏‪-‮⁦-⁩﻿]/g, '').replace(/\s+/g, ' ').trim()].slice(0, max).join('').trim() : '';
 
 const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 1024 });
 wss.on('connection', ws => {
@@ -76,7 +79,10 @@ wss.on('connection', ws => {
       if (ch < 0 || ch >= CHANNELS || !CHAR_IDS.has(m.char)) return ws.close();
       const room = channels[ch];
       if (room.size >= MAX_PER_CHANNEL) { send(ws, { t: 'full' }); return ws.close(); }
-      me = { id: nextId++, ws, ch, char: m.char, nick: makeNick(room), s: [6, 0, 22, 0, 0, 1, 0], lastChat: 0 };
+      // 닉네임: 들어올 때 고른 이름을 이번 접속 동안만 써요 (비어 있으면 랜덤). 같은 채널에 같은 이름은 안 돼요.
+      const want = clean(m.nick, NICK_MAX);
+      if (want && [...room.values()].some(p => p.nick === want)) { send(ws, { t: 'taken' }); return ws.close(); }
+      me = { id: nextId++, ws, ch, char: m.char, nick: want || makeNick(room), s: [6, 0, 22, 0, 0, 1, 0], lastChat: 0 };
       room.set(me.id, me);
       send(ws, { t: 'welcome', id: me.id, nick: me.nick, ch, max: MAX_PER_CHANNEL, players: [...room.values()].filter(p => p !== me).map(info) });
       broadcast(room, { t: 'join', ...info(me) }, me);
@@ -91,9 +97,9 @@ wss.on('connection', ws => {
       const k = Number.isInteger(m.k) ? m.k : -1;
       if (k >= 0 && k < PHRASE_COUNT) broadcast(channels[me.ch], { t: 'e', id: me.id, k }, me);
     } else if (m.t === 'c') {
-      // 채팅: 0.7초에 한 번, 60자까지. 제어 문자와 방향 바꾸는 보이지 않는 문자는 지워요. 내용은 저장하지 않아요.
+      // 채팅: 0.7초에 한 번, 60자까지. 내용은 저장하지 않아요.
       if (typeof m.text !== 'string' || now - me.lastChat < CHAT_GAP_MS) return;
-      const text = m.text.replace(/[\u0000-\u001f\u007f​-‏‪-‮⁦-⁩﻿]/g, '').replace(/\s+/g, ' ').trim().slice(0, CHAT_MAX);
+      const text = clean(m.text, CHAT_MAX);
       if (!text) return;
       me.lastChat = now;
       broadcast(channels[me.ch], { t: 'c', id: me.id, text }, me);

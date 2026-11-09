@@ -51,6 +51,20 @@ button{font:inherit;color:inherit}
 .dots i.on{background:var(--butter)}
 .hint{font-size:14px;opacity:.85;text-align:center;background:rgba(255,250,241,.8);border-radius:999px;padding:.2em .9em}
 @media (max-width:760px){.cards{grid-template-columns:repeat(2,minmax(0,170px))}}
+/* nickname step */
+#pickStep{display:contents}
+#nickForm{display:flex;flex-direction:column;align-items:center;gap:14px;width:min(480px,100%)}
+#nickForm .hint{word-break:keep-all}
+#nickMsg:empty{display:none}
+#nickForm label{font-family:var(--display);font-size:20px;background:var(--paper);border:2.5px solid var(--ink);border-radius:999px;padding:.3em 1.1em}
+.nickrow{display:flex;gap:8px;width:100%}
+#nickIn{flex:1;min-width:0;font:inherit;font-family:var(--display);font-size:20px;text-align:center;padding:.5em 1em;border:2.5px solid var(--ink);border-radius:999px;background:var(--paper);color:var(--ink);box-shadow:0 3px 0 var(--ink);outline:none}
+#nickIn:focus{border-color:var(--pink-deep)}
+#nickIn::placeholder{color:var(--ink);opacity:.4}
+#nickForm .btn{font-size:19px;background:var(--butter)}
+.nickme{display:inline-flex;align-items:center;gap:8px;font-size:16px;background:var(--paper);border:2.5px solid var(--ink);border-radius:999px;padding:.25em .4em .25em 1em}
+.nickme b{font-family:var(--display);font-weight:400;font-size:19px;color:var(--pink-deep)}
+.nickme .btn{font-size:14px;padding:.2em .8em;box-shadow:0 2px 0 var(--ink)}
 
 /* ---------- HUD ---------- */
 #hud{position:fixed;inset:0;pointer-events:none;z-index:10}
@@ -172,11 +186,23 @@ button{font:inherit;color:inherit}
 
 <div id="select" hidden>
   <h1>몽글 마을</h1>
+  <form id="nickForm" autocomplete="off">
+    <label for="nickIn">마을에서 불릴 이름을 정해 주세요</label>
+    <div class="nickrow">
+      <input id="nickIn" maxlength="12" placeholder="닉네임 (12자까지)" enterkeyhint="go" spellcheck="false">
+      <button class="btn" type="submit">좋아요</button>
+    </div>
+    <p class="status" id="nickMsg" role="status"></p>
+    <div class="hint">비워 두면 랜덤 이름이 정해져요 · 이번 접속에서만 쓰고 저장하지 않아요</div>
+  </form>
+  <div id="pickStep" hidden>
+  <div class="nickme">닉네임 <b id="nickShow"></b><button class="btn" type="button" id="bNick">바꾸기</button></div>
   <div class="chwrap"><span class="chlabel">채널</span><div class="channels" id="channels"></div></div>
   <p class="lead">함께 산책할 친구를 골라 주세요</p>
   <div class="cards" id="cards"></div>
   <p class="status" id="status" role="status"></p>
-  <div class="hint">들판 곳곳에 숨은 별사탕 12개를 모아 보세요</div>
+  <div class="hint" id="starHint">들판 곳곳에 숨은 별사탕 12개를 모아 보세요</div>
+  </div>
 </div>
 <div id="bar">
   <div id="clock" class="chip clock" title="지금 시간에 맞춰 하늘이 바뀌어요"><i aria-hidden="true"></i><span id="clockPh">낮</span><span id="clockT"></span></div>
@@ -3342,7 +3368,7 @@ const stars = STAR_SPOTS.map((s, i) => {
   return { m, y, got: false, gold, ph: i };
 });
 $('tot').textContent = stars.length;
-document.querySelector('#select .hint').textContent = '들판과 숲 곳곳에 숨은 별사탕 ' + stars.length + '개를 모아 보세요';
+$('starHint').textContent = '들판과 숲 곳곳에 숨은 별사탕 ' + stars.length + '개를 모아 보세요';
 let got = 0;
 
 /* ---------------- game state ---------------- */
@@ -3384,18 +3410,41 @@ function buildSelect() {
   });
 }
 
+/* nickname: chosen once on entry, kept only in memory for this visit (a reload asks again) */
+const NICK_MAX = 12;
+let myNick = null;                                   // null = not chosen yet, '' = let the server pick a random one
+const cleanNick = v => [...String(v).replace(/[\u0000-\u001f\u007f\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g, '').replace(/\s+/g, ' ').trim()].slice(0, NICK_MAX).join('').trim();
+function showNickStep(msg) {
+  $('nickForm').hidden = false; $('pickStep').hidden = true;
+  $('nickIn').value = myNick || ''; $('nickMsg').textContent = msg || '';
+  setTimeout(() => { $('nickIn').focus(); $('nickIn').select(); }, 0);
+}
+function showPickStep() {
+  $('nickForm').hidden = true; $('pickStep').hidden = false;
+  $('nickShow').textContent = myNick || '랜덤';
+}
+$('nickForm').addEventListener('submit', e => {
+  e.preventDefault();
+  myNick = cleanNick($('nickIn').value);
+  Snd.init(); Snd.pop();
+  showPickStep(); setStatus(''); refreshChannels();
+});
+$('bNick').addEventListener('click', () => { Snd.pop(); showNickStep(); });
+
 let joining = false;
 async function start(i) {
-  if (joining) return;
+  if (joining || myNick === null) return;
   joining = true; setStatus('채널 ' + (selCh + 1) + '에 들어가는 중…');
   Snd.init();
-  try { await connect(selCh, CHARS[i].id); }
+  try { await connect(selCh, CHARS[i].id, myNick); }
   catch (e) {
     joining = false;
+    if (e === 'taken') { setStatus(''); showNickStep('채널 ' + (selCh + 1) + '에 이미 「' + myNick + '」 친구가 있어요. 다른 이름을 골라 주세요.'); return; }
     setStatus(e === 'full' ? '채널 ' + (selCh + 1) + '은 꽉 찼어요. 다른 채널을 골라 주세요.' : '서버에 연결할 수 없어요. 서버가 켜져 있는지 확인해 주세요.');
     refreshChannels(); return;
   }
   joining = false; setStatus('');
+  if (!myNick) myNick = Net.nick;                    // keep the random one for the rest of this visit
   player = critters[i];
   player.el.classList.remove('show');
   player.goal = null; player.speed = 0; player.vy = 0; player.zone = 'world';
@@ -3418,6 +3467,7 @@ function backToSelect() {
   if (player) { player.zone = 'world'; player.sitting = null; player.pos.set(6, terrain(6, 22), 22); }
   leaveServer();
   mode = 'select'; player = null;
+  showPickStep();
   $('select').hidden = false; $('hud').hidden = true; $('bSwap').hidden = true;
   for (const k in keys) keys[k] = false;
   joy.x = joy.y = 0;
@@ -3430,17 +3480,18 @@ const Net = { ws: null, id: 0, nick: '', ch: 0, max: 20, remotes: new Map(), sen
 let selCh = 0, chData = null;
 function setStatus(t) { $('status').textContent = t; }
 function updateCount() { $('chInfo').textContent = '채널 ' + (Net.ch + 1) + ' · ' + (Net.remotes.size + 1) + '명'; }
-function connect(ch, charId) {
+function connect(ch, charId, nick) {
   return new Promise((resolve, reject) => {
     let ws, settled = false;
     try { ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws'); }
     catch (e) { return reject('noserver'); }
-    ws.onopen = () => ws.send(JSON.stringify({ t: 'join', ch, char: charId }));
+    ws.onopen = () => ws.send(JSON.stringify({ t: 'join', ch, char: charId, nick }));
     ws.onmessage = ev => {
       let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
       if (!settled) {
         if (m.t === 'welcome') { settled = true; Object.assign(Net, { ws, id: m.id, nick: m.nick, ch: m.ch, max: m.max }); m.players.forEach(addRemote); resolve(m); }
         else if (m.t === 'full') { settled = true; reject('full'); }
+        else if (m.t === 'taken') { settled = true; reject('taken'); }
         return;
       }
       onNet(m);
@@ -3982,6 +4033,7 @@ renderChannels();
 refreshChannels();
 $('loading').hidden = true;
 $('select').hidden = false;
+showNickStep();
 frame();
 })();
 </script>
