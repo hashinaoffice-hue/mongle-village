@@ -137,6 +137,13 @@ button{font:inherit;color:inherit}
 .seg button:focus-visible{outline:3px dashed var(--pink-deep);outline-offset:1px}
 .touch #gfx{display:none}
 
+/* map */
+#map{position:absolute;right:calc(14px + env(safe-area-inset-right,0px));top:calc(72px + env(safe-area-inset-top,0px));padding:6px 8px 8px;width:min(236px,46vw);pointer-events:none}
+.maphead{display:flex;justify-content:space-between;align-items:baseline;gap:6px;font-family:var(--display);font-size:15px;padding:0 2px 4px}
+.maphead span{font-family:var(--body);font-size:12px;opacity:.85}
+.maphead b{font-family:var(--display);font-weight:400;font-size:14px;color:#c98a00}
+#mapC{display:block;width:100%;border-radius:12px;border:2px solid var(--ink);background:#e3f2c4}
+@media (max-width:520px){.maphead{font-size:13px}.maphead span{font-size:11px}}
 /* chat */
 #chatlog{position:absolute;left:calc(14px + env(safe-area-inset-left,0px));top:calc(108px + env(safe-area-inset-top,0px));display:flex;flex-direction:column;align-items:flex-start;gap:4px;max-width:min(340px,70vw);pointer-events:none}
 #chatlog .ln{background:rgba(255,250,241,.88);border:2px solid var(--ink);border-radius:12px;padding:.15em .65em;font-size:13.5px;line-height:1.45;overflow-wrap:anywhere;transition:opacity .8s}
@@ -176,13 +183,14 @@ button{font:inherit;color:inherit}
     <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 이동 · <kbd>Shift</kbd> 달리기<br>
     <kbd>Space</kbd> 점프 · <kbd>E</kbd> 인사하기<br>
     <kbd>1</kbd>~<kbd>4</kbd> 한마디 보내기 · <kbd>Enter</kbd> 채팅<br>
-    문 앞에서 <kbd>F</kbd> 들어가기<br>
+    문 앞에서 <kbd>F</kbd> 들어가기 · <kbd>M</kbd> 지도<br>
     마우스 드래그로 시점 회전, 휠로 확대<br>
     푸딩 산 쿠키 계단 꼭대기에 금별사탕이 있어요<br>
     북쪽 이정표를 따라가면 숲이 나와요
     </div>
     <button class="btn" id="bHelp" type="button" aria-expanded="true" aria-controls="helpBody" title="도움말 접기/펼치기" aria-label="도움말">?</button>
   </div>
+  <div id="map" class="chip" hidden><div class="maphead">몽글 지도 <span>남은 별사탕 <b id="mapLeft">0</b></span></div><canvas id="mapC" aria-label="몽글 마을 지도"></canvas></div>
   <div id="toast" class="chip"></div>
   <div id="chatlog" aria-live="polite"></div>
   <button id="prompt" class="chip" type="button" hidden><kbd>F</kbd><span id="promptTxt"></span></button>
@@ -219,6 +227,7 @@ button{font:inherit;color:inherit}
 <div id="bar">
   <div id="clock" class="chip clock" title="지금 시간에 맞춰 하늘이 바뀌어요 (채널마다 1시간씩 늦어요)"><i aria-hidden="true"></i><span id="clockPh">낮</span><span id="clockT"></span></div>
   <button class="btn" id="bSwap" hidden>친구 바꾸기</button>
+  <button class="btn snd" id="bMap" hidden aria-pressed="true" aria-controls="map" title="지도 펴기/접기 (M)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M2.5 5l5-2 5 2 5-2v12l-5 2-5-2-5 2z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M7.5 3v12M12.5 5v12" stroke="currentColor" stroke-width="1.6"/></svg>지도</button>
   <div id="gfx" class="seg" role="group" aria-label="그래픽 설정"><span>화질</span><button type="button" data-l="2">낮음</button><button type="button" data-l="1">중간</button><button type="button" data-l="0">높음</button></div>
   <button class="btn snd" id="bMusic" aria-pressed="true" title="배경음악 켜기/끄기"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 15.5V4.5l9-2v10.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="5" cy="15.5" r="2.4" fill="currentColor"/><circle cx="14" cy="13" r="2.4" fill="currentColor"/></svg>음악</button>
   <button class="btn snd" id="bSfx" aria-pressed="true" title="효과음·목소리 켜기/끄기"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 8h3l4-3.5v11L6 12H3z" fill="currentColor"/><path d="M13 7.5a3.5 3.5 0 0 1 0 5M15.5 5a7 7 0 0 1 0 10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>효과음</button>
@@ -2668,7 +2677,7 @@ function makeWoodcutter() {
   );
 }
 /* ---------------- the waterfall area: cliff, pool and creek below, a plateau with a spring above, stone stairs between ---------------- */
-const falls = { mist: [], rainbow: null, base: new V3(), t: 0, top: 0 };
+const falls = { mist: [], rainbow: null, base: new V3(), t: 0, top: 0, spring: null, deck: null };
 {
   const { x: fx, pz, pr } = FALLS;
   let wy = -1e9; for (let a = 0; a < 6.3; a += 0.3) for (const rr of [0, pr * 0.5, pr, pr + 1]) wy = Math.max(wy, terrain(fx + Math.cos(a) * rr, pz + Math.sin(a) * rr)); wy += 0.05;
@@ -2736,7 +2745,7 @@ const falls = { mist: [], rainbow: null, base: new V3(), t: 0, top: 0 };
   for (let x = PLAT.x0 + 1.5; x <= PLAT.x1 - 1.5; x += 3) { solid(x, PLAT.z0 + 1.5, 2.4, TOP); if (Math.abs(x - fx) > 1.4) solid(x, PLAT.z1 - 1.5, 2.4, TOP); }
   for (let z = PLAT.z0 + 1.5; z <= PLAT.z1 - 1.5; z += 3) { solid(PLAT.x0 + 1.5, z, 2.4, TOP); solid(PLAT.x1 - 1.5, z, 2.4, TOP); }
   // --- the stream on top: from a little spring pond, winding to the lip of the falls
-  const spring = { x: fx - 11, z: PLAT.z0 + 9 };
+  const spring = { x: fx - 11, z: PLAT.z0 + 9 }; falls.spring = spring; falls.deck = deck;
   const sCurve = new THREE.CatmullRomCurve3([[spring.x, spring.z + 3.6], [fx - 15, PLAT.z0 + 21], [fx - 9, PLAT.z0 + 29], [fx - 3, PLAT.z0 + 36], [fx - 0.5, PLAT.z1 - 3], [fx, PLAT.z1 + 0.8]].map(q => new V3(q[0], 0, q[1])));
   const flatRibbon = (curve, w, yAt, mat, n = 90) => {
     const pts = curve.getSpacedPoints(n), v = [], uv = [], idx = [], len = curve.getLength();
@@ -2793,13 +2802,15 @@ const falls = { mist: [], rainbow: null, base: new V3(), t: 0, top: 0 };
     for (const dx of [-0.6, 0.6]) seats.push({ p: new V3(deck.x + dx, TOP + 0.62, deck.z + 1.0), yaw: 0, zone: 'world', floor: TOP, label: '벤치에 앉기', say: ['폭포가 한눈에!', '바람 시원해~', '산장이 보여!'] }); }
   // pines, bushes and flowers on the plateau (kept off the stream, the spring, the deck and the stair landing)
   const keepOut = (x, z, m) => nearStream(x, z, 3 + m) || Math.hypot(x - spring.x, z - spring.z) < 6 + m || Math.hypot(x - deck.x, z - deck.z) < 5 + m || Math.hypot(x - STAIR.x, z - stairTopZ) < 7 + m || (Math.abs(x - fx) < 6 && z > PLAT.z1 - 6);
-  for (let i = 0, n = 0; i < 18 && n < 400; n++) {
+  // only a few pines, round the back and the sides, so the open middle where you walk stays in view
+  for (let i = 0, n = 0; i < 6 && n < 600; n++) {
     const x = rand(PLAT.x0 + 4, PLAT.x1 - 4), z = rand(PLAT.z0 + 4, PLAT.z1 - 5);
+    if (Math.min(x - PLAT.x0, PLAT.x1 - x, z - PLAT.z0) > 8) continue;
     if (keepOut(x, z, 1.5) || (z > PLAT.z1 - 12 && Math.abs(x - fx) < 14)) continue;   // keep the view over the falls open
     const s = rand(1.4, 2.1); pine(x, z, s, TOP); const so = solid(x, z, 0.9 * s, TOP + 8 * s); so.bottom = TOP - 1; i++;
   }
   { const BG = new Geo(), FG2 = new Geo();
-    for (let i = 0, n = 0; i < 10 && n < 200; n++) {
+    for (let i = 0, n = 0; i < 6 && n < 200; n++) {
       const x = rand(PLAT.x0 + 3, PLAT.x1 - 3), z = rand(PLAT.z0 + 3, PLAT.z1 - 3);
       if (keepOut(x, z, 0)) continue;
       for (let k = 0; k < 3; k++) BG.add(lumpy(1, 16, 12, 0.16, 2.2), (c, px, py, pz2, nx, ny) => mixC(c, col(0x6fa65c), col(0xb9e09a), ny * 0.5 + 0.4), [x - fx + rand(-0.8, 0.8), TOP - wy + 0.5, z - pz + rand(-0.8, 0.8)], [0, 0, 0], rand(0.8, 1.2));
@@ -3461,13 +3472,17 @@ function tickParts(dt) {
 }
 
 /* ---------------- collectible stars ---------------- */
-const STAR_SPOTS = [[12, -10], [26, -5, 'stump0'], [-6, 32, 'stump1'], [32, 26, 'stump2'], [-38, -18, 'stump3'], [-12, -38], [0, -58], [44, -34, 'stump4'],
-  [-46, 30, 'stump5'], [16, 36], [52, 4], [PUD.x, PUD.z, 'pud'],
-  // forest
-  [-5, 95], [LOGS[0].x, LOGS[0].z, null, LOGS[0].top + 1.3], [GLADE.x, GLADE.z, null, gladeStump.top + 1.3],
-  [POND.x, POND.z, null, POND_TOP + 1.3], [BIGTREE.x, BIGTREE.z - 5.6], [LOGS[2].x, LOGS[2].z, null, LOGS[2].top + 1.3],
-  // inside grandpa tree and on its terrace
-  [TOWER_STAR.x, TOWER_STAR.z, null, TOWER_STAR.y], [TERRACE_STAR.x, TERRACE_STAR.z, null, TERRACE_STAR.y]];
+// twenty stars, spread over the three areas: the village (7), the north forest (6) and the lodge woods with the falls (7)
+const STAIR_MID = (() => { const gA = terrain(STAIR.x, STAIR.zA), n = 40, k = 20; return { z: STAIR.zA - (k + 0.5) * (STAIR.zA - STAIR.zB) / n, y: gA + (k + 1) * (falls.top - gA) / n }; })();
+const STAR_SPOTS = [
+  // village
+  [12, -10], [32, 26, 'stump2'], [-38, -18, 'stump3'], [0, -58], [44, -34, 'stump4'], [-46, 30, 'stump5'], [PUD.x, PUD.z, 'pud'],
+  // north forest, grandpa tree (inside and on its terrace)
+  [-5, 95], [GLADE.x, GLADE.z, null, gladeStump.top + 1.3], [POND.x, POND.z, null, POND_TOP + 1.3], [BIGTREE.x, BIGTREE.z - 5.6],
+  [TOWER_STAR.x, TOWER_STAR.z, null, TOWER_STAR.y], [TERRACE_STAR.x, TERRACE_STAR.z, null, TERRACE_STAR.y],
+  // the trail west, the lodge (yard and inside), the falls pool, halfway up the stairs, and two up on the plateau
+  [-72, -24], [CAB.x + CAB.hw + 7, CAB.z - 9], [CAB.x - 3, CAB.z - 2, null, CAB.fy + 1.3], [FALLS.x + FALLS.pr + 3.5, FALLS.pz + 2],
+  [STAIR.x, STAIR_MID.z, null, STAIR_MID.y + 1.3], [falls.spring.x + 6.5, falls.spring.z + 1, null, falls.top + 1.3], [falls.deck.x, falls.deck.z, null, falls.top + 1.6]];
 const stars = STAR_SPOTS.map((s, i) => {
   let y;
   if (s[3] != null) y = s[3];
@@ -3479,9 +3494,101 @@ const stars = STAR_SPOTS.map((s, i) => {
   m.position.set(s[0], y, s[1]); scene.add(m);
   return { m, y, got: false, gold, ph: i };
 });
+const STAR_TERRACE = STAR_SPOTS.findIndex(q => q[0] === TERRACE_STAR.x && q[1] === TERRACE_STAR.z);
 $('tot').textContent = stars.length;
-$('starHint').textContent = '들판과 숲 곳곳에 숨은 별사탕 ' + stars.length + '개를 모아 보세요';
+$('starHint').textContent = '마을·숲·오두막·폭포 곳곳에 숨은 별사탕 ' + stars.length + '개를 모아 보세요 · 지도에 위치가 나와요';
 let got = 0;
+
+/* ---------------- map: a little paper map of the whole village, with the star candies still to find ---------------- */
+// seen from above, screen right is -x and screen up is +z (north, toward the forest)
+const MAP = { x0: -205, x1: 72, z0: -125, z1: 222, open: true, t: 1, bg: null, w: 0, h: 0, dpr: 1 };
+try { if (localStorage.getItem('mongle-map') === '0') MAP.open = false; } catch (e) {}
+const mapXY = (x, z) => [(MAP.x1 - x) / (MAP.x1 - MAP.x0) * MAP.w, (MAP.z1 - z) / (MAP.z1 - MAP.z0) * MAP.h];
+const mapPos = (x, z) => x > 1000 ? [BIGTREE.x, BIGTREE.z] : [x, z];   // inside grandpa tree shows at the tree
+function buildMapBg() {
+  const c = $('mapC'), dpr = Math.min(2, devicePixelRatio || 1), w = c.clientWidth || 196, h = Math.round(w * (MAP.z1 - MAP.z0) / (MAP.x1 - MAP.x0));
+  c.style.height = h + 'px'; c.width = Math.round(w * dpr); c.height = Math.round(h * dpr);
+  Object.assign(MAP, { w, h, dpr });
+  const bg = document.createElement('canvas'); bg.width = c.width; bg.height = c.height;
+  const g = bg.getContext('2d'); g.scale(dpr, dpr);
+  // ground: a coarse grid of meadow, forest and the hills beyond, scaled up smoothly so the edges come out soft
+  const S = 2.5, gw = Math.ceil((MAP.x1 - MAP.x0) / S), gh = Math.ceil((MAP.z1 - MAP.z0) / S), lo = document.createElement('canvas'); lo.width = gw; lo.height = gh;
+  const lg = lo.getContext('2d'), img = lg.createImageData(gw, gh);
+  for (let j = 0; j < gh; j++) for (let i = 0; i < gw; i++) {
+    const x = MAP.x1 - (i + 0.5) * S, z = MAP.z1 - (j + 0.5) * S, k = (j * gw + i) * 4;
+    const inside = Math.min(Math.hypot(x, z) - 60, forestSDF(x, z) + 6, cabinSDF(x, z) + 6) <= 0;
+    const cc = !inside ? [191, 219, 158] : forestK(x, z) > 0.5 ? [158, 205, 126] : [229, 243, 199];
+    img.data[k] = cc[0]; img.data[k + 1] = cc[1]; img.data[k + 2] = cc[2]; img.data[k + 3] = 255;
+  }
+  lg.putImageData(img, 0, 0); g.imageSmoothingEnabled = true; g.drawImage(lo, 0, 0, w, h);
+  const P = (x, z) => mapXY(x, z), line = (pts, wd, colr) => { g.beginPath(); pts.forEach(([x, z], i) => { const [a, b] = P(x, z); i ? g.lineTo(a, b) : g.moveTo(a, b); }); g.lineWidth = wd; g.strokeStyle = colr; g.lineCap = g.lineJoin = 'round'; g.stroke(); };
+  const disc = (x, z, r, fill, stroke) => { const [a, b] = P(x, z), rr = r / (MAP.x1 - MAP.x0) * w; g.beginPath(); g.arc(a, b, rr, 0, 7); g.fillStyle = fill; g.fill(); if (stroke) { g.lineWidth = 1.2; g.strokeStyle = stroke; g.stroke(); } };
+  // the plateau over the falls, with its stairs
+  { const [a, b] = P(PLAT.x1 + 0.6, PLAT.z1 + 1), [c2, d] = P(PLAT.x0 - 0.6, PLAT.z0 - 1); g.beginPath(); g.roundRect ? g.roundRect(a, b, c2 - a, d - b, 4) : g.rect(a, b, c2 - a, d - b); g.fillStyle = '#d3eab2'; g.fill(); g.lineWidth = 2; g.strokeStyle = '#a89f8f'; g.stroke(); }
+  line([[STAIR.x, STAIR.zA], [STAIR.x, STAIR.zB]], 2.5, '#b9b0a2');
+  // paths: outline first, then the sandy middle
+  const paths = [PATH_SAMPLES.map(q => [q.x, q.z]), ...Object.values(TRAILS)];
+  for (const pts of paths) line(pts, 4.2, '#c9b78f');
+  for (const pts of paths) line(pts, 2.6, '#f6e8c8');
+  // water: forest pond, falls pool and its creek, the spring on the plateau and the stream to the lip
+  const W = '#8fd3f2', WE = '#5aa9cf', fs = falls.spring;
+  line([[FALLS.x + FALLS.pr - 1, FALLS.pz + 1.2], [FALLS.x + 12, FALLS.pz + 5], [FALLS.x + 24, FALLS.pz + 10.5], [FALLS.x + 31, FALLS.pz + 13]], 2, W);
+  if (fs) line([[fs.x, fs.z + 3.6], [FALLS.x - 15, PLAT.z0 + 21], [FALLS.x - 9, PLAT.z0 + 29], [FALLS.x - 3, PLAT.z0 + 36], [FALLS.x, PLAT.z1 + 0.8]], 2, W);
+  disc(POND.x, POND.z, POND.r, W, WE); disc(FALLS.x, FALLS.pz, FALLS.pr, W, WE); if (fs) disc(fs.x, fs.z, 4.2, W, WE);
+  // landmarks
+  const ink = '#4b3a35';
+  { const [a, b] = P(PUD.x, PUD.z); g.beginPath(); g.ellipse(a, b, 5.2, 4.4, 0, 0, 7); g.fillStyle = '#c8873f'; g.fill(); g.lineWidth = 1.2; g.strokeStyle = ink; g.stroke(); g.beginPath(); g.ellipse(a, b - 1.2, 3.2, 2, 0, 0, 7); g.fillStyle = '#7a4a26'; g.fill(); }
+  { const [a, b] = P(0, -66); g.beginPath(); g.arc(a, b + 1, 3.4, Math.PI, 0); g.lineWidth = 2; g.strokeStyle = '#ef8fa6'; g.stroke(); }
+  { const [a, b] = P(BIGTREE.x, BIGTREE.z); g.beginPath(); g.arc(a, b, 6.5, 0, 7); g.fillStyle = '#5f9e4b'; g.fill(); g.lineWidth = 1.3; g.strokeStyle = ink; g.stroke(); g.fillStyle = '#8a5a3c'; g.fillRect(a - 1.3, b + 1, 2.6, 4); }
+  { const [a, b] = P(CAB.x, CAB.z); g.fillStyle = '#c98a55'; g.fillRect(a - 5, b - 2, 10, 7); g.strokeStyle = ink; g.lineWidth = 1.2; g.strokeRect(a - 5, b - 2, 10, 7);
+    g.beginPath(); g.moveTo(a - 6.5, b - 2); g.lineTo(a, b - 7.5); g.lineTo(a + 6.5, b - 2); g.closePath(); g.fillStyle = '#d9654b'; g.fill(); g.stroke(); }
+  // a few names, with a paper halo so they read over anything
+  g.font = '11px Jua, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineJoin = 'round';
+  for (const [t, x, z] of [['몽글 마을', 4, 16], ['숲', 22, 112], ['할아버지 나무', BIGTREE.x, BIGTREE.z + 12], ['오두막', CAB.x, CAB.z + 13], ['폭포', FALLS.x - 13, FALLS.pz + 6], ['쉼터', (PLAT.x0 + PLAT.x1) / 2 + 12, (PLAT.z0 + PLAT.z1) / 2]]) {
+    const [a, b] = P(x, z); g.lineWidth = 3; g.strokeStyle = 'rgba(255,250,241,.95)'; g.strokeText(t, a, b); g.fillStyle = ink; g.fillText(t, a, b);
+  }
+  MAP.bg = bg;
+}
+function mapStar(g, x, y, r, fill) {
+  g.beginPath();
+  for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? r * 0.45 : r; g.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); }
+  g.closePath(); g.fillStyle = fill; g.fill(); g.lineWidth = 1.1; g.strokeStyle = '#4b3a35'; g.stroke();
+}
+function drawMap(T) {
+  const c = $('mapC'); if (!MAP.bg || Math.abs(c.clientWidth - MAP.w) > 1) buildMapBg();
+  const g = c.getContext('2d'); g.setTransform(1, 0, 0, 1, 0, 0); g.drawImage(MAP.bg, 0, 0); g.setTransform(MAP.dpr, 0, 0, MAP.dpr, 0, 0);
+  let left = 0;
+  stars.forEach((s, i) => {
+    if (s.got) return; left++;
+    let [x, z] = mapPos(s.m.position.x, s.m.position.z);
+    if (s.m.position.x > 1000) x += 5; else if (s === stars[STAR_TERRACE]) x -= 5;   // inside the tree / up on its terrace: either side of it
+    const [a, b] = mapXY(x, z); mapStar(g, a, b, (s.gold ? 6 : 4.4) * (1 + 0.12 * Math.sin(T * 4 + i)), s.gold ? '#ffb21e' : '#ffe066');
+  });
+  $('mapLeft').textContent = left;
+  for (const r of Net.remotes.values()) {   // friends in this channel
+    const [x, z] = mapPos(r.c.pos.x, r.c.pos.z), [a, b] = mapXY(x, z);
+    g.beginPath(); g.arc(a, b, 3, 0, 7); g.fillStyle = '#ffffff'; g.fill(); g.lineWidth = 1.2; g.strokeStyle = '#4b3a35'; g.stroke();
+  }
+  if (player) {   // you: a pink arrow pointing the way you face
+    const [x, z] = mapPos(player.pos.x, player.pos.z), [a, b] = mapXY(x, z), ang = Math.atan2(-Math.cos(player.yaw), -Math.sin(player.yaw));
+    g.save(); g.translate(a, b); g.rotate(ang);
+    g.beginPath(); g.moveTo(7, 0); g.lineTo(-5, 4.6); g.lineTo(-2.6, 0); g.lineTo(-5, -4.6); g.closePath();
+    g.fillStyle = '#f07f9a'; g.fill(); g.lineWidth = 1.4; g.strokeStyle = '#4b3a35'; g.stroke(); g.restore();
+  }
+}
+function placeMap() {   // under the top bar, and on narrow screens under your name card too so they don't overlap
+  const m = $('map'), b = $('bar').getBoundingClientRect(), w = $('who').getBoundingClientRect();
+  const left = innerWidth - m.offsetWidth - 14;
+  m.style.top = Math.round(Math.max(b.bottom, left < w.right + 6 ? w.bottom : 0) + 8) + 'px';
+}
+function setMap(open, save) {
+  MAP.open = open; $('bMap').setAttribute('aria-pressed', open);
+  $('map').hidden = !open || mode !== 'play';
+  if (!$('map').hidden) { placeMap(); MAP.t = 1; }
+  if (save) try { localStorage.setItem('mongle-map', open ? '1' : '0'); } catch (e) {}
+}
+$('bMap').addEventListener('click', () => { setMap(!MAP.open, true); Snd.pop(); canvas.focus(); });
+addEventListener('resize', () => { if (!$('map').hidden) { placeMap(); MAP.bg = null; } });
 
 /* ---------------- game state ---------------- */
 const critters = [
@@ -3563,7 +3670,8 @@ async function start(i) {
   player.pos.set(6 + rand(-3, 3), 0, 22 + rand(-3, 3)); player.pos.y = terrain(player.pos.x, player.pos.z);
   camYaw = Math.atan2(player.pos.x - 6, player.pos.z - 16) || 0.35;
   mode = 'play';
-  $('select').hidden = true; $('hud').hidden = false; $('bSwap').hidden = false;
+  setTimeout(() => setMap(MAP.open), 0);
+  $('select').hidden = true; $('hud').hidden = false; $('bSwap').hidden = false; $('bMap').hidden = false;
   $('whoImg').src = thumbs[player.d.id]; $('whoName').textContent = player.d.name; $('whoNick').textContent = Net.nick;
   updateCount();
   canvas.focus();
@@ -3580,7 +3688,7 @@ function backToSelect() {
   leaveServer();
   mode = 'select'; player = null;
   showPickStep();
-  $('select').hidden = false; $('hud').hidden = true; $('bSwap').hidden = true;
+  $('select').hidden = false; $('hud').hidden = true; $('bSwap').hidden = true; $('bMap').hidden = true; $('map').hidden = true;
   for (const k in keys) keys[k] = false;
   joy.x = joy.y = 0;
   refreshChannels();
@@ -3808,6 +3916,7 @@ addEventListener('keydown', e => {
   if (KEYMAP[e.code]) { keys[KEYMAP[e.code]] = true; e.preventDefault(); }
   if (e.code === 'Space') { player.jump(); e.preventDefault(); }
   if (e.code === 'KeyE' && !e.repeat) greet();
+  if (e.code === 'KeyM' && !e.repeat) { setMap(!MAP.open, true); Snd.pop(); }
   if (e.code === 'KeyF' && !e.repeat && promptPortal) promptPortal.run();
   if (/^Digit[1-4]$/.test(e.code) && !e.repeat) emote(+e.code.slice(5) - 1);
 });
@@ -4039,6 +4148,7 @@ function frame() {
     placeBubble(c, dt);
   }
   tickRemotes(dt);
+  if (mode === 'play' && !$('map').hidden && (MAP.t += dt) > 0.1) { MAP.t = 0; drawMap(T); }
   // ambient motion
   for (const s of stars) if (!s.got) { s.m.rotation.y = T * 1.6 + s.ph; s.m.position.y = s.y + Math.sin(T * 2 + s.ph) * 0.18; }
   for (const b of balloons) { b.b.position.y = b.y0 + Math.sin(T * 0.8 + b.ph) * 0.5; b.b.rotation.z = Math.sin(T * 0.6 + b.ph) * 0.08; }
