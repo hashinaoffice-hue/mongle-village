@@ -60,7 +60,7 @@ const server = http.createServer((req, res) => {
   const url = (req.url || '/').split('?')[0];
   if (url === '/api/channels') {
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
-    return res.end(JSON.stringify({ max: MAX_PER_CHANNEL, channels: channels.map(c => c.size) }));
+    return res.end(JSON.stringify({ max: MAX_PER_CHANNEL, channels: channels.map(c => c.size), now: Date.now() }));   // now: 날씨 시각을 모두가 똑같이 맞추도록 서버 시계를 알려 줘요
   }
   if (url === '/' || url === '/index.html') {
     return fs.readFile(INDEX, (err, buf) => {
@@ -106,7 +106,7 @@ wss.on('connection', ws => {
       me = { id: nextId++, ws, ch, char: m.char, nick: want || makeNick(room), s: [6, 0, 22, 0, 0, 1, 0], lastChat: 0 };
       if (m.stars === true) me.starsDone = true;   // 다른 채널에서 이미 별사탕을 다 모았어요: 외치기는 되지만 첫 유성우·UFO는 다시 굴리지 않아요
       room.set(me.id, me);
-      send(ws, { t: 'welcome', id: me.id, nick: me.nick, ch, max: MAX_PER_CHANNEL, ufo: ufos[ch] ? 1 : 0, shower: Math.max(0, showerEnd[ch] - SHOWER_GAP_MS - Date.now()), players: [...room.values()].filter(p => p !== me).map(info) });
+      send(ws, { t: 'welcome', id: me.id, nick: me.nick, ch, max: MAX_PER_CHANNEL, now: Date.now(), ufo: ufos[ch] ? 1 : 0, shower: Math.max(0, showerEnd[ch] - SHOWER_GAP_MS - Date.now()), players: [...room.values()].filter(p => p !== me).map(info) });
       broadcast(room, { t: 'join', ...info(me) }, me);
       console.log(`[채널 ${ch + 1}] ${me.nick} 입장 (${room.size}/${MAX_PER_CHANNEL})`);
       return;
