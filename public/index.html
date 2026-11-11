@@ -32,7 +32,7 @@ button{font:inherit;color:inherit}
 .btn:focus-visible,.card:focus-visible{outline:3px dashed var(--pink-deep);outline-offset:3px}
 
 /* ---------- select screen ---------- */
-#select{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;
+#select{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;justify-content:safe center;gap:22px;
   padding:calc(24px + env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-right,0px)) calc(24px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px));
   background:linear-gradient(180deg,rgba(207,234,248,.25),rgba(255,250,241,.45) 75%);overflow-y:auto;z-index:20}
 #select h1{margin:0;font-family:var(--display);font-weight:400;font-size:clamp(46px,9vw,84px);line-height:1;letter-spacing:.02em;
@@ -170,7 +170,32 @@ button{font:inherit;color:inherit}
 #tbtns .btn{width:70px;height:70px;padding:0;border-radius:50%;font-size:17px;touch-action:none}
 #bJump{background:var(--butter)!important;width:84px!important;height:84px!important}
 #loading{position:fixed;inset:0;display:grid;place-items:center;font-family:var(--display);font-size:24px;background:var(--sky);z-index:30}
-@media (prefers-reduced-motion:reduce){.card,.btn,#toast{transition:none}}
+/* place-name card */
+#zoneTitle{position:absolute;left:50%;top:calc(18% + env(safe-area-inset-top,0px));transform:translateX(-50%);text-align:center;pointer-events:none;opacity:0;white-space:nowrap}
+#zoneName{font-family:var(--display);font-size:clamp(34px,6vw,58px);line-height:1.05;color:var(--paper);-webkit-text-stroke:2.5px var(--ink);paint-order:stroke fill;text-shadow:0 4px 0 var(--ink);letter-spacing:.04em}
+#zoneSub{display:inline-block;margin-top:10px;font-size:clamp(13px,2vw,16px);background:rgba(255,250,241,.92);border:2px solid var(--ink);border-radius:999px;padding:.15em 1em}
+#zoneSub:empty{display:none}
+#zoneTitle.show{animation:zoneIn 3.4s ease both}
+#zoneTitle.show #zoneName{animation:zoneName 3.4s cubic-bezier(.2,.9,.3,1.2) both}
+@keyframes zoneIn{0%{opacity:0}12%{opacity:1}78%{opacity:1}100%{opacity:0}}
+@keyframes zoneName{0%{transform:translateY(14px) scale(.9);letter-spacing:.3em}16%{transform:none;letter-spacing:.04em}100%{transform:translateY(-6px)}}
+/* title screen: the logo bobs, and things arrive with a little bounce */
+#select h1{animation:titleBob 4.5s ease-in-out infinite}
+@keyframes titleBob{0%,100%{transform:translateY(0) rotate(-1deg)}50%{transform:translateY(-7px) rotate(1deg)}}
+#nickForm:not([hidden]),#pickStep:not([hidden])>*{animation:riseIn .5s cubic-bezier(.2,.9,.3,1.25) backwards}
+#pickStep>*:nth-child(2){animation-delay:.05s}#pickStep>*:nth-child(3){animation-delay:.1s}#pickStep>*:nth-child(4){animation-delay:.12s}#pickStep>*:nth-child(5),#pickStep>*:nth-child(6){animation-delay:.3s}
+.cards .card{animation:cardIn .55s cubic-bezier(.2,.9,.3,1.3) backwards}
+.cards .card:nth-child(1){animation-delay:.14s}.cards .card:nth-child(2){animation-delay:.21s}.cards .card:nth-child(3){animation-delay:.28s}.cards .card:nth-child(4){animation-delay:.35s}
+@keyframes riseIn{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+@keyframes cardIn{from{opacity:0;transform:translateY(26px) scale(.9) rotate(-2deg)}to{opacity:1;transform:none}}
+#hud:not([hidden]){animation:hudIn .8s ease .5s both}
+@keyframes hudIn{from{opacity:0}to{opacity:1}}
+#cnt{display:inline-block}
+#cnt.bump{animation:cntBump .6s cubic-bezier(.2,.9,.3,1.5)}
+@keyframes cntBump{0%{transform:scale(1)}30%{transform:scale(1.9) rotate(-8deg);color:#e9a100}100%{transform:scale(1)}}
+#toast.show{animation:toastPop .4s cubic-bezier(.2,.9,.3,1.4)}
+@keyframes toastPop{from{transform:translateX(-50%) translateY(-6px) scale(.9)}to{transform:translateX(-50%) translateY(4px) scale(1)}}
+@media (prefers-reduced-motion:reduce){.card,.btn,#toast{transition:none}#select h1,#nickForm,#pickStep>*,.cards .card,#hud,#cnt.bump,#toast.show,#zoneTitle.show #zoneName{animation:none!important}#zoneTitle.show{animation:zoneIn 3.4s linear both}}
 </style>
 
 <canvas id="c" tabindex="0" aria-label="몽글 마을 3D 맵"></canvas>
@@ -191,6 +216,7 @@ button{font:inherit;color:inherit}
     <button class="btn" id="bHelp" type="button" aria-expanded="true" aria-controls="helpBody" title="도움말 접기/펼치기" aria-label="도움말">?</button>
   </div>
   <div id="map" class="chip" hidden><div class="maphead">몽글 지도 <span>남은 별사탕 <b id="mapLeft">0</b></span></div><canvas id="mapC" aria-label="몽글 마을 지도"></canvas></div>
+  <div id="zoneTitle" aria-live="polite"><div id="zoneName"></div><div id="zoneSub"></div></div>
   <div id="toast" class="chip"></div>
   <div id="chatlog" aria-live="polite"></div>
   <button id="prompt" class="chip" type="button" hidden><kbd>F</kbd><span id="promptTxt"></span></button>
@@ -463,7 +489,7 @@ float cloudShade(vec2 p){
 }`;
 function patch(mat, o = {}) {
   const rim = o.rim || 0, wind = o.wind || 0, cloud = o.cloud !== false, ol = o.outline || 0, push = !!o.push;
-  const lamp = !ol && o.lamp !== false, lift = !!o.lift;
+  const lamp = !ol && o.lamp !== false, lift = o.lift === true ? 0.8 : (o.lift || 0), lk = (lift / 0.8).toFixed(3);
   const key = ['P', rim, wind, cloud, ol, push, lamp, lift].join('|');
   mat.customProgramCacheKey = () => key;
   mat.onBeforeCompile = sh => {
@@ -497,8 +523,8 @@ function patch(mat, o = {}) {
         for (int i = 0; i < 8; i++) { float dd = length(uLamps[i].xyz - vWPos); float fo = max(0.0, 1.0 - dd / uLamps[i].w); ls += fo * fo * uLampI[i]; }
         gl_FragColor.rgb += diffuseColor.rgb * vec3(1.0, 0.8, 0.52) * min(ls, 1.25) * 0.6; }` : ''}
       ${lift ? `{ // living things keep their colour in the shade: never darker than a cool, soft version of themselves
-        gl_FragColor.rgb = max(gl_FragColor.rgb, diffuseColor.rgb * mix(vec3(0.79, 0.81, 0.91), vec3(0.36, 0.41, 0.62), uNight));
-        gl_FragColor.rgb += diffuseColor.rgb * vec3(0.55, 0.6, 0.8) * uNight * 0.2; }` : ''}
+        gl_FragColor.rgb = max(gl_FragColor.rgb, diffuseColor.rgb * mix(vec3(0.79, 0.81, 0.91), vec3(0.36, 0.41, 0.62), uNight) * ${lk});
+        gl_FragColor.rgb += diffuseColor.rgb * vec3(0.55, 0.6, 0.8) * uNight * 0.2 * ${lk}; }` : ''}
       #include <tonemapping_fragment>`);
     sh.fragmentShader = 'uniform float uTime;\nuniform float uDay;\nuniform float uNight;\nuniform vec4 uLamps[8];\nuniform float uLampI[8];\nvarying vec3 vWPos;\n' + (cloud ? GLSL_CLOUD : '') + '\n' + f;
   };
@@ -1286,7 +1312,7 @@ const cloudMat = new THREE.ShaderMaterial({
       float band = smoothstep(0.12, 0.3, k) * 0.6 + smoothstep(0.5, 0.68, k) * 0.4;       // two soft steps, like painted cloud
       vec3 c = mix(uShade, uLit, band);
       c += uGlow * pow(1.0 - max(dot(n, normalize(vV)), 0.0), 2.5) * 0.22 * (0.4 + band);  // a rim of light round the edges
-      c = mix(c, uShade * 0.92, smoothstep(0.18, -0.05, vH) * 0.55);                       // the flat base sits in its own shadow
+      c = mix(c, uShade * 0.92, (1.0 - smoothstep(-0.05, 0.18, vH)) * 0.55);                       // the flat base sits in its own shadow
       gl_FragColor = vec4(c, uAlpha); }`
 });
 {
@@ -1327,6 +1353,50 @@ TEX.plank = canvasTex(256, 64, (x, w, h) => {
   x.fillStyle = '#e2b47c'; x.fillRect(0, 0, w, h);
   for (let i = 0; i < 14; i++) { x.strokeStyle = `rgba(150,95,50,${rand(0.2, 0.45)})`; x.lineWidth = rand(1, 2.2); x.beginPath(); const y0 = rand(0, h); for (let px = 0; px <= w; px += 16) x.lineTo(px, y0 + Math.sin(px * 0.03 + i) * 3); x.stroke(); }
 }, [0.5, 2]);
+// --- water: turquoise in the shallows and blue in the depths, with a drifting net of light, foam lapping at the shore,
+// glints in the sun and a tint of sky at grazing angles; streams flow along their length, and a waterfall's landing
+// churns up foam and rings. It is an ordinary lit material underneath, so shadows, fog, lamps and night still apply.
+function waterMaterial(o = {}) {
+  const m = new THREE.MeshToonMaterial({ color: 0xffffff, gradientMap: GRAD_SOFT, transparent: true, side: THREE.DoubleSide });
+  patch(m, {}); const base = m.onBeforeCompile;
+  const u = { uWk: { value: new THREE.Vector4(o.ribbon ? 1 : 0, o.R || 1, o.W || 1, o.flow || 0) }, uImpact: { value: o.impact || new V3(0, 0, 0) }, uZen: skyU.zenith, uHor: skyU.horizon };
+  m.customProgramCacheKey = () => 'water';
+  m.onBeforeCompile = sh => {
+    base(sh); Object.assign(sh.uniforms, u);
+    sh.vertexShader = 'varying vec2 vWuv;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n vWuv = uv;');
+    sh.fragmentShader = `uniform vec4 uWk; uniform vec3 uImpact, uZen, uHor; varying vec2 vWuv;
+      #define below(hi, lo, x) (1.0 - smoothstep(lo, hi, x))
+      vec2 wh2(vec2 p){ return fract(sin(vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)))) * 43758.5453); }
+      vec3 wVoro(vec2 p, float t){   // x: distance to the nearest cell point, y: how close to a cell edge, z: that cell's random number
+        vec2 n = floor(p), f = fract(p); float f1 = 8.0, f2 = 8.0, id = 0.0;
+        for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) { vec2 g = vec2(float(i), float(j)), o = wh2(n + g), r = g + 0.5 + 0.38 * sin(t + 6.2831 * o) - f; float d = dot(r, r);
+          if (d < f1) { f2 = f1; f1 = d; id = o.x; } else if (d < f2) f2 = d; }
+        return vec3(sqrt(f1), sqrt(f2) - sqrt(f1), id); }
+      ` + sh.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
+      // how far in from the edge, in metres: from either bank of a stream (its uv runs across and along it), or from the rim of a pond (its uv is its own flat shape)
+      float wSh = uWk.x > 0.5 ? (1.0 - abs(2.0 * vWuv.x * 8.0 / uWk.z - 1.0)) * uWk.z * 0.5 : uWk.y - length(vWuv);
+      float wT = uTime; vec2 wp = uWk.x > 0.5 ? vec2(vWuv.x * 8.0, vWuv.y * 4.0 - wT * uWk.w) : vWPos.xz;
+      float wn = sin(wp.x * 1.7 + wT * 0.9) * sin(wp.y * 1.3 - wT * 0.7);
+      vec3 v1 = wVoro(wp * 0.6 + vec2(wn * 0.12, wT * 0.05), wT * 0.9), v2 = wVoro(wp * 1.3 + 7.3 - vec2(wT * 0.06, wn * 0.1), wT * 1.2);
+      float wDepth = smoothstep(0.0, 2.4, wSh);
+      vec3 wc = mix(vec3(0.33, 0.66, 0.63), vec3(0.14, 0.42, 0.66), wDepth); wc = mix(wc, vec3(0.09, 0.31, 0.58), smoothstep(2.2, 6.0, wSh) * 0.55);   // kept well under white: sunlight here adds up to more than 1
+      float wFres = pow(1.0 - abs(dot(normalize(vNormal), normalize(vViewPosition))), 2.5);
+      wc = mix(wc, mix(uHor, uZen, 0.6) * 0.72, wFres * 0.45);                                                   // the sky, where you look across the water
+      float wLines = below(0.08, 0.02, v1.y) * 0.55 + below(0.06, 0.02, v2.y) * 0.25;
+      wc = mix(wc, vec3(0.62, 0.80, 0.82), wLines * (0.55 - 0.2 * wFres));                                       // the net of light
+      float wLap = 0.3 + 0.12 * sin(wT * 1.2 + wp.x * 0.9 + wp.y * 0.7) + (v2.x - 0.4) * 0.25;
+      float wFoam = below(wLap, wLap - 0.1, wSh);                                                               // foam lapping at the edge…
+      wFoam = max(wFoam, below(0.07, 0.01, abs(wSh - 0.75 - 0.3 * sin(wT * 0.7 + wp.x * 0.5))) * 0.7 * step(0.33, v1.x));   // …and a broken line of it further out
+      if (uImpact.z > 0.0) { float wd = length(vWPos.xz - uImpact.xy);                                           // where a waterfall lands: churned foam, and rings running outward
+        wFoam = max(wFoam, below(2.4, 1.1, wd + (v2.x - 0.4) * 1.3) * uImpact.z);
+        wFoam = max(wFoam, smoothstep(0.72, 0.98, sin(wd * 4.2 - wT * 4.5)) * below(6.5, 2.0, wd) * 0.6 * uImpact.z); }
+      wFoam = clamp(wFoam, 0.0, 1.0);
+      float wSpark = below(0.075, 0.02, v2.x) * step(0.5, sin(wT * 2.5 + v2.z * 40.0)) * (1.0 - wFoam);
+      diffuseColor.rgb = mix(wc, vec3(0.8), wFoam); diffuseColor.a = mix(0.86, 1.0, clamp(wFoam + wFres * 0.6, 0.0, 1.0));`)
+      .replace('#include <tonemapping_fragment>', 'gl_FragColor.rgb += vec3(1.0, 0.98, 0.9) * wSpark * 0.75 * uDay;\n#include <tonemapping_fragment>');
+  };
+  return m;
+}
 TEX.water = canvasTex(256, 256, (c, w, h) => {
   c.fillStyle = '#93cfe6'; c.fillRect(0, 0, w, h);
   for (let i = 0; i < 30; i++) { c.strokeStyle = `rgba(255,255,255,${rand(0.25, 0.6)})`; c.lineWidth = rand(1.5, 3); c.beginPath(); const y0 = rand(0, h), x0 = rand(0, w), L = rand(20, 60); c.moveTo(x0, y0); c.quadraticCurveTo(x0 + L / 2, y0 + rand(-6, 6), x0 + L, y0); c.stroke(); }
@@ -1368,11 +1438,30 @@ signpost(-35, 166, [{ text: '이끼 빈터', to: [GLADE.x, GLADE.z] }]);
 signpost(39, 166, [{ text: '옹달샘', to: [POND.x, POND.z] }]);
 signpost(5, 178, [{ text: '할아버지 나무', to: [BIGTREE.x, BIGTREE.z] }]);
 
-const rockMat2 = toon(0xffffff, { vc: true, rim: 0.08 });
-const rockCol = (c, px, py, pz, nx, ny) => { mixC(c, col(0xb3ab9c), col(0xe3ddd0), ny * 0.5 + 0.5); if (ny > 0.5 && noise3(px * 3, py * 3, pz * 3) > -0.2) c.lerp(col(0x8fbf6e), 0.8); };
+// rocks are shaded per facet (flat), so the planes cut into them catch the light like chiselled stone;
+// their geometry keeps smooth normals, which the ink outline needs to stay in one piece
+const rockMat2 = patch(new THREE.MeshToonMaterial({ color: 0xffffff, gradientMap: GRAD_SOFT, vertexColors: true, flatShading: true }), { rim: 0.1, lift: 0.56 });
+function rocky(seg = 12) {
+  const g = new THREE.IcosahedronGeometry(1, seg >= 14 ? 3 : seg >= 10 ? 2 : 1), p = g.attributes.position, so = rand(0, 100), v = new V3(), planes = [];
+  const nCut = seg >= 14 ? 13 : seg >= 10 ? 10 : 7;
+  for (let i = 0; i < nCut; i++) planes.push({ n: new V3(rand(-1, 1), rand(-0.5, 1), rand(-1, 1)).normalize(), d: rand(0.7, 0.9) });
+  for (let i = 0; i < p.count; i++) {
+    v.set(p.getX(i), p.getY(i), p.getZ(i)).normalize();
+    v.multiplyScalar(1 + fbm(v.x * 1.3 + so, v.y * 1.3, v.z * 1.3) * 0.12);
+    for (const pl of planes) { const dd = v.dot(pl.n) - pl.d; if (dd > 0) v.addScaledVector(pl.n, -dd); }
+    p.setXYZ(i, v.x, v.y, v.z);
+  }
+  g.computeVertexNormals(); weldNormals(g); return g;
+}
+const rockCol = (c, px, py, pz, nx, ny) => {
+  mixC(c, col(0xb0a99f), col(0xe6dfd3), ny * 0.5 + 0.5);
+  c.multiplyScalar(0.93 + 0.09 * Math.sin(py * 2.3 + noise3(px * 0.4, 0, pz * 0.4) * 3));                 // faint strata
+  c.lerp(col(0x8d8fa0), clamp(0.5 - ny, 0, 1) * 0.25);                                                     // cooler undersides
+  if (ny > 0.45 && noise3(px * 3, py * 3, pz * 3) > -0.25) c.lerp(col(0x86bd66), clamp((ny - 0.45) * 3, 0, 0.85));   // moss on top
+};
 function rockAt(x, z, s, solidToo) {
   const y = terrain(x, z);
-  scene.add(mk(new Geo().add(lumpy(1, 14, 10, 0.3, 1.3), rockCol, [0, 0, 0], [0, rand(0, 6), 0], [1.2, 0.7, 1]).build(), rockMat2, { pos: [x, y + 0.1 * s, z], scale: s, outline: 0.05 }));
+  scene.add(mk(new Geo().add(rocky(14), rockCol, [0, 0, 0], [0, rand(0, 6), 0], [1.2, 0.7, 1]).build(), rockMat2, { pos: [x, y + 0.1 * s, z], scale: s, outline: 0.05 }));
   if (solidToo) solid(x, z, s * 1.1, y + s * 0.75);
   avoid.push({ x, z, r: s * 1.2 });
 }
@@ -1417,18 +1506,17 @@ let POND_TOP = 0;
   const bg = new THREE.ShapeGeometry(blob(r + 1.0), 48); bg.rotateX(-Math.PI / 2);
   const bank = new THREE.Mesh(bg, toon(0x9c8a66)); bank.position.set(x, wy - 0.03, z); bank.receiveShadow = true; scene.add(bank);
   const wg = new THREE.ShapeGeometry(blob(r), 48); wg.rotateX(-Math.PI / 2);
-  const wm = patch(new THREE.MeshPhongMaterial({ color: 0xffffff, map: TEX.water, shininess: 120, specular: 0xffffff, transparent: true, opacity: 0.9 }), { rim: 0.25 });
-  const water = new THREE.Mesh(wg, wm); water.position.set(x, wy, z); water.receiveShadow = true; scene.add(water);
+  const water = new THREE.Mesh(wg, waterMaterial({ R: r })); water.position.set(x, wy, z); water.receiveShadow = true; scene.add(water);
   const dir = new V3(46 - x, 0, 168 - z).normalize();
   const RG = new Geo();
   for (let i = 0; i < 24; i++) {
     const a = i / 24 * Math.PI * 2 + rand(-0.08, 0.08); if (Math.cos(a) * dir.x + Math.sin(a) * dir.z > 0.93) continue;
-    RG.add(lumpy(1, 10, 8, 0.3, 1.5), rockCol, [Math.cos(a) * (r + 0.35), 0.05, Math.sin(a) * (r + 0.35)], [0, rand(0, 6), 0], [rand(0.4, 0.8), rand(0.3, 0.5), rand(0.4, 0.7)]);
+    RG.add(rocky(10), rockCol, [Math.cos(a) * (r + 0.35), 0.05, Math.sin(a) * (r + 0.35)], [0, rand(0, 6), 0], [rand(0.4, 0.8), rand(0.3, 0.5), rand(0.4, 0.7)]);
   }
   scene.add(mk(RG.build(), rockMat2, { pos: [x, wy, z], outline: 0.04 }));
   [[5.2, 0.55, 0.85], [3.3, 0.72, 0.8], [0, 0.95, 1.4]].forEach(([d, h, rad]) => {
     const px = x + dir.x * d, pz = z + dir.z * d;
-    scene.add(mk(new Geo().add(lumpy(1, 14, 10, 0.15, 1.2), rockCol, [0, 0, 0], [0, rand(0, 6), 0], [rad, h, rad]).build(), rockMat2, { pos: [px, wy, pz], outline: 0.04 }));
+    scene.add(mk(new Geo().add(rocky(14), rockCol, [0, 0, 0], [0, rand(0, 6), 0], [rad, h, rad]).build(), rockMat2, { pos: [px, wy, pz], outline: 0.04 }));
     solid(px, pz, rad * 0.95, wy + h);
   });
   POND_TOP = wy + 0.95;
@@ -3207,11 +3295,10 @@ const falls = { mist: [], rainbow: null, base: new V3(), t: 0, top: 0, spring: n
   const { x: fx, pz, pr } = FALLS;
   let wy = -1e9; for (let a = 0; a < 6.3; a += 0.3) for (const rr of [0, pr * 0.5, pr, pr + 1]) wy = Math.max(wy, terrain(fx + Math.cos(a) * rr, pz + Math.sin(a) * rr)); wy += 0.05;
   const cz = pz - pr - 2.5, H = 22, TOP = wy + H; falls.top = TOP;
-  const waterMat = patch(new THREE.MeshPhongMaterial({ color: 0xd8f2ff, map: TEX.water, shininess: 120, specular: 0xffffff, transparent: true, opacity: 0.9, side: THREE.DoubleSide }), { rim: 0.25 });
   const deck = { x: fx + 9, z: PLAT.z1 + 1.6 };
   // --- rock walls that hold up the plateau: the curved front cliff (a notch for the water), the sides and the back.
   // the top row sits a little lower so it reads as a mossy rim, with gaps where the deck and the stairs come in
-  const R = new Geo(), boulder = (x, y, z, s, seg = 14) => R.add(lumpy(1, seg, seg - 4, 0.22, 1.1), rockCol, [x - fx, y - wy, z - pz], [0, rand(0, 6), 0], [s, s * 1.05, s * 0.8]);
+  const R = new Geo(), boulder = (x, y, z, s, seg = 14) => R.add(rocky(seg), rockCol, [x - fx, y - wy, z - pz], [0, rand(0, 6), 0], [s, s * 1.05, s * 0.8]);
   const rowY = row => wy + row * 6.2 + 2.5 - (row === 3 ? 2.2 : 0);
   for (let i = -8; i <= 8; i++) for (let row = 0; row < 4; row++) {
     if (row === 3 && (i === 0 || i === 2 || i === 3)) continue;
@@ -3241,18 +3328,18 @@ const falls = { mist: [], rainbow: null, base: new V3(), t: 0, top: 0, spring: n
         if (front && (Math.abs(x - fx) < 3.6 || Math.abs(x - deck.x) < 3.3)) continue;
         if (e.small && Math.abs(z - stairTopZ) < 2.6) continue;
         const rx = x + e.o[0] * e.out, rz = z + e.o[1] * e.out, k = e.small ? 0.75 : 1;
-        R.add(lumpy(1, 12, 9, 0.2, 1.6), rockCol, [rx - fx, TOP - 0.55 - wy, rz + rand(-0.25, 0.25) * (1 - Math.abs(e.o[0])) - pz + rand(-0.2, 0.2) * Math.abs(e.o[0])], lumpRot(), [rand(1.1, 1.5) * k, rand(0.7, 0.8), rand(1.1, 1.35) * k]);
+        R.add(rocky(12), rockCol, [rx - fx, TOP - 0.55 - wy, rz + rand(-0.25, 0.25) * (1 - Math.abs(e.o[0])) - pz + rand(-0.2, 0.2) * Math.abs(e.o[0])], lumpRot(), [rand(1.1, 1.5) * k, rand(0.7, 0.8), rand(1.1, 1.35) * k]);
         const so = solid(rx, rz, 1.05 * k, TOP + 0.15, TOP - 1); so.up = 0.62; so.nocam = true;
-        if (e.small && Math.abs(z - stairTopZ) > 3.5) R.add(lumpy(1, 12, 9, 0.22, 1.2), rockCol, [x - 1.0 - fx, TOP - 2.6 - wy, z - pz + rand(-0.4, 0.4)], [0, 0, 0], [rand(1.1, 1.3), rand(1.9, 2.3), rand(1.6, 1.9)]);   // tucked in, clear of the stairs
-        if (!e.small && !(front && Math.abs(x - fx) < 4.8)) R.add(lumpy(1, 12, 9, 0.22, 1.2), rockCol, [x - e.o[0] * 0.5 - fx + rand(-0.4, 0.4), TOP - 3.0 - wy, z - e.o[1] * 0.5 - pz + rand(-0.4, 0.4)], lumpRot(), [rand(1.8, 2.3), rand(2.0, 2.4), rand(1.5, 1.8)]);
+        if (e.small && Math.abs(z - stairTopZ) > 3.5) R.add(rocky(12), rockCol, [x - 1.0 - fx, TOP - 2.6 - wy, z - pz + rand(-0.4, 0.4)], [0, 0, 0], [rand(1.1, 1.3), rand(1.9, 2.3), rand(1.6, 1.9)]);   // tucked in, clear of the stairs
+        if (!e.small && !(front && Math.abs(x - fx) < 4.8)) R.add(rocky(12), rockCol, [x - e.o[0] * 0.5 - fx + rand(-0.4, 0.4), TOP - 3.0 - wy, z - e.o[1] * 0.5 - pz + rand(-0.4, 0.4)], lumpRot(), [rand(1.8, 2.3), rand(2.0, 2.4), rand(1.5, 1.8)]);
       }
     }
     for (const sg of [-1, 1]) {   // the two rocks either side of the spill, and smaller ones stepping down beside the water
-      R.add(lumpy(1, 12, 9, 0.2, 1.6), rockCol, [sg * 2.75, TOP - 0.7 - wy, PLAT.z1 - 0.1 - pz], lumpRot(), [1.15, 0.85, 1.2]);
-      R.add(lumpy(1, 12, 9, 0.22, 1.4), rockCol, [sg * 3.6, TOP - 2.8 - wy, PLAT.z1 - 0.6 - pz], lumpRot(), [1.3, 1.9, 1.4]);
+      R.add(rocky(12), rockCol, [sg * 2.75, TOP - 0.7 - wy, PLAT.z1 - 0.1 - pz], lumpRot(), [1.15, 0.85, 1.2]);
+      R.add(rocky(12), rockCol, [sg * 3.6, TOP - 2.8 - wy, PLAT.z1 - 0.6 - pz], lumpRot(), [1.3, 1.9, 1.4]);
     }
-    R.add(lumpy(1, 12, 9, 0.18, 1.4), rockCol, [0, TOP - 2.3 - wy, PLAT.z1 - 0.8 - pz], lumpRot(), [2.6, 2.0, 1.6]);   // ledge the water slides over
-    R.add(lumpy(1, 12, 9, 0.2, 1.2), rockCol, [0, TOP - 6.0 - wy, PLAT.z1 - 1.0 - pz], lumpRot(), [3.0, 2.6, 1.8]); }
+    R.add(rocky(12), rockCol, [0, TOP - 2.3 - wy, PLAT.z1 - 0.8 - pz], lumpRot(), [2.6, 2.0, 1.6]);   // ledge the water slides over
+    R.add(rocky(12), rockCol, [0, TOP - 6.0 - wy, PLAT.z1 - 1.0 - pz], lumpRot(), [3.0, 2.6, 1.8]); }
   scene.add(mk(R.build(), rockMat2, { pos: [fx, wy, pz], outline: 0.08 }));
   // solid rock core behind the boulders so no light shows through the gaps between them
   { const t = TEX.stone.clone(); t.repeat.set(10, 4); t.needsUpdate = true;
@@ -3282,12 +3369,13 @@ const falls = { mist: [], rainbow: null, base: new V3(), t: 0, top: 0, spring: n
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(v, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx); g.computeVertexNormals();
     const m = new THREE.Mesh(g, mat); m.receiveShadow = true; m.renderOrder = 1; scene.add(m); return pts;
   };
-  const sPts = flatRibbon(sCurve, 1.3, () => TOP + 0.07, waterMat);
+  const sPts = flatRibbon(sCurve, 1.3, () => TOP + 0.07, waterMaterial({ ribbon: true, W: 2.6, flow: 1.5 }));
   const nearStream = (x, z, d) => sPts.some(q => (q.x - x) ** 2 + (q.z - z) ** 2 < d * d);
-  { const sg = new THREE.CircleGeometry(4.2, 40); sg.rotateX(-Math.PI / 2); const sp = new THREE.Mesh(sg, waterMat); sp.position.set(spring.x, TOP + 0.08, spring.z); sp.renderOrder = 1; scene.add(sp);
+  { const sg = new THREE.CircleGeometry(4.2, 40); { const sp0 = sg.attributes.position, su = sg.attributes.uv; for (let k = 0; k < sp0.count; k++) su.setXY(k, sp0.getX(k), sp0.getY(k)); }
+    sg.rotateX(-Math.PI / 2); const sp = new THREE.Mesh(sg, waterMaterial({ R: 4.2 })); sp.position.set(spring.x, TOP + 0.08, spring.z); sp.renderOrder = 1; scene.add(sp);
     const SR = new Geo();
-    for (let i = 0; i < 22; i++) { const a = i / 22 * Math.PI * 2; if (Math.abs(a - Math.PI / 2) < 0.25) continue; SR.add(lumpy(1, 10, 8, 0.3, 1.5), rockCol, [spring.x + Math.cos(a) * 4.5 - fx, TOP + 0.05 - wy, spring.z + Math.sin(a) * 4.5 - pz], [0, rand(0, 6), 0], [rand(0.5, 0.9), rand(0.3, 0.5), rand(0.5, 0.8)]); }
-    sPts.forEach((q, i) => { if (i % 3 || i < 3 || i > 84) return; for (const sg2 of [-1, 1]) SR.add(lumpy(1, 8, 6, 0.3, 2), rockCol, [q.x + sg2 * rand(1.7, 2.2) - fx, TOP + 0.05 - wy, q.z + rand(-0.4, 0.4) - pz], [0, rand(0, 6), 0], rand(0.25, 0.45)); });
+    for (let i = 0; i < 22; i++) { const a = i / 22 * Math.PI * 2; if (Math.abs(a - Math.PI / 2) < 0.25) continue; SR.add(rocky(10), rockCol, [spring.x + Math.cos(a) * 4.5 - fx, TOP + 0.05 - wy, spring.z + Math.sin(a) * 4.5 - pz], [0, rand(0, 6), 0], [rand(0.5, 0.9), rand(0.3, 0.5), rand(0.5, 0.8)]); }
+    sPts.forEach((q, i) => { if (i % 3 || i < 3 || i > 84) return; for (const sg2 of [-1, 1]) SR.add(rocky(8), rockCol, [q.x + sg2 * rand(1.7, 2.2) - fx, TOP + 0.05 - wy, q.z + rand(-0.4, 0.4) - pz], [0, rand(0, 6), 0], rand(0.25, 0.45)); });
     scene.add(mk(SR.build(), rockMat2, { pos: [fx, wy, pz], outline: 0.03 }));
     const padGeo = new THREE.CircleGeometry(0.55, 16, 0.3, Math.PI * 2 - 0.6); padGeo.rotateX(-Math.PI / 2);
     const padMat = toon(0x6fae5a, { side: THREE.DoubleSide, rim: 0.1 });
@@ -3304,7 +3392,7 @@ const falls = { mist: [], rainbow: null, base: new V3(), t: 0, top: 0, spring: n
       beam(BG, new V3(sx, y(z0), z0), new V3(sx, y(z1), z1), 0.13, 0x8a5a3c, { d: 0.2 });
     }
     mk(BG.build(), toon(0xffffff, { vc: true, soft: true }), { parent: g, outline: 0.015 });
-    { const AB = new Geo(); for (const e of [-1, 1]) for (const sx of [-w * 0.42, w * 0.42]) AB.add(lumpy(1, 10, 8, 0.25, 2), rockCol, [sx, -0.02, e * (half + 0.12)], [0, rand(0, 6), 0], [0.42, 0.26, 0.4]);
+    { const AB = new Geo(); for (const e of [-1, 1]) for (const sx of [-w * 0.42, w * 0.42]) AB.add(rocky(10), rockCol, [sx, -0.02, e * (half + 0.12)], [0, rand(0, 6), 0], [0.42, 0.26, 0.4]);
       mk(AB.build(), rockMat2, { parent: g, outline: 0.03 }); }                                                    // footing stones at both ends
     // walkable humps: the deck is a row of low soft discs you step up onto
     const ax = Math.sin(along), az = Math.cos(along);
@@ -3337,8 +3425,8 @@ const falls = { mist: [], rainbow: null, base: new V3(), t: 0, top: 0, spring: n
     mk(DG.build(), toon(0xffffff, { vc: true, soft: true }), { parent: g, outline: 0.015 });
     // the cliff under the deck: rock closes the gap in the top row, and a corbel stone bulges out to take each strut
     const CR = new Geo();
-    for (const bx of [-3.2, -1.3, 1.3, 3.2]) CR.add(lumpy(1, 14, 10, 0.2, 1.3), rockCol, [bx + rand(-0.2, 0.2), -2.85, -2.7], [0, rand(0, 6), 0], [rand(1.7, 2.0), rand(2.2, 2.5), rand(1.6, 1.8)]);
-    for (const bx of [-2.6, 0, 2.6]) CR.add(lumpy(1, 14, 10, 0.18, 1.5), rockCol, [bx, -5.75, -2.3], [0, rand(0, 6), 0], [1.15, 0.9, 1.25]);
+    for (const bx of [-3.2, -1.3, 1.3, 3.2]) CR.add(rocky(14), rockCol, [bx + rand(-0.2, 0.2), -2.85, -2.7], [0, rand(0, 6), 0], [rand(1.7, 2.0), rand(2.2, 2.5), rand(1.6, 1.8)]);
+    for (const bx of [-2.6, 0, 2.6]) CR.add(rocky(14), rockCol, [bx, -5.75, -2.3], [0, rand(0, 6), 0], [1.15, 0.9, 1.25]);
     mk(CR.build(), rockMat2, { parent: g, outline: 0.06 });
     const bench = new THREE.Group(); bench.position.set(0, 0, 1.0); g.add(bench);
     mk(new THREE.BoxGeometry(2.4, 0.14, 0.7), woodMat, { parent: bench, pos: [0, 0.55, 0], outline: 0.02 });
@@ -3440,19 +3528,18 @@ const falls = { mist: [], rainbow: null, base: new V3(), t: 0, top: 0, spring: n
   const bg = new THREE.ShapeGeometry(blob(pr + 1.1), 48); bg.rotateX(-Math.PI / 2);
   const bank = new THREE.Mesh(bg, toon(0x8f8166)); bank.position.set(fx, wy - 0.03, pz); bank.receiveShadow = true; scene.add(bank);
   const wg = new THREE.ShapeGeometry(blob(pr), 48); wg.rotateX(-Math.PI / 2);
-  const water = new THREE.Mesh(wg, waterMat); water.position.set(fx, wy, pz); water.receiveShadow = true; scene.add(water);
+  const water = new THREE.Mesh(wg, waterMaterial({ R: pr, impact: new V3(fx, fallFoot, 1) })); water.position.set(fx, wy, pz); water.receiveShadow = true; scene.add(water);
   // a creek runs out of the pool to the east (the rim stones leave a gap for it)
   const cCurve = new THREE.CatmullRomCurve3([[fx + pr - 1.0, pz + 1.2], [fx + 12, pz + 5], [fx + 18, pz + 8.5], [fx + 24, pz + 10.5], [fx + 31, pz + 13]].map(q => new V3(q[0], 0, q[1])));
   const outA = Math.atan2(1.2, pr - 1.0);
   const RG = new Geo();
-  for (let i = 0; i < 26; i++) { const a = i / 26 * Math.PI * 2 + rand(-0.08, 0.08); if (Math.abs(Math.atan2(Math.sin(a - outA), Math.cos(a - outA))) < 0.22) continue; RG.add(lumpy(1, 10, 8, 0.3, 1.5), rockCol, [Math.cos(a) * (pr + 0.4), 0.05, Math.sin(a) * (pr + 0.4)], [0, rand(0, 6), 0], [rand(0.5, 0.95), rand(0.35, 0.6), rand(0.5, 0.85)]); }
-  for (let i = 0; i < 7; i++) RG.add(lumpy(1, 10, 8, 0.25, 2), 0xffffff, [rand(-2.4, 2.4), 0.12, fallFoot - pz + rand(-0.6, 0.6)], [0, 0, 0], [rand(0.7, 1.2), 0.25, rand(0.5, 0.9)]);
+  for (let i = 0; i < 26; i++) { const a = i / 26 * Math.PI * 2 + rand(-0.08, 0.08); if (Math.abs(Math.atan2(Math.sin(a - outA), Math.cos(a - outA))) < 0.22) continue; RG.add(rocky(10), rockCol, [Math.cos(a) * (pr + 0.4), 0.05, Math.sin(a) * (pr + 0.4)], [0, rand(0, 6), 0], [rand(0.5, 0.95), rand(0.35, 0.6), rand(0.5, 0.85)]); }
   scene.add(mk(RG.build(), rockMat2, { pos: [fx, wy, pz], outline: 0.04 }));
   const wall = solid(fx, pz, pr - 0.15, wy + 0.4); wall.water = true; wall.nocam = true;
   falls.base.set(fx, wy + 0.4, fallFoot);
-  const cPts = flatRibbon(cCurve, 0.95, (x, z) => Math.max(terrain(x, z), x < fx + pr + 1 ? wy : -1e9) + 0.07, waterMat, 70);
-  { const CR = new Geo(); cPts.forEach((q, i) => { if (i % 3 || i < 3) return; for (const sg2 of [-1, 1]) CR.add(lumpy(1, 8, 6, 0.3, 2), rockCol, [q.x + sg2 * rand(1.2, 1.6) - fx, terrain(q.x, q.z) - wy, q.z + rand(-0.3, 0.3) - pz], [0, rand(0, 6), 0], rand(0.22, 0.4)); });
-    const e = cPts[cPts.length - 1]; for (let i = 0; i < 6; i++) CR.add(lumpy(1, 10, 8, 0.3, 1.5), rockCol, [e.x + rand(-1.2, 1.2) - fx, terrain(e.x, e.z) - wy, e.z + rand(-1.2, 1.2) - pz], [0, rand(0, 6), 0], rand(0.5, 0.9));
+  const cPts = flatRibbon(cCurve, 0.95, (x, z) => Math.max(terrain(x, z), x < fx + pr + 1 ? wy : -1e9) + 0.07, waterMaterial({ ribbon: true, W: 1.9, flow: 1.0 }), 70);
+  { const CR = new Geo(); cPts.forEach((q, i) => { if (i % 3 || i < 3) return; for (const sg2 of [-1, 1]) CR.add(rocky(8), rockCol, [q.x + sg2 * rand(1.2, 1.6) - fx, terrain(q.x, q.z) - wy, q.z + rand(-0.3, 0.3) - pz], [0, rand(0, 6), 0], rand(0.22, 0.4)); });
+    const e = cPts[cPts.length - 1]; for (let i = 0; i < 6; i++) CR.add(rocky(10), rockCol, [e.x + rand(-1.2, 1.2) - fx, terrain(e.x, e.z) - wy, e.z + rand(-1.2, 1.2) - pz], [0, rand(0, 6), 0], rand(0.5, 0.9));
     scene.add(mk(CR.build(), rockMat2, { pos: [fx, wy, pz], outline: 0.03 }));
     // a little bridge where the falls path crosses the creek
     let bi = 8, bd = 1e9; cPts.forEach((q, i) => { const d = pathDist(q.x, q.z); if (i > 5 && i < cPts.length - 5 && d < bd) { bd = d; bi = i; } });
@@ -4078,7 +4165,7 @@ const stars = STAR_SPOTS.map((s, i) => {
   const gold = s[2] === 'pud';
   const m = mk(STAR_GEO, gloss(gold ? 0xffc93c : 0xffe27a, { emissive: gold ? 0x6a4200 : 0x4a3a00, shin: 70, spec: 0xffffff, rim: 0.25 }), { scale: gold ? 0.75 : 0.45, outline: 0.04 });
   m.position.set(s[0], y, s[1]); scene.add(m);
-  return { m, y, got: false, gold, ph: i };
+  return { m, y, got: false, gold, ph: i, sc: gold ? 0.75 : 0.45, fx: null };
 });
 const STAR_TERRACE = STAR_SPOTS.findIndex(q => q[0] === TERRACE_STAR.x && q[1] === TERRACE_STAR.z);
 $('tot').textContent = stars.length;
@@ -4262,7 +4349,8 @@ async function start(i) {
   player.goal = null; player.speed = 0; player.vy = 0; player.zone = 'world';
   player.pos.set(6 + rand(-3, 3), 0, 22 + rand(-3, 3)); player.pos.y = terrain(player.pos.x, player.pos.z);
   camYaw = Math.atan2(player.pos.x - 6, player.pos.z - 16) || 0.35;
-  mode = 'play';
+  mode = 'play'; camIntro = 0; curZone = '몽글 마을'; zoneHold = 0;
+  setTimeout(() => { if (mode === 'play') zoneBanner(curZone); }, 1500);
   ufoSet(Net.ufo ? 'crashed' : null);
   if (Net.shower > 1500) { startShower(Net.shower / 1000); setTimeout(() => toast('지금 이 채널에 별똥별이 쏟아지고 있어요!', 3500), 1200); }
   setTimeout(() => setMap(MAP.open), 0);
@@ -4559,7 +4647,7 @@ addEventListener('resize', () => { renderer.setSize(innerWidth, innerHeight); ca
 
 /* ---------------- loop ---------------- */
 const clock = new THREE.Clock();
-let camShake = 0;
+let camShake = 0, camIntro = 1, fovNow = 50;
 const FP_EYE = new V3(), tmpV = new V3(), UP15 = new V3(0, 1.5, 0), UP1 = new V3(0, 1, 0), FAR = new V3(0, -99, 0);
 let selT = 0;
 let viewBoost = 1, camSnap = false, promptPortal = null, portalBusy = false, indoorAmb = 0, stairTip = false;
@@ -4625,7 +4713,16 @@ function usePortal(p) {
 $('prompt').addEventListener('click', () => promptPortal && promptPortal.run());
 let curZone = '몽글 마을', zoneHold = 0, forestAmb = 0;
 const FOG_M = new THREE.Color(0xe2f1f8), FOG_F = new THREE.Color(0xcfe4d0);
+const ZONE_SUB = { '몽글 마을': '몽글몽글 포근한 들판', '숲 오솔길': '나무 사이로 햇살이 드는 길', '이끼 빈터': '폭신한 이끼가 깔린 쉼터', '옹달샘': '오리 가족이 사는 연못',
+  '할아버지 나무': '숲에서 가장 오래된 나무', '숲속 오두막': '나무꾼 아저씨네 숲', '무지개 폭포': '물안개에 무지개가 뜨는 곳', '폭포 위 쉼터': '바람이 시원한 절벽 위 풀밭',
+  '할아버지 나무 안': '동물 친구들의 보금자리', '나무 꼭대기 테라스': '마을이 한눈에 보이는 곳', '나무꾼 오두막 안': '벽난로가 따뜻한 산장' };
+function zoneBanner(name) {
+  const el = $('zoneTitle'); $('zoneName').textContent = name; $('zoneSub').textContent = ZONE_SUB[name] || '';
+  el.classList.remove('show'); void el.offsetWidth; el.classList.add('show');
+}
 function zoneOf(x, z) {
+  if (inPlat(x, z, 1)) return '폭포 위 쉼터';
+  if (Math.hypot(x - FALLS.x, z - FALLS.pz) < 17) return '무지개 폭포';
   if (Math.hypot(x - GLADE.x, z - GLADE.z) < 13) return '이끼 빈터';
   if (Math.hypot(x - POND.x, z - POND.z) < 13) return '옹달샘';
   if (Math.hypot(x - BIGTREE.x, z - BIGTREE.z) < 14) return '할아버지 나무';
@@ -4671,7 +4768,8 @@ function frame() {
     player.speed += (mv - player.speed) * Math.min(1, dt * 10);
     if (player.sitting) { player.speed = 0; player.pos.copy(player.sitting.p); } else player.physics(dt);
     for (const s of stars) if (!s.got && s.m.position.distanceTo(tmpV.copy(player.pos).add(UP1)) < (s.gold ? 2.2 : 1.7)) {
-      s.got = true; scene.remove(s.m); got++; $('cnt').textContent = got;
+      s.got = true; s.fx = 0; got++; $('cnt').textContent = got;
+      { const c = $('cnt'); c.classList.remove('bump'); void c.offsetWidth; c.classList.add('bump'); }
       emit(sparkTex, s.m.position, s.gold ? 18 : 10, { size: 0.55, spread: 3, up: 2, life: 1.1, g: 7 });
       Snd.star(s.gold);
       if (got === stars.length) {
@@ -4682,7 +4780,7 @@ function frame() {
       } else toast(s.gold ? '금별사탕 발견! 푸딩 산 정복!' : '별사탕 ' + got + ' / ' + stars.length);
     }
     if (camSnap) camTarget.copy(player.pos).add(UP15);
-    else camTarget.lerp(tmpV.copy(player.pos).add(UP15), 1 - Math.exp(-dt * 10));
+    else camTarget.lerp(tmpV.copy(player.pos).add(UP15), 1 - Math.exp(-dt * (camIntro < 1 ? 1.6 + 8.4 * camIntro * camIntro : 10)));
     const fpSeat = player.sitting && player.sitting.fp ? player.sitting : null;
     player.obj.visible = player.blobShadow.visible = !fpSeat;
     if (fpSeat) { // sitting on the cabin sofa: look through your own eyes, drag to look round the room and out of the window
@@ -4732,7 +4830,8 @@ function frame() {
     }
     const gy = baseY(want.x, want.z) + 0.8; if (want.y < gy) want.y = gy;
     if (camSnap) { camera.position.copy(want); camSnap = false; }
-    else camera.position.lerp(want, 1 - Math.exp(-dt * 12));
+    else camera.position.lerp(want, 1 - Math.exp(-dt * (camIntro < 1 ? 1.1 + 10.9 * camIntro * camIntro * camIntro : 12)));
+    if (camIntro < 1) camIntro = Math.min(1, camIntro + dt / 2.6);
     // tilting the view below level turns it into stargazing: the camera aims up past your head into the sky
     if (camPitch < 0) camera.lookAt(tmpV.copy(camTarget).add(new V3(0, -camPitch * 16, 0))); else camera.lookAt(camTarget);
     }
@@ -4740,7 +4839,7 @@ function frame() {
     if (player.zone === 'world' && (bloomTimer -= dt) <= 0) { spawnBloom(); bloomTimer = rand(2.5, 5.5); }
     updatePrompt();
     const zn = player.zone === 'tower' ? '할아버지 나무 안' : player.zone === 'terrace' ? '나무 꼭대기 테라스' : player.zone === 'cabin' ? '나무꾼 오두막 안' : zoneOf(player.pos.x, player.pos.z);
-    if (zn !== curZone) { if ((zoneHold += dt) > 0.6) { curZone = zn; zoneHold = 0; toast(zn, 2000); } } else zoneHold = 0;
+    if (zn !== curZone) { if ((zoneHold += dt) > 0.6) { curZone = zn; zoneHold = 0; zoneBanner(zn); } } else zoneHold = 0;
   } else {
     selT += dt * 0.06;
     camera.position.set(Math.sin(selT) * 46, 24, Math.cos(selT) * 46 + 4);
@@ -4755,7 +4854,20 @@ function frame() {
   tickRemotes(dt);
   if (mode === 'play' && !$('map').hidden && (MAP.t += dt) > 0.1) { MAP.t = 0; drawMap(T); }
   // ambient motion
-  for (const s of stars) if (!s.got) { s.m.rotation.y = T * 1.6 + s.ph; s.m.position.y = s.y + Math.sin(T * 2 + s.ph) * 0.18; }
+  for (const s of stars) {
+    if (!s.got) { s.m.rotation.y = T * 1.6 + s.ph; s.m.position.y = s.y + Math.sin(T * 2 + s.ph) * 0.18; }
+    else if (s.fx != null) {   // just picked up: hop over the player's head, spinning faster and faster, then pop
+      s.fx += dt / 0.75; const u = Math.min(1, s.fx), e = 1 - (1 - u) * (1 - u);
+      if (player) { tmpV.copy(player.pos); tmpV.y += 3.1 + Math.sin(u * Math.PI) * 0.7; s.m.position.lerp(tmpV, Math.min(1, dt * (5 + e * 14))); }
+      s.m.rotation.y += dt * (8 + e * 26); s.m.rotation.z = Math.sin(u * 9) * 0.25 * (1 - u);
+      s.m.scale.setScalar(s.sc * (1 + 0.75 * Math.sin(Math.min(1, u * 1.25) * Math.PI)) * (u > 0.85 ? 1 - (u - 0.85) / 0.15 * 0.6 : 1));
+      if (u >= 1 || !player) {
+        s.fx = null; scene.remove(s.m);
+        emit(sparkTex, s.m.position, s.gold ? 22 : 12, { size: s.gold ? 0.6 : 0.42, spread: 4.5, up: 1.5, life: 0.9, g: 5 });
+        emit(puffTex, s.m.position, 5, { size: 0.5, spread: 1.6, up: 0.4, life: 0.5, g: 0 });
+      }
+    }
+  }
   for (const b of balloons) { b.b.position.y = b.y0 + Math.sin(T * 0.8 + b.ph) * 0.5; b.b.rotation.z = Math.sin(T * 0.6 + b.ph) * 0.08; }
   for (const s of swayers) { s.o.rotation.z = Math.sin(T * 0.9 + s.ph) * s.amp; s.o.rotation.x = Math.sin(T * 0.7 + s.ph * 1.3) * s.amp * 0.6; }
   pudding.jig *= Math.exp(-dt * 2.2);
@@ -4803,6 +4915,8 @@ function frame() {
   const focus = player ? player.pos : camTarget.set(0, 0, 0);
   const tx = (2 * SH) / shadowSize, fx = Math.round(focus.x / tx) * tx, fz = Math.round(focus.z / tx) * tx;
   sun.position.set(fx + lightDir.x * 66, focus.y + lightDir.y * 66, fz + lightDir.z * 66); sun.target.position.set(fx, focus.y, fz);
+  { const ft = 50 + (mode === 'play' && player && !(player.sitting && player.sitting.fp) ? clamp((player.speed - 6.5) / 5, 0, 1) * 5 : 0);
+    if (Math.abs(ft - fovNow) > 0.02) { fovNow += (ft - fovNow) * Math.min(1, dt * 3.5); camera.fov = fovNow; camera.updateProjectionMatrix(); } }
   cull(focus);
   if (Meadow.mesh) {
     const show = !player || player.zone === 'world'; Meadow.mesh.visible = show;
