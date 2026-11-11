@@ -599,6 +599,11 @@ class Geo {
     out.computeBoundingSphere(); return out;
   }
 }
+// adds a straight timber between two points to a Geo: square by default, round with o.round
+function beam(G, a, b, w, color, o = {}) {
+  const d = new V3().subVectors(b, a), len = d.length(), geo = o.round ? new THREE.CylinderGeometry(w * (o.taper || 1), w, len, o.seg || 8) : new THREE.BoxGeometry(w, len, o.d || w);
+  G.addM(geo, color, new THREE.Matrix4().compose(new V3().addVectors(a, b).multiplyScalar(0.5), new THREE.Quaternion().setFromUnitVectors(new V3(0, 1, 0), d.normalize()), new V3(1, 1, 1)));
+}
 function weldNormals(g) {
   const p = g.attributes.position, n = g.attributes.normal, map = new Map();
   for (let i = 0; i < p.count; i++) {
@@ -924,6 +929,12 @@ const PUD_TOP_Y = PUD_BASE + 11.4;
     for (let k = 0; k < 3; k++) { const ca = rand(0, 6.28); chips.add(SPH_LO, 0xffffff, [Math.cos(ca) * 1.42, rand(-0.1, 0.1), Math.sin(ca) * 1.42], [0, 0, 0], [0.11, 0.09, 0.11]); }
     mk(chips.build(), chipMat, { parent: c, outline: 0.02, shadow: false });
     solid(x, z, 1.5, top, top - 0.5);
+    const gy = Math.min(terrain(x, z), PUD_BASE) - 0.3, sh = top - 0.4 - gy;                                    // the stick, with a round sugar foot
+    const st = TEX.stripe.clone(); st.repeat.set(1, Math.max(1, Math.round(sh / 1.3))); st.needsUpdate = true;
+    scene.add(mk(new THREE.CylinderGeometry(0.17, 0.2, sh, 14), toon(0xffffff, { map: st, rim: 0.12 }), { pos: [x, gy + sh / 2, z], outline: 0.035 }));
+    scene.add(mk(SPH_MED, toon(0xfff4e0, { soft: true }), { pos: [x, terrain(x, z) + 0.02, z], scale: [0.5, 0.2, 0.5], outline: 0.03 }));
+    scene.add(mk(new THREE.CylinderGeometry(0.42, 0.26, 0.22, 16), toon(0xf4d9a8, { soft: true }), { pos: [x, top - 0.52, z], outline: 0.025 }));   // a collar where the stick meets the cookie
+    solid(x, z, 0.3, top - 0.4).nocam = true;
   }
 }
 
@@ -1220,8 +1231,11 @@ const balloons = [];
     const bm = gloss(c, { shin: 80, spec: 0xffffff, rim: 0.2 });
     mk(SPH, bm, { parent: b, scale: [0.8, 0.95, 0.8], outline: 0.06, shadow: false });
     mk(new THREE.ConeGeometry(0.16, 0.25, 10), bm, { parent: b, pos: [0, -1.0, 0], rot: [Math.PI, 0, 0], outline: 0.03, shadow: false });
-    const lg = new THREE.BufferGeometry().setFromPoints(new THREE.CatmullRomCurve3([new V3(0, -1.1, 0), new V3(0.2, -2, 0), new V3(-0.15, -3, 0), new V3(0.1, -4, 0)]).getPoints(16));
+    // tethered: the string runs down to a peg in the grass (its last half metre is buried, so the balloon can bob without lifting it out)
+    const ax = bx * 0.82 + rand(-1, 1), az = bz + rand(-2, 2), ay = terrain(ax, az), end = new V3(ax - bx, ay - b.position.y - 0.6, az - bz);
+    const lg = new THREE.BufferGeometry().setFromPoints(new THREE.CatmullRomCurve3([new V3(0, -1.1, 0), new V3(end.x * 0.2 + 0.3, end.y * 0.3, end.z * 0.2), new V3(end.x * 0.62 - 0.2, end.y * 0.68, end.z * 0.62), end]).getPoints(28));
     b.add(new THREE.Line(lg, new THREE.LineBasicMaterial({ color: INK })));
+    scene.add(mk(new THREE.CylinderGeometry(0.07, 0.05, 0.5, 6), 0x8a5a3c, { pos: [ax, ay + 0.12, az], rot: [0.25, 0, 0.2], outline: 0.02 }));
     balloons.push({ b, y0: b.position.y, ph: rand(0, 6) });
   });
   avoid.push({ x: 0, z: gz, r: 9 });
@@ -2632,7 +2646,7 @@ function tickUfo(dt, T) {
   scene.add(mk(new THREE.CylinderGeometry(R + 0.4, R + 0.4, 0.6, 72), [inWood, toon(0xd8b48a, { map: TEX.rings }), inWood], { pos: [x, y - 0.3, z], outline: 0, shadow: false }));
   const rug = new THREE.Mesh(new THREE.CircleGeometry(4.6, 48), toon(0xffffff, { map: TEX.rug })); rug.rotation.x = -Math.PI / 2; rug.position.set(x, y + 0.03, z); rug.receiveShadow = true; scene.add(rug);
   [[5.0, 14], [0.6, 20], [2.4, 27], [3.6, 30], [1.5, 24], [4.6, 34], [5.6, 40], [0.2, 44]].forEach(([a, wy]) => wallWindow(a, y + wy, wy > 38 ? 1.3 : 1));
-  for (let i = 0; i < 11; i++) { const a = rand(0, 6.28), r = rand(2.5, 6.5), ly = rand(7, 43); lantern(x + Math.sin(a) * r, y + ly, z + Math.cos(a) * r, rand(2, 5)); }
+  for (let i = 0; i < 11; i++) { const a = rand(0, 6.28), r = rand(2.5, 6.5), ly = rand(7, 43); lantern(x + Math.sin(a) * r, y + ly, z + Math.cos(a) * r, H + 0.5 * Math.sqrt((R + 0.4) ** 2 - r * r) - ly - 0.05); }   // cords reach the domed ceiling
 }
 // spiral stairs of shelf mushrooms around the inner wall, with landings where the animals live
 const ST = { n: 104, rise: 0.44, rad: INT.R - 1.75, da: 0.13, a0: Math.PI + 0.95 };
@@ -2702,7 +2716,9 @@ const at = (L, u, w, dy = 0) => new V3(L.x + L.tx * u + L.ox * w, L.top + dy, L.
   const [hx, hz] = onWall(aC, R - 1.15);
   addResident(makeHedgehog, '고슴 아주머니', 'hedgehog', ['어서 와요, 할아버지 나무에!', '계단 끝까지 올라가면 테라스가 있어요~', '따뜻한 차 한 잔 할래요?', '위층엔 다람쥐랑 부엉 박사님이 살아요'], new V3(hx, y, hz), 1.0);
   for (const [a, c] of [[Math.PI - 0.5, 0xf6a9c0], [Math.PI + 0.5, 0xffd76a], [0.5, 0x8ea8f2]]) { const [px, pz] = onWall(a, R - 1.0); flowerPot(new V3(px, y, pz), c); }
-  for (const a of [Math.PI - 0.3, Math.PI + 0.3]) { const [px, pz] = onWall(a, R - 0.6); lantern(px, y + 2.6, pz); }
+  for (const a of [Math.PI - 0.3, Math.PI + 0.3]) { const [px, pz] = onWall(a, R - 0.6), [wx, wz] = onWall(a, R + 0.2); lantern(px, y + 2.6, pz);
+    const BG = new Geo(); beam(BG, new V3(wx, y + 3.3, wz), new V3(px, y + 3.3, pz), 0.07, 0x8a5a3c); beam(BG, new V3(wx, y + 2.75, wz), new V3(px + (wx - px) * 0.25, y + 3.28, pz + (wz - pz) * 0.25), 0.05, 0x8a5a3c); beam(BG, new V3(px, y + 3.3, pz), new V3(px, y + 3.05, pz), 0.03, 0x4b3a35);
+    scene.add(mk(BG.build(), toon(0xffffff, { vc: true }), { outline: 0.012, shadow: false })); }   // a little wall bracket each
 }
 // landing 1: the squirrel's acorn pantry
 {
@@ -2766,6 +2782,17 @@ let TOWER_STAR = null;
   const g = new THREE.Group(); g.position.set(TER.x, TER.y, TER.z); scene.add(g);
   mk(new THREE.CylinderGeometry(TER.r, TER.r - 0.4, 0.7, 48), [barkPlain, woodMat, barkPlain], { parent: g, pos: [0, -0.35, 0], outline: 0.06 });
   mk(new THREE.CylinderGeometry(1.6, 2.4, 4, 16), barkPlain, { parent: g, pos: [0, -2.6, 0], outline: 0.05 });
+  { // the deck is far wider than the trunk: eight boughs fork out to hold it up, and joists fan out under the boards
+    const SG = new Geo();
+    for (let i = 0; i < 8; i++) {
+      const a = i / 8 * Math.PI * 2 + 0.2, sa = Math.sin(a), ca = Math.cos(a);
+      beam(SG, new V3(sa * 1.7, -4.3, ca * 1.7), new V3(sa * 4.4, -1.9, ca * 4.4), 0.36, 0xffffff, { round: true, taper: 0.8, seg: 10 });   // bough, bending up…
+      beam(SG, new V3(sa * 4.3, -2.0, ca * 4.3), new V3(sa * 6.5, -0.72, ca * 6.5), 0.29, 0xffffff, { round: true, taper: 0.75, seg: 10 }); // …to meet the rim
+      SG.add(SPH_LO, 0xffffff, [sa * 4.35, -1.95, ca * 4.35], [0, 0, 0], 0.37);
+      SG.add(new THREE.BoxGeometry(0.22, 0.24, TER.r - 0.5), 0xd9c2a4, [sa * (TER.r - 0.5) / 2, -0.8, ca * (TER.r - 0.5) / 2], [0, a, 0]);    // joist
+    }
+    mk(SG.build(), toon(0xffffff, { map: TEX.bark, vc: true }), { parent: g, outline: 0.04 });
+  }
   const RG = new Geo();
   for (let i = 0; i < 32; i++) { const a = i / 32 * Math.PI * 2; RG.add(new THREE.CylinderGeometry(0.08, 0.09, 1.1, 6), 0x9a6b4c, [Math.sin(a) * (TER.r - 0.3), 0.55, Math.cos(a) * (TER.r - 0.3)]); }
   RG.add(new THREE.TorusGeometry(TER.r - 0.3, 0.08, 6, 96), 0xb7845c, [0, 1.12, 0], [Math.PI / 2, 0, 0]);
@@ -2974,6 +3001,15 @@ function makeWoodcutter() {
   const py = terrain(x1 + 3.6, cz);
   scene.add(mk(new THREE.BoxGeometry(3.2, 0.3, 5.0), woodMat, { pos: [x1 + 1.6, fy - 0.15, cz], outline: 0.03 }));
   for (const [sx, sy] of [[x1 + 3.55, fy - (fy - py) / 3], [x1 + 4.25, fy - (fy - py) * 2 / 3]]) scene.add(mk(new THREE.BoxGeometry(0.7, Math.max(0.2, sy - py + 0.1), 2.0), woodMat, { pos: [sx, (sy + py) / 2 - 0.05, cz], outline: 0.025 }));
+  { const PG = new Geo(), SKW = new Geo();
+    for (const px of [x1 + 0.35, x1 + 2.95]) for (const pz of [cz - 2.25, cz, cz + 2.25]) {
+      const gy = terrain(px, pz) - 0.3, h = fy - 0.3 - gy;
+      PG.add(new THREE.BoxGeometry(0.55, h, 0.55), 0xffffff, [px - cx, gy + h / 2 - fy, pz - cz]);
+    }
+    for (const sz of [cz - 2.45, cz + 2.45]) { const gy = Math.min(terrain(x1 + 0.3, sz), terrain(x1 + 3, sz)) - 0.2, h = fy - 0.3 - gy; SKW.add(new THREE.BoxGeometry(3.1, h, 0.08), 0x9a6b4c, [x1 + 1.6 - cx, gy + h / 2 - fy, sz - cz]); }
+    { const gy = Math.min(terrain(x1 + 3.15, cz - 2.4), terrain(x1 + 3.15, cz + 2.4)) - 0.2, h = fy - 0.3 - gy; for (const sz of [cz - 1.75, cz + 1.75]) SKW.add(new THREE.BoxGeometry(0.08, h, 1.45), 0x9a6b4c, [x1 + 3.16 - cx, gy + h / 2 - fy, sz - cz]); }
+    scene.add(mk(PG.build(), toon(0xffffff, { map: TEX.stone, vc: true }), { pos: [cx, fy, cz], outline: 0.025 }));
+    scene.add(mk(SKW.build(), toon(0xffffff, { vc: true, soft: true }), { pos: [cx, fy, cz], outline: 0.015 })); }
   const RG = new Geo();
   for (const pz of [cz - 2.4, cz - 1.0, cz + 1.0, cz + 2.4]) RG.add(new THREE.CylinderGeometry(0.07, 0.08, 1.0, 6), 0x8a5a3c, [x1 + 3.05, 0.5, pz]);
   for (const pz of [[cz - 2.4, cz - 1.0], [cz + 1.0, cz + 2.4]]) RG.add(new THREE.BoxGeometry(0.1, 0.1, 1.5), 0xa06d48, [x1 + 3.05, 0.95, (pz[0] + pz[1]) / 2]);
@@ -3261,24 +3297,49 @@ const falls = { mist: [], rainbow: null, base: new V3(), t: 0, top: 0, spring: n
   const bridge = (bp, bq, y0, arch, span, w) => {
     const along = Math.atan2(bq.x - bp.x, bq.z - bp.z), g = new THREE.Group(); g.position.set(bp.x, y0, bp.z); g.rotation.y = along + Math.PI / 2; scene.add(g);
     const BG = new Geo(), n = 4, half = span / 2;
-    for (let k = -n; k <= n; k++) { const z = k * half / n, y = arch * Math.cos(k / n * Math.PI / 2); BG.add(new THREE.BoxGeometry(w, 0.1, half / n * 0.92), pick([0xc28f5c, 0xb07a4a, 0xb9855a]), [0, y + 0.05, z], [Math.atan2(-arch * Math.PI / 2 / half * Math.sin(k / n * Math.PI / 2), 1), 0, 0]); }
+    for (let k = -n; k <= n; k++) { const z = k * half / n, y = arch * Math.cos(k / n * Math.PI / 2); BG.add(new THREE.BoxGeometry(w, 0.1, half / n * 1.0), pick([0xc28f5c, 0xb07a4a, 0xb9855a]), [0, y + 0.05, z], [Math.atan2(arch * Math.PI / 2 / half * Math.sin(k / n * Math.PI / 2), 1), 0, 0]); }   // each plank lies along the arch's slope
     for (const sx of [-w / 2, w / 2]) { for (const z of [-half, 0, half]) BG.add(new THREE.BoxGeometry(0.1, 0.85, 0.1), 0x8a5a3c, [sx, arch * Math.cos(z / half * Math.PI / 2) + 0.45, z]); for (let k = 0; k < 6; k++) { const z0 = -half + k * span / 6, z1 = z0 + span / 6, y = (z) => arch * Math.cos(z / half * Math.PI / 2) + 0.9; BG.add(new THREE.BoxGeometry(0.08, 0.08, span / 6 + 0.04), 0xa06d48, [sx, (y(z0) + y(z1)) / 2, (z0 + z1) / 2], [Math.atan2(-(y(z1) - y(z0)), span / 6), 0, 0]); } }
+    for (const sx of [-w / 2 + 0.12, w / 2 - 0.12]) for (let k = -n; k < n; k++) {                                // the two arched beams the planks are nailed to
+      const z0 = k * half / n, z1 = (k + 1) * half / n, y = z => arch * Math.cos(z / half * Math.PI / 2) - 0.1;
+      beam(BG, new V3(sx, y(z0), z0), new V3(sx, y(z1), z1), 0.13, 0x8a5a3c, { d: 0.2 });
+    }
     mk(BG.build(), toon(0xffffff, { vc: true, soft: true }), { parent: g, outline: 0.015 });
+    { const AB = new Geo(); for (const e of [-1, 1]) for (const sx of [-w * 0.42, w * 0.42]) AB.add(lumpy(1, 10, 8, 0.25, 2), rockCol, [sx, -0.02, e * (half + 0.12)], [0, rand(0, 6), 0], [0.42, 0.26, 0.4]);
+      mk(AB.build(), rockMat2, { parent: g, outline: 0.03 }); }                                                    // footing stones at both ends
     // walkable humps: the deck is a row of low soft discs you step up onto
     const ax = Math.sin(along), az = Math.cos(along);
     for (let k = -2; k <= 2; k++) { const t = k / 2 * half * 0.9, so = solid(bp.x + ax * t, bp.z + az * t, w * 0.55, y0 + arch * Math.cos(t / half * Math.PI / 2) + 0.1); so.up = 0.62; so.bottom = y0 - 1; so.nocam = true; }
   };
   bridge(sPts[50], sPts[52], TOP, 0.45, 3.6, 1.8);
-  // lookout deck jutting from the cliff edge east of the falls, with a bench and lanterns
+  // lookout deck jutting from the cliff edge east of the falls, with a bench and lanterns.
+  // its back half sits on the plateau; the overhang is carried by three timber brackets (a joist with a strut under it)
+  // whose feet stand on stone corbels built into the cliff face, cross-braced so nothing hangs in mid-air
   { const g = new THREE.Group(); g.position.set(deck.x, TOP, deck.z); scene.add(g);
-    mk(new THREE.BoxGeometry(6.2, 0.3, 4.6), woodMat, { parent: g, pos: [0, -0.15, 0], outline: 0.03 });
-    const DG = new Geo();
-    for (let x = -3; x <= 3.01; x += 1.0) DG.add(new THREE.BoxGeometry(0.1, 1.0, 0.1), 0x8a5a3c, [x, 0.5, 2.25]);
+    const PL = new Geo();                                   // the floor: separate planks with a hair of a gap, on a frame
+    for (let i = 0; i < 12; i++) { const x = -2.84 + i * 0.516; PL.add(new THREE.BoxGeometry(0.49, 0.1, 4.6), pick([0xffffff, 0xf4e6d2, 0xfff6e8, 0xeedcc4]), [x, -0.05, 0], [0, rand(-0.006, 0.006), 0]); }
+    mk(PL.build(), toon(0xffffff, { map: TEX.plank, vc: true, rim: 0.08 }), { parent: g, outline: 0.02 });
+    const DG = new Geo(), dkW = 0x7a5238, ltW = 0xa06d48, V = (x, y, z) => new V3(x, y, z);
+    for (const z of [-2.2, 2.2]) DG.add(new THREE.BoxGeometry(6.3, 0.26, 0.16), dkW, [0, -0.2, z]);                       // rim boards front and back
+    for (const x of [-3.07, 3.07]) DG.add(new THREE.BoxGeometry(0.16, 0.26, 4.56), dkW, [x, -0.2, 0]);
+    for (const bx of [-2.6, 0, 2.6]) {
+      DG.add(new THREE.BoxGeometry(0.3, 0.34, 6.4), dkW, [bx, -0.3, -0.9]);                                               // joist: runs back into the plateau
+      beam(DG, V(bx, -0.42, 1.95), V(bx, -5.0, -1.55), 0.28, dkW);                                                        // strut down to the cliff
+      beam(DG, V(bx, -0.42, 0.28), V(bx, -2.6, 0.28), 0.16, ltW);                                                          // post tying the joist to the middle of the strut
+      DG.add(new THREE.BoxGeometry(0.5, 0.2, 0.5), 0x9c9484, [bx, -5.06, -1.6]);                                          // stone shoe under the strut's foot
+    }
+    for (const [a, b] of [[-2.6, 0], [0, 2.6]]) {                                                                         // cross-bracing between the struts
+      beam(DG, V(a, -1.5, 1.13), V(b, -3.9, -0.71), 0.11, ltW); beam(DG, V(b, -1.5, 1.13), V(a, -3.9, -0.71), 0.11, ltW);
+    }
+    DG.add(new THREE.BoxGeometry(5.6, 0.16, 0.16), dkW, [0, -2.72, 0.18]);                                                // a rail tying the three brackets together
+    for (let x = -3; x <= 3.01; x += 1.0) DG.add(new THREE.BoxGeometry(0.1, 1.0, 0.1), 0x8a5a3c, [x, 0.5, 2.25]);          // railing
     for (const sx of [-3.05, 3.05]) for (let z = -1.1; z <= 2.21; z += 1.1) DG.add(new THREE.BoxGeometry(0.1, 1.0, 0.1), 0x8a5a3c, [sx, 0.5, z]);
-    DG.add(new THREE.BoxGeometry(6.2, 0.1, 0.12), 0xa06d48, [0, 1.02, 2.25]); for (const sx of [-3.05, 3.05]) DG.add(new THREE.BoxGeometry(0.12, 0.1, 3.4), 0xa06d48, [sx, 1.02, 0.55]);
-    for (const sx of [-2.9, 2.9]) DG.add(new THREE.BoxGeometry(0.3, 7, 0.3), 0x7a5238, [sx, -3.6, 2.1]);
-    for (const sx of [-2.9, 2.9]) DG.add(new THREE.BoxGeometry(0.12, 4.2, 0.12), 0x7a5238, [sx, -2.2, 0.6], [-0.75, 0, 0]);
+    for (const y of [1.02, 0.55]) { DG.add(new THREE.BoxGeometry(6.2, y > 1 ? 0.1 : 0.07, y > 1 ? 0.12 : 0.07), ltW, [0, y, 2.25]); for (const sx of [-3.05, 3.05]) DG.add(new THREE.BoxGeometry(y > 1 ? 0.12 : 0.07, y > 1 ? 0.1 : 0.07, 3.4), ltW, [sx, y, 0.55]); }
     mk(DG.build(), toon(0xffffff, { vc: true, soft: true }), { parent: g, outline: 0.015 });
+    // the cliff under the deck: rock closes the gap in the top row, and a corbel stone bulges out to take each strut
+    const CR = new Geo();
+    for (const bx of [-3.2, -1.3, 1.3, 3.2]) CR.add(lumpy(1, 14, 10, 0.2, 1.3), rockCol, [bx + rand(-0.2, 0.2), -2.85, -2.7], [0, rand(0, 6), 0], [rand(1.7, 2.0), rand(2.2, 2.5), rand(1.6, 1.8)]);
+    for (const bx of [-2.6, 0, 2.6]) CR.add(lumpy(1, 14, 10, 0.18, 1.5), rockCol, [bx, -5.75, -2.3], [0, rand(0, 6), 0], [1.15, 0.9, 1.25]);
+    mk(CR.build(), rockMat2, { parent: g, outline: 0.06 });
     const bench = new THREE.Group(); bench.position.set(0, 0, 1.0); g.add(bench);
     mk(new THREE.BoxGeometry(2.4, 0.14, 0.7), woodMat, { parent: bench, pos: [0, 0.55, 0], outline: 0.02 });
     mk(new THREE.BoxGeometry(2.4, 0.6, 0.12), woodMat, { parent: bench, pos: [0, 0.95, -0.34], outline: 0.02 });
@@ -3431,6 +3492,9 @@ function tickSmoke(dt) {
 /* ---------------- lamps along the paths that light up after dark ---------------- */
 const lampBulb = new THREE.MeshBasicMaterial({ color: 0xd9cfb0 });
 const lampGlow = new THREE.SpriteMaterial({ map: TEX.mote, color: 0xffd27a, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 });
+const lampStone = toon(0xcfc7b8, { map: TEX.stone });
+const lampFoot = new THREE.CylinderGeometry(0.2, 0.3, 0.24, 12);
+const lampCage = (() => { const G = new Geo(); for (let i = 0; i < 4; i++) { const a = i * Math.PI / 2 + 0.785; G.add(new THREE.CylinderGeometry(0.014, 0.014, 0.62, 5), 0xffffff, [Math.cos(a) * 0.235, 0.02, Math.sin(a) * 0.235]); } return G.build(); })();
 {
   let side = 1, n = 0;
   for (let i = 3; i < PATH_SAMPLES.length - 2 && n < 40; i += 7) {
@@ -3440,10 +3504,15 @@ const lampGlow = new THREE.SpriteMaterial({ map: TEX.mote, color: 0xffd27a, tran
     const x = p.x + (-(q.z - p.z) / dl) * 2.7 * side, z = p.z + ((q.x - p.x) / dl) * 2.7 * side;
     if (solids.some(s => Math.hypot(s.x - x, s.z - z) < s.r + 0.8 && s.bottom < -50) || Math.hypot(x - POND.x, z - POND.z) < POND.r + 2) continue;
     const y = terrain(x, z), g = new THREE.Group(); g.position.set(x, y, z); scene.add(g);
-    mk(new THREE.CylinderGeometry(0.07, 0.1, 2.7, 8), 0x5a4436, { parent: g, pos: [0, 1.35, 0], outline: 0.025 });
-    mk(new THREE.CylinderGeometry(0.16, 0.2, 0.12, 10), 0x5a4436, { parent: g, pos: [0, 2.72, 0], outline: 0.02 });
+    mk(new THREE.CylinderGeometry(0.07, 0.1, 2.7, 10), 0x5a4436, { parent: g, pos: [0, 1.35, 0], outline: 0.025 });
+    mk(lampFoot, lampStone, { parent: g, pos: [0, 0.02, 0], outline: 0.03 });
+    mk(new THREE.CylinderGeometry(0.13, 0.15, 0.3, 10), 0x5a4436, { parent: g, pos: [0, 0.42, 0], outline: 0.02 });
+    mk(new THREE.TorusGeometry(0.095, 0.03, 6, 14), 0x6e5645, { parent: g, pos: [0, 1.5, 0], rot: [Math.PI / 2, 0, 0], outline: 0.012 });
+    mk(new THREE.CylinderGeometry(0.2, 0.1, 0.16, 12), 0x5a4436, { parent: g, pos: [0, 2.7, 0], outline: 0.02 });
     mk(SPH_MED, lampBulb, { parent: g, pos: [0, 3.0, 0], scale: [0.22, 0.28, 0.22], outline: 0.025, shadow: false });
-    mk(new THREE.ConeGeometry(0.3, 0.26, 10), 0x5a4436, { parent: g, pos: [0, 3.36, 0], outline: 0.02 });
+    mk(lampCage, 0x5a4436, { parent: g, pos: [0, 3.0, 0], outline: 0, shadow: false });
+    mk(new THREE.ConeGeometry(0.34, 0.28, 12), 0x5a4436, { parent: g, pos: [0, 3.37, 0], outline: 0.02 });
+    mk(SPH_LO, 0x5a4436, { parent: g, pos: [0, 3.55, 0], scale: 0.06, outline: 0.012 });
     const s = new THREE.Sprite(lampGlow); s.position.y = 3.0; s.scale.setScalar(3.4); g.add(s);
     solid(x, z, 0.3, y + 2.8);
     lampLights.push({ p: new V3(x, y + 2.9, z), r: 9.5, kind: 'out' });
