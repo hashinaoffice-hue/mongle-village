@@ -113,6 +113,10 @@ button{font:inherit;color:inherit}
 /* time-of-day chip */
 .clock{display:inline-flex;align-items:center;gap:7px;padding:.38em .95em .38em .7em;border-radius:999px;font-family:var(--display);font-size:15px}
 .clock #clockT{font-variant-numeric:tabular-nums;opacity:.7;font-size:14px}
+#clockW,.ch .wx{font-style:normal;font-family:var(--display);font-size:12.5px;line-height:1;padding:.22em .55em;border-radius:999px;border:1.5px solid var(--ink);background:#cfe3f6}
+#clockW:empty{display:none}
+#clockW[data-w="snow"],.ch .wx[data-w="snow"]{background:#fff}
+.ch .wx{position:absolute;left:-5px;top:-7px;font-size:10.5px;padding:.18em .4em}
 .clock i{width:14px;height:14px;border-radius:50%;border:2px solid var(--ink);background:#ffd86b}
 .clock[data-phase="새벽"] i{background:linear-gradient(#b9a6e6,#f6b3c2)}
 .clock[data-phase="아침"] i{background:#ffe08a}
@@ -251,7 +255,7 @@ button{font:inherit;color:inherit}
   </div>
 </div>
 <div id="bar">
-  <div id="clock" class="chip clock" title="지금 시간에 맞춰 하늘이 바뀌어요 (채널마다 1시간씩 늦어요)"><i aria-hidden="true"></i><span id="clockPh">낮</span><span id="clockT"></span></div>
+  <div id="clock" class="chip clock" title="지금 시간에 맞춰 하늘이 바뀌어요 (채널마다 1시간씩 늦어요)"><i aria-hidden="true"></i><span id="clockPh">낮</span><span id="clockT"></span><em id="clockW"></em></div>
   <button class="btn" id="bSwap" hidden>친구 바꾸기</button>
   <button class="btn snd" id="bMap" hidden aria-pressed="true" aria-controls="map" title="지도 펴기/접기 (M)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M2.5 5l5-2 5 2 5-2v12l-5 2-5-2-5 2z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M7.5 3v12M12.5 5v12" stroke="currentColor" stroke-width="1.6"/></svg>지도</button>
   <div id="gfx" class="seg" role="group" aria-label="그래픽 설정"><span>화질</span><button type="button" data-l="2">낮음</button><button type="button" data-l="1">중간</button><button type="button" data-l="0">높음</button></div>
@@ -319,6 +323,27 @@ function skyNow(ch = skyCh) {
   if (SKY_Q.has('t')) { const d = new Date(SKY_T0); d.setHours(0, 0, 0, 0); return new Date(d.getTime() + (+SKY_Q.get('t')) * 3600e3 + (SKY_Q.has('speed') ? run : 0) - lag); }
   return new Date(SKY_T0 + run - lag);
 }
+/* ---------------- weather: each channel has its own rain and snow ----------------
+   The schedule is worked out from the clock alone, so everyone in a channel sees the same weather and it survives the
+   server going to sleep. Time is cut into six-hour blocks; in a little over half of them a spell of weather starts at a
+   random moment and lasts four hours. Rain builds from a drizzle to a downpour with thunder; snow piles up the longer
+   it falls and melts away toward the end.   Preview: ?w=rain&wp=0.7 (kind, and how far through the four hours). */
+const WX = { BLOCK: 6 * 3600e3, LEN: 4 * 3600e3, off: 0 };   // off: the server's clock minus ours
+const wxHash = n => { let x = Math.imul(n ^ 0x9e3779b9, 0x85ebca6b); x ^= x >>> 13; x = Math.imul(x, 0xc2b2ae35); x ^= x >>> 16; return (x >>> 0) / 4294967296; };
+const WX_CLEAR = { type: null, p: 0, k: 0, snow: 0, storm: false };
+function wxShape(type, p) {
+  if (type === 'rain') { const k = (0.14 + 0.86 * smooth(0.04, 0.62, p)) * smooth(0, 0.015, p) * (1 - smooth(0.9, 1, p)); return { type, p, k, snow: 0, storm: k > 0.8 }; }
+  return { type, p, k: smooth(0, 0.03, p) * (1 - smooth(0.78, 0.96, p)), snow: smooth(0.03, 0.6, p) * (1 - smooth(0.76, 1, p)), storm: false };
+}
+function weatherAt(ch = skyCh, ms = Date.now() + WX.off) {
+  if (SKY_Q.has('w')) return /^(rain|snow)$/.test(SKY_Q.get('w')) ? wxShape(SKY_Q.get('w'), clamp(SKY_Q.has('wp') ? +SKY_Q.get('wp') : 0.5, 0, 0.999)) : WX_CLEAR;
+  const b = Math.floor(ms / WX.BLOCK), h = wxHash(b * 131 + ch * 7919 + 17);
+  if (h > 0.55) return WX_CLEAR;
+  const p = (ms - (b * WX.BLOCK + wxHash(b * 977 + ch * 331 + 5) * (WX.BLOCK - WX.LEN))) / WX.LEN;
+  return p < 0 || p >= 1 ? WX_CLEAR : wxShape(h < 0.33 ? 'rain' : 'snow', p);
+}
+// the weather as it is drawn right now: eased toward the schedule so nothing snaps
+const wx = { type: null, rain: 0, snowfall: 0, snow: 0, storm: false, p: 0, stage: null, flash: 0, ft: 9, next: 6, bad: 0 };
 const LAT = 37.5 * Math.PI / 180, LON = 127;
 // local solar time, corrected by the equation of time so sunrise and sunset land on the real minute
 const solarHour = date => {
@@ -364,6 +389,7 @@ const skyU = {
   zenith: { value: new THREE.Color() }, horizon: { value: new THREE.Color() }, glow: { value: new THREE.Color() }, glowK: { value: 0 },
   sunDir: { value: new V3(0, 1, 0) }, sunCol: { value: new THREE.Color() }, sunVis: { value: 1 },
   moonDir: { value: new V3(0, -1, 0) }, moonVis: { value: 0 }, phase: { value: 0.5 }, night: { value: 0 }, uTime: { value: 0 }, uPR: { value: 1 },
+  clear: { value: 1 },   // 1 = open sky; clouds of rain or snow hide the stars
 };
 {
   const m = new THREE.Mesh(new THREE.SphereGeometry(450, 64, 32), new THREE.ShaderMaterial({
@@ -429,10 +455,10 @@ const starField = (() => {
   g.setAttribute('aPh', new THREE.BufferAttribute(ph, 1)); g.setAttribute('aCol', new THREE.BufferAttribute(colr, 3));
   const pts = new THREE.Points(g, new THREE.ShaderMaterial({
     uniforms: skyU, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false,
-    vertexShader: `attribute float aSize; attribute float aPh; attribute vec3 aCol; uniform float uTime, night, uPR; varying vec3 vCol; varying float vA;
+    vertexShader: `attribute float aSize; attribute float aPh; attribute vec3 aCol; uniform float uTime, night, uPR, clear; varying vec3 vCol; varying float vA;
       void main(){ vec3 d = normalize(position);
         float tw = 0.62 + 0.38 * sin(uTime * (1.2 + fract(aPh * 7.31) * 3.5) + aPh * 6.2832);
-        vA = night * smoothstep(-0.02, 0.1, d.y) * tw; vCol = aCol;
+        vA = night * clear * smoothstep(-0.02, 0.1, d.y) * tw; vCol = aCol;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
         gl_PointSize = aSize * uPR * (0.85 + 0.3 * tw) * 2.1; }`,
     fragmentShader: `varying vec3 vCol; varying float vA;
@@ -479,6 +505,7 @@ const U = {
   uTime: { value: 0 }, uPlayer: { value: new V3(0, -99, 0) }, uDay: { value: 1 }, uNight: { value: 0 },
   // the 8 lamps nearest the player: xyz + reach, and how bright each is right now
   uLamps: { value: Array.from({ length: 8 }, () => new THREE.Vector4(0, -999, 0, 1)) }, uLampI: { value: new Array(8).fill(0) },
+  uWx: { value: new V3() },   // x: how much snow has settled (0..1), y: how hard it is raining
 };
 const GLSL_CLOUD = `
 float cloudShade(vec2 p){
@@ -490,11 +517,13 @@ float cloudShade(vec2 p){
 function patch(mat, o = {}) {
   const rim = o.rim || 0, wind = o.wind || 0, cloud = o.cloud !== false, ol = o.outline || 0, push = !!o.push;
   const lamp = !ol && o.lamp !== false, lift = o.lift === true ? 0.8 : (o.lift || 0), lk = (lift / 0.8).toFixed(3);
-  const key = ['P', rim, wind, cloud, ol, push, lamp, lift].join('|');
+  const snow = !ol && !mat.isMeshBasicMaterial && o.snow !== false && lift !== 0.8;   // creatures (lift) and water stay clear of snow
+  const snowUp = !!wind || !!o.snowUp;   // grass and other thin, two-sided blades count as facing the sky whichever way they are turned
+  const key = ['P', rim, wind, cloud, ol, push, lamp, lift, snow, snowUp].join('|');
   mat.customProgramCacheKey = () => key;
   mat.onBeforeCompile = sh => {
     sh.uniforms.uTime = U.uTime; sh.uniforms.uPlayer = U.uPlayer; sh.uniforms.uDay = U.uDay;
-    sh.uniforms.uLamps = U.uLamps; sh.uniforms.uLampI = U.uLampI; sh.uniforms.uNight = U.uNight;
+    sh.uniforms.uLamps = U.uLamps; sh.uniforms.uLampI = U.uLampI; sh.uniforms.uNight = U.uNight; sh.uniforms.uWx = U.uWx;
     let v = sh.vertexShader;
     if (ol) v = v.replace('#include <begin_vertex>', `vec3 transformed = position + normal * ${ol.toFixed(4)};`);
     v = v.replace('#include <project_vertex>', `
@@ -514,8 +543,18 @@ function patch(mat, o = {}) {
       gl_Position = projectionMatrix * mvPosition;`);
     sh.vertexShader = 'uniform float uTime;\nuniform vec3 uPlayer;\nvarying vec3 vWPos;\n' + v;
     let f = sh.fragmentShader;
-    if (cloud || rim || lamp || lift) f = f.replace('#include <tonemapping_fragment>', `
+    if (cloud || rim || lamp || lift || snow) f = f.replace('#include <tonemapping_fragment>', `
       ${cloud ? 'gl_FragColor.rgb *= cloudShade(vWPos.xz);' : ''}
+      ${snow ? `{ // out of doors only: not inside the tree (far east of the map) or under the lodge's roof
+        float wOut = step(vWPos.x, 1000.0) * (1.0 - step(abs(vWPos.x - ${CAB.x.toFixed(1)}), ${CAB.hw.toFixed(1)}) * step(abs(vWPos.z - ${CAB.z.toFixed(1)}), ${CAB.hd.toFixed(1)}) * step(vWPos.y, ${(CAB.fy + 6.6).toFixed(2)}));
+        if (uWx.x > 0.003 && wOut > 0.5) {   // snow settles first on whatever faces the sky, in patches, then creeps onto slopes as it deepens
+          vec3 wN = ${snowUp ? 'vec3(0.0, 1.0, 0.0)' : 'inverseTransformDirection(normalize(normal), viewMatrix)'};
+          float sn = sin(vWPos.x * 1.9 + vWPos.z * 0.7) * sin(vWPos.z * 2.3 - vWPos.x * 0.5) * 0.5 + sin(vWPos.x * 7.1) * sin(vWPos.z * 6.3) * 0.2;
+          float th = mix(1.14, 0.3, uWx.x), cov = smoothstep(th, th + 0.22, wN.y + sn * 0.16);
+          float lit = clamp(dot(gl_FragColor.rgb, vec3(0.34)) / max(dot(diffuseColor.rgb, vec3(0.34)), 0.1), 0.42, 1.12);   // keep the shadows and the night on the snow
+          gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(0.84, 0.88, 0.96) * lit, cov * 0.95);
+        }
+        gl_FragColor.rgb *= 1.0 - 0.17 * uWx.y * wOut; }` : ''}
       ${rim ? `{ float rr = 1.0 - max(dot(normalize(normal), normalize(vViewPosition)), 0.0);
         gl_FragColor.rgb += vec3(1.0, 0.95, 0.84) * pow(rr, 3.0) * ${rim.toFixed(3)}; }` : ''}
       ${lamp ? `{ // warm pools of light from the nearest lamps, lanterns and fires
@@ -526,7 +565,7 @@ function patch(mat, o = {}) {
         gl_FragColor.rgb = max(gl_FragColor.rgb, diffuseColor.rgb * mix(vec3(0.79, 0.81, 0.91), vec3(0.36, 0.41, 0.62), uNight) * ${lk});
         gl_FragColor.rgb += diffuseColor.rgb * vec3(0.55, 0.6, 0.8) * uNight * 0.2 * ${lk}; }` : ''}
       #include <tonemapping_fragment>`);
-    sh.fragmentShader = 'uniform float uTime;\nuniform float uDay;\nuniform float uNight;\nuniform vec4 uLamps[8];\nuniform float uLampI[8];\nvarying vec3 vWPos;\n' + (cloud ? GLSL_CLOUD : '') + '\n' + f;
+    sh.fragmentShader = 'uniform float uTime;\nuniform float uDay;\nuniform float uNight;\nuniform vec4 uLamps[8];\nuniform float uLampI[8];\nuniform vec3 uWx;\nvarying vec3 vWPos;\n' + (cloud ? GLSL_CLOUD : '') + '\n' + f;
   };
   return mat;
 }
@@ -1358,7 +1397,7 @@ TEX.plank = canvasTex(256, 64, (x, w, h) => {
 // churns up foam and rings. It is an ordinary lit material underneath, so shadows, fog, lamps and night still apply.
 function waterMaterial(o = {}) {
   const m = new THREE.MeshToonMaterial({ color: 0xffffff, gradientMap: GRAD_SOFT, transparent: true, side: THREE.DoubleSide });
-  patch(m, {}); const base = m.onBeforeCompile;
+  patch(m, { snow: false }); const base = m.onBeforeCompile;
   const u = { uWk: { value: new THREE.Vector4(o.ribbon ? 1 : 0, o.R || 1, o.W || 1, o.flow || 0) }, uImpact: { value: o.impact || new V3(0, 0, 0) }, uZen: skyU.zenith, uHor: skyU.horizon };
   m.customProgramCacheKey = () => 'water';
   m.onBeforeCompile = sh => {
@@ -1390,6 +1429,8 @@ function waterMaterial(o = {}) {
       if (uImpact.z > 0.0) { float wd = length(vWPos.xz - uImpact.xy);                                           // where a waterfall lands: churned foam, and rings running outward
         wFoam = max(wFoam, below(2.4, 1.1, wd + (v2.x - 0.4) * 1.3) * uImpact.z);
         wFoam = max(wFoam, smoothstep(0.72, 0.98, sin(wd * 4.2 - wT * 4.5)) * below(6.5, 2.0, wd) * 0.6 * uImpact.z); }
+      if (uWx.y > 0.02) { vec3 v3 = wVoro(vWPos.xz * 1.7 + 3.1, 0.0); float wr = fract(wT * 1.4 + v3.z * 9.0);     // raindrops: rings opening all over the surface
+        wFoam = max(wFoam, below(0.035, 0.0, abs(v3.x - wr * 0.42)) * (1.0 - wr) * step(1.0 - uWx.y * 0.9, fract(v3.z * 57.0)) * 0.8); }
       wFoam = clamp(wFoam, 0.0, 1.0);
       float wSpark = below(0.075, 0.02, v2.x) * step(0.5, sin(wT * 2.5 + v2.z * 40.0)) * (1.0 - wFoam);
       diffuseColor.rgb = mix(wc, vec3(0.8), wFoam); diffuseColor.a = mix(0.86, 1.0, clamp(wFoam + wFres * 0.6, 0.0, 1.0));`)
@@ -1440,7 +1481,8 @@ signpost(5, 178, [{ text: '할아버지 나무', to: [BIGTREE.x, BIGTREE.z] }]);
 
 // rocks are shaded per facet (flat), so the planes cut into them catch the light like chiselled stone;
 // their geometry keeps smooth normals, which the ink outline needs to stay in one piece
-const rockMat2 = patch(new THREE.MeshToonMaterial({ color: 0xffffff, gradientMap: GRAD_SOFT, vertexColors: true, flatShading: true }), { rim: 0.1, lift: 0.56 });
+const rockMat2 = patch(new THREE.MeshToonMaterial({ color: 0xffffff, gradientMap: GRAD_SOFT, vertexColors: true }), { rim: 0.1, lift: 0.56 });
+rockMat2.flatShading = true;   // (this three.js version's toon material takes the flag, just not through its constructor)
 function rocky(seg = 12) {
   const g = new THREE.IcosahedronGeometry(1, seg >= 14 ? 3 : seg >= 10 ? 2 : 1), p = g.attributes.position, so = rand(0, 100), v = new V3(), planes = [];
   const nCut = seg >= 14 ? 13 : seg >= 10 ? 10 : 7;
@@ -1984,7 +2026,7 @@ let makeFlutter = null;   // builds one butterfly (used by the fox's own butterf
 // flutter: wander between spots near home with little bobs, sometimes settle on the grass to rest; hide at night
 const _bw = new V3();
 function tickButterflies(dt, T, night) {
-  const show = 1 - smooth(0.35, 0.7, night);
+  const show = (1 - smooth(0.35, 0.7, night)) * (1 - clamp(wx.bad * 3, 0, 1));   // butterflies shelter from rain and snow
   for (const b of butterflies) {
     const far = !player || player.zone === 'tower' ? true : b.pos.distanceToSquared(player.pos) > 8100;   // the lodge window still shows them
     b.b.visible = show > 0.01 && !(far && player);
@@ -2352,7 +2394,7 @@ function tickResidents(dt) {
     let d = (near ? Math.atan2(dx, dz) : r.baseYaw) - r.g.rotation.y; d = Math.atan2(Math.sin(d), Math.cos(d));
     r.g.rotation.y += d * Math.min(1, dt * 4);
     if (r.hop) { if ((r.hopT -= dt) <= 0) { r.hopT = rand(0.6, 2.4); r.vy = 3.2; } r.vy -= 14 * dt; r.oy = Math.max(0, r.oy + r.vy * dt); r.g.position.y = r.pos.y + r.oy; }
-    if ((r.cool -= dt) <= 0 && near) { residentTalk(r, pick(r.lines)); r.cool = rand(6, 10); }
+    if ((r.cool -= dt) <= 0 && near) { residentTalk(r, sayLine(r.lines, r.voice)); r.cool = rand(6, 10); }
     if (r.update) r.update(r, dt, near);
     placeBubble(r, dt);
   }
@@ -2481,13 +2523,13 @@ function polyAt(pts, L, s) { let i = 1; while (i < pts.length - 1 && L[i] < s) i
   // 1. little fox Popo chases her own butterfly round the clearing between the lodge and the falls
   const C = { x: CAB.x + 3, z: CAB.z - 23, r: 10 }, home = { x: CAB.x + CAB.hw + 3.2, z: CAB.z + 5 };
   const bf = makeFlutter('#c9b2f2'); bf.b.scale.setScalar(1.15);
-  const fox = addWanderer(makeFox(), { name: '꼬마 여우 포포', voice: 'fox', pos: new V3(C.x, 0, C.z), rad: 0.55,
+  const fox = addWanderer(makeFox(), { name: '꼬마 여우 포포', voice: 'fox', key: 'fox', pos: new V3(C.x, 0, C.z), rad: 0.55,
     lines: ['나비야 거기 서~!', '이번엔 꼭 잡을 거야!', '너도 나비 좋아해?', '폭포 근처엔 나비가 많아', '같이 잡을래?'],
     nightLines: ['쿨쿨…', '음냐… 나비야…', 'Zzz…'] });
   const B = { pos: new V3(C.x + 3, 1.6, C.z), tgt: new V3(), t: 0, fast: 0 };
   fox.tick = (w, dt, T, night) => {
     const st = w.st, sleepy = night > 0.6;
-    bf.b.visible = !sleepy && w.near;
+    bf.b.visible = !sleepy && w.near && wx.bad < 0.3;
     if (sleepy) {   // night: curl up beside the lodge porch, walking round the lodge's south-east corner to get there
       const viaCorner = w.pos.x < home.x - 0.5 && w.pos.z < CAB.z - CAB.hd;
       const d = viaCorner ? (wGo(w, home.x, CAB.z - CAB.hd - 2.5, 2.2, dt), 9) : wGo(w, home.x, home.z, 2.2, dt);
@@ -2527,7 +2569,7 @@ function polyAt(pts, L, s) { let i = 1; while (i < pts.length - 1 && L[i] < s) i
 
   // 2. a duck family swimming round the forest pond, three ducklings in a row behind their mother
   const waterY = POND_TOP - 0.95, PR = (a) => POND.r * 0.52 + Math.sin(a * 2) * 0.7;
-  const mom = addWanderer(makeDuck(), { name: '오리 엄마', voice: 'duck', pos: new V3(POND.x + 3, waterY, POND.z), float: true, scale: 0.9,
+  const mom = addWanderer(makeDuck(), { name: '오리 엄마', voice: 'duck', key: 'duck', pos: new V3(POND.x + 3, waterY, POND.z), float: true, scale: 0.9,
     lines: ['꽥꽥! 우리 아기들 귀엽죠?', '아가들아, 엄마 따라오렴~', '연못 물이 참 시원해요', '꽥! 반가워요~'] });
   const kids = [0, 1, 2].map(() => { const k = makeDuckling(); k.g.scale.setScalar(0.85); scene.add(k.g); return k; });
   mom.st.a = rand(0, 6.28);
@@ -2555,7 +2597,7 @@ function polyAt(pts, L, s) { let i = 1; while (i < pts.length - 1 && L[i] < s) i
 
   // 3. the post mouse walks the trail between the village and the lodge, resting at each end
   const route = TRAILS.cabin, RL = polyLen(route), RT = RL[RL.length - 1];
-  const post = addWanderer(makePostMouse(), { name: '우체부 찍찍이', voice: 'mouse', pos: new V3(route[0][0], 0, route[0][1]), scale: 1.25,
+  const post = addWanderer(makePostMouse(), { name: '우체부 찍찍이', voice: 'mouse', key: 'post', pos: new V3(route[0][0], 0, route[0][1]), scale: 1.25,
     lines: ['편지 배달 중이에요!', '나무꾼 아저씨께 소포가 왔어요', '마을이랑 오두막을 매일 오가요', '숲길은 지도를 보면 안 헤매요~'] });
   post.st.s = rand(0, RT); post.st.dir = 1; post.st.wait = 0;
   post.tick = (w, dt) => {
@@ -2571,7 +2613,7 @@ function polyAt(pts, L, s) { let i = 1; while (i < pts.length - 1 && L[i] < s) i
 
   // 4. grandma turtle strolls the village path, very slowly, stopping now and then to enjoy the view
   const walk = PATH_SAMPLES.map(q => [q.x + 1.6, q.z]), WL = polyLen(walk), WT = WL[WL.length - 1];
-  const turtle = addWanderer(makeTurtle(), { name: '거북이 할머니', voice: 'turtle', pos: new V3(walk[0][0], 0, walk[0][1]), scale: 1.1,
+  const turtle = addWanderer(makeTurtle(), { name: '거북이 할머니', voice: 'turtle', key: 'turtle', pos: new V3(walk[0][0], 0, walk[0][1]), scale: 1.1,
     lines: ['천천히 가도 괜찮단다~', '오늘 햇살이 참 좋구나', '푸딩 산 꼭대기엔 가 봤니?', '나는 이 길을 백 년째 걷는단다', '서두르지 말고 꽃도 보렴'] });
   turtle.st.s = rand(0, WT); turtle.st.dir = 1; turtle.st.wait = 0;
   turtle.tick = (w, dt) => {
@@ -2597,7 +2639,7 @@ function tickWanderers(dt, T, night) {
     if (!w.near) { w.el.classList.remove('show'); w.say = 0; if (w.onFar) w.onFar(); continue; }   // far away: rest until someone comes by
     // someone close: stop, turn to them and say hello
     if (!player) w.pause = 0;
-    else if (Math.hypot(player.pos.x - w.pos.x, player.pos.z - w.pos.z) < 4.5 && Math.abs(player.pos.y - w.pos.y) < 3 && (w.cool -= dt) <= 0) { wTalk(w, pick(w.lines)); w.cool = rand(7, 11); w.pause = 2.6; }
+    else if (Math.hypot(player.pos.x - w.pos.x, player.pos.z - w.pos.z) < 4.5 && Math.abs(player.pos.y - w.pos.y) < 3 && (w.cool -= dt) <= 0) { wTalk(w, sayLine(w.lines, w.lines === w.nightLines ? null : w.key)); w.cool = rand(7, 11); w.pause = 2.6; }
     if (w.pause > 0) w.pause -= dt;
     w.tick(w, dt, T, night);
     if (!w.float) { wPush(w, w.rad || 0.5); w.pos.y = terrain(w.pos.x, w.pos.z); }
@@ -3537,7 +3579,9 @@ const falls = { mist: [], rainbow: null, base: new V3(), t: 0, top: 0, spring: n
   scene.add(mk(RG.build(), rockMat2, { pos: [fx, wy, pz], outline: 0.04 }));
   const wall = solid(fx, pz, pr - 0.15, wy + 0.4); wall.water = true; wall.nocam = true;
   falls.base.set(fx, wy + 0.4, fallFoot);
+  falls.streams = [{ pts: sPts, w: 1.3, y: () => TOP }];
   const cPts = flatRibbon(cCurve, 0.95, (x, z) => Math.max(terrain(x, z), x < fx + pr + 1 ? wy : -1e9) + 0.07, waterMaterial({ ribbon: true, W: 1.9, flow: 1.0 }), 70);
+  falls.streams.push({ pts: cPts.slice(4), w: 0.95, y: (x, z) => terrain(x, z) });
   { const CR = new Geo(); cPts.forEach((q, i) => { if (i % 3 || i < 3) return; for (const sg2 of [-1, 1]) CR.add(rocky(8), rockCol, [q.x + sg2 * rand(1.2, 1.6) - fx, terrain(q.x, q.z) - wy, q.z + rand(-0.3, 0.3) - pz], [0, rand(0, 6), 0], rand(0.22, 0.4)); });
     const e = cPts[cPts.length - 1]; for (let i = 0; i < 6; i++) CR.add(rocky(10), rockCol, [e.x + rand(-1.2, 1.2) - fx, terrain(e.x, e.z) - wy, e.z + rand(-1.2, 1.2) - pz], [0, rand(0, 6), 0], rand(0.5, 0.9));
     scene.add(mk(CR.build(), rockMat2, { pos: [fx, wy, pz], outline: 0.03 }));
@@ -3555,7 +3599,7 @@ function tickFalls(dt, S) {
   const d = player ? player.pos.distanceTo(falls.base) : 999;
   Snd.setFalls(player ? Math.pow(clamp(1 - d / 85, 0, 1), 2) * (player.zone === 'cabin' ? 0.5 : player.zone === 'world' ? 1 : 0) : 0);
   if (d > 170) return;
-  falls.rainbow.material.opacity = 0.2 * (1 - S.night) * S.shaft;
+  falls.rainbow.material.opacity = 0.2 * (1 - S.night) * S.shaft * (1 - wx.bad);
   for (const m of falls.mist) {
     m.age += dt;
     if (m.age > 3) { m.age = 0; m.s.position.copy(falls.base).add(new V3(rand(-2.2, 2.2), 0, rand(-0.5, 0.8))); m.v.set(rand(-0.3, 0.3), rand(0.9, 1.6), rand(0.4, 0.9)); }
@@ -3674,14 +3718,16 @@ function updateSky(dt, T) {
   const e = Math.asin(sunD.y) * 180 / Math.PI, am = solarHour(date) < 12;
   const S = sampleSky(am ? SKY_AM : SKY_PM, e);
   tickShower(dt); if (shower.k > 0) blendSky(S, SKY_SHOWER, shower.k);
+  tickWeather(dt, T); skyWeather(S);
   skyU.zenith.value.copy(S.zen); skyU.horizon.value.copy(S.hor); skyU.glow.value.copy(S.glow); skyU.glowK.value = S.glowK;
-  skyU.sunDir.value.copy(sunD); skyU.sunCol.value.copy(SUN_LOW).lerp(SUN_HIGH, smooth(0, 20, e)); skyU.sunVis.value = smooth(-2.5, 0.5, e) * (1 - shower.k);
+  skyU.sunDir.value.copy(sunD); skyU.sunCol.value.copy(SUN_LOW).lerp(SUN_HIGH, smooth(0, 20, e)); skyU.sunVis.value = smooth(-2.5, 0.5, e) * (1 - shower.k) * (1 - wx.bad);
   skyU.moonDir.value.copy(moonD); skyU.phase.value = ph; skyU.night.value = S.night;
-  skyU.moonVis.value = smooth(-0.03, 0.04, moonD.y) * (0.3 + 0.7 * S.night);
+  skyU.moonVis.value = smooth(-0.03, 0.04, moonD.y) * (0.3 + 0.7 * S.night) * (1 - wx.bad * 0.9); skyU.clear.value = 1 - wx.bad;
+  const dusk = Math.max(S.night, wx.rain * 0.6, wx.snowfall * 0.22);   // lamps come on in a downpour too
   skyU.uTime.value = T; skyU.uPR.value = renderer.getPixelRatio();
   sky.position.copy(camera.position);
   U.uDay.value = 1 - S.night; U.uNight.value = S.night;
-  updateLamps(player ? player.pos : camTarget, S.night, T);
+  updateLamps(player ? player.pos : camTarget, dusk, T);
   // light comes from the sun by day and the moon by night, never skimming the ground too flat
   _sunL.set(sunD.x, Math.max(sunD.y, 0.32), sunD.z).normalize();
   if (moonD.y > -0.05) _moonL.set(moonD.x, Math.max(moonD.y, 0.45), moonD.z).normalize(); else _moonL.set(0.25, 0.85, -0.45).normalize();
@@ -3689,9 +3735,9 @@ function updateSky(dt, T) {
   cloudU.uLit.value.copy(S.cloud); cloudU.uShade.value.copy(S.cloud).multiply(CLOUD_SHADE).lerp(S.hor, 0.28); cloudU.uGlow.value.copy(S.glowK > 0.05 ? S.glow : S.lc);
   cloudU.uSun.value.copy(lightDir); cloudU.uAlpha.value = 1 - 0.15 * S.night;
   basic(0xcfeefc).color.copy(GLASS_DAY).lerp(GLASS_NIGHT, S.night);
-  lampBulb.color.copy(BULB_DAY).lerp(BULB_NIGHT, smooth(0.2, 0.7, S.night)); lampGlow.opacity = 0.9 * smooth(0.2, 0.8, S.night);
+  lampBulb.color.copy(BULB_DAY).lerp(BULB_NIGHT, smooth(0.2, 0.7, dusk)); lampGlow.opacity = 0.9 * smooth(0.2, 0.8, dusk);
   // sunlit dust by day becomes fireflies at night
-  const pm = motes.pts.material; pm.color.copy(MOTE_DAY).lerp(MOTE_NIGHT, S.night); pm.size = 0.3 + 0.16 * S.night; pm.opacity = (0.7 + 0.3 * S.night) * (0.8 + 0.2 * Math.sin(T * 2.3));
+  const pm = motes.pts.material; pm.color.copy(MOTE_DAY).lerp(MOTE_NIGHT, S.night); pm.size = 0.3 + 0.16 * S.night; pm.opacity = (0.7 + 0.3 * S.night) * (0.8 + 0.2 * Math.sin(T * 2.3)) * (1 - wx.bad);
   // shooting stars
   const sh = shooting;
   if (sh.life > 0) {
@@ -3841,6 +3887,34 @@ const Snd = (() => {
     tone({ f: b * 0.7, f2: b * 1.9, glide: 0.14, d: 0.2, v: 0.12 * k, pan });
     tone({ f: b * 1.4, f2: b * 3.6, glide: 0.1, d: 0.12, v: 0.03 * k, type: 'triangle', pan });
   }
+  function splish(run, k = 1, pan) {   // a foot in the brook
+    if (!on() || k <= 0.02) return; const t = ctx.currentTime;
+    hiss({ ft: 'highpass', f: rand(1500, 2100), d: run ? 0.2 : 0.15, v: (run ? 0.11 : 0.08) * k, pan }); tone({ f: rand(520, 680), f2: 230, glide: 0.1, d: 0.12, v: 0.06 * k, pan });
+    tone({ t: t + 0.07, f: rand(800, 1000), f2: 420, glide: 0.07, d: 0.08, v: 0.03 * k, pan });
+  }
+  function snowStep(run) {   // deep snow: a soft, squeaky crunch underfoot
+    if (!on()) return; const t = ctx.currentTime, d = run ? 0.1 : 0.14;
+    hiss({ ft: 'bandpass', f: rand(700, 1000), q: 0.8, d, v: 0.085 }); hiss({ t: t + 0.03, ft: 'bandpass', f: rand(2600, 3400), q: 1.6, d: d * 0.7, v: 0.03 });
+    tone({ f: rand(95, 120), f2: 70, d: 0.07, v: 0.03 });
+  }
+  let rainGain = null;   // steady rain: looped noise, brighter and louder as it comes down harder
+  function setRain(k) {
+    if (!ctx || (!rainGain && k < 0.01)) return;
+    if (!rainGain) {
+      const src = ctx.createBufferSource(); src.buffer = noise; src.loop = true;
+      const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 900;
+      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 7000;
+      rainGain = ctx.createGain(); rainGain.gain.value = 0;
+      src.connect(hp); hp.connect(lp); lp.connect(rainGain); rainGain.connect(sfxBus); src.start(0, 0.37);
+    }
+    rainGain.gain.setTargetAtTime(k * (0.05 + 0.13 * k), ctx.currentTime, 0.5);
+  }
+  function thunder(k = 1) {   // a sharp crack, then a long roll that grumbles away
+    if (!on()) return; const t = ctx.currentTime;
+    hiss({ ft: 'bandpass', f: 1700, q: 0.6, d: 0.22, v: 0.22 * k }); hiss({ t: t + 0.04, ft: 'lowpass', f: 320, d: 2.6, v: 0.6 * k });
+    tone({ t: t + 0.03, f: 78, f2: 34, glide: 1.2, d: 1.9, v: 0.42 * k }); tone({ t: t + 0.55, f: 62, f2: 30, glide: 1.0, d: 1.7, v: 0.26 * k });
+    hiss({ t: t + 0.9, ft: 'lowpass', f: 200, d: 2.2, v: 0.3 * k });
+  }
   function land(k, pan) { if (!on() || k <= 0.02) return; tone({ f: 160, f2: 55, glide: 0.1, d: 0.14, v: 0.2 * k, pan }); hiss({ ft: 'lowpass', f: 700, d: 0.12, v: 0.1 * k, pan }); }
   function wobble(k) { if (!on() || k <= 0.02) return; tone({ f: 120, f2: 210, glide: 0.25, d: 0.45, v: 0.12 * k, type: 'sine' }); tone({ t: ctx.currentTime + 0.12, f: 200, f2: 130, glide: 0.25, d: 0.35, v: 0.07 * k }); }
   function bloom(k, pan) { if (!on() || k <= 0.02) return; const t0 = ctx.currentTime; [88, 93, 96].forEach((n, i) => { tone({ t: t0 + i * 0.07, f: mtof(n), d: 0.5, v: 0.035 * k, pan }); tone({ t: t0 + i * 0.07, f: mtof(n) * 2.76, d: 0.2, v: 0.008 * k, pan }); }); }
@@ -3950,7 +4024,7 @@ const Snd = (() => {
     tone({ f: 180, f2: 70, glide: 0.08, d: 0.12, v: 0.22 * k, pan }); hiss({ ft: 'bandpass', f: 1200, q: 2, d: 0.08, v: 0.12 * k, pan });
     tone({ t: t + 0.13, f: 520, f2: 380, glide: 0.05, d: 0.08, v: 0.06 * k, type: 'triangle', pan }); tone({ t: t + 0.2, f: 430, f2: 300, glide: 0.05, d: 0.08, v: 0.05 * k, type: 'triangle', pan });
   }
-  return { init, pop, step, jump, land, wobble, bloom, splash, door, chop, setFalls, setForest, star, fanfare, twinkle, boom, chime, speak, setMusic, setSfx, st };
+  return { init, pop, step, jump, land, wobble, bloom, splash, door, chop, setFalls, setForest, star, fanfare, twinkle, boom, splish, snowStep, setRain, thunder, chime, speak, setMusic, setSfx, st };
 })();
 const tmpE = new V3();
 // loudness (0..1) and stereo pan of a sound at `pos`, heard from the player
@@ -4008,8 +4082,13 @@ class Critter {
       if (this.pos.y <= s) {
         this.pos.y = s;
         if (this.vy < -6) {
-          this.squash = Math.min(1, -this.vy / 16); puff(this.pos);
-          const [k, p] = ear(this.pos); Snd.land(k * Math.min(1, -this.vy / 12), p);
+          this.squash = Math.min(1, -this.vy / 16);
+          const [k, p] = ear(this.pos), wet = this.zone === 'world' ? onStream(this.pos.x, this.pos.y, this.pos.z) : null;
+          if (wet != null) {   // a jump into the brook: one big splash
+            emit(dropTex, tmpD.set(this.pos.x, wet + 0.2, this.pos.z), 14, { size: 0.24, spread: 3.4, up: 3.2, life: 0.65, g: 11 }); ripple(this.pos.x, wet, this.pos.z, 1.9); ripple(this.pos.x, wet, this.pos.z, 1.1);
+            Snd.splish(true, k * 1.4, p);
+          } else puff(this.pos);
+          Snd.land(k * Math.min(1, -this.vy / 12), p);
           if (this.supSolid && this.supSolid.pud) { pudding.jig = 1; Snd.wobble(k); }
         }
         this.vy = 0; this.ground = true;
@@ -4049,8 +4128,16 @@ class Critter {
     }
     { const sg = sn >= 0;                                                    // each stride: a footstep for you, a puff of dust for anyone running
       if (sg !== this.lastSg && this.ground && this.speed > 0.6) {
-        if (this === player) Snd.step(this.speed > this.d.speed * 1.2);
-        if (this.speed > this.d.speed * 1.15 && this.obj.visible) emit(puffTex, tmpD.set(this.pos.x - Math.sin(this.yaw) * 0.5, this.pos.y + 0.12, this.pos.z - Math.cos(this.yaw) * 0.5), 2, { size: 0.3, spread: 0.7, up: 0.25, life: 0.45, g: -0.6 });
+        const fast = this.speed > this.d.speed * 1.15, wet = this.zone === 'world' ? onStream(this.pos.x, this.pos.y, this.pos.z) : null;
+        const snowy = wet == null && wx.snow > 0.45 && this.pos.x < 1000 && this.zone !== 'cabin';
+        if (this === player) wet != null ? Snd.splish(fast) : snowy ? Snd.snowStep(fast) : Snd.step(this.speed > this.d.speed * 1.2);
+        else if (wet != null) { const [k, p] = ear(this.pos); Snd.splish(fast, k * 0.7, p); }
+        if (!this.obj.visible) { /* nothing to show */ }
+        else if (wet != null) {   // splish-splash: drops fly up from the foot that just came down, and a ring opens round it
+          const fx2 = this.pos.x + Math.cos(this.yaw) * (sg ? 0.4 : -0.4), fz2 = this.pos.z - Math.sin(this.yaw) * (sg ? 0.4 : -0.4);
+          emit(dropTex, tmpD.set(fx2, wet + 0.15, fz2), fast ? 7 : 4, { size: fast ? 0.2 : 0.16, spread: fast ? 2.4 : 1.5, up: fast ? 2.4 : 1.6, life: 0.5, g: 11 });
+          ripple(fx2, wet, fz2, fast ? 1.25 : 0.9);
+        } else if (fast || snowy) emit(snowy ? snowTex : puffTex, tmpD.set(this.pos.x - Math.sin(this.yaw) * 0.5, this.pos.y + 0.12, this.pos.z - Math.cos(this.yaw) * 0.5), fast ? 2 : 1, { size: snowy ? 0.2 : 0.3, spread: 0.7, up: snowy ? 0.7 : 0.25, life: 0.45, g: snowy ? 4 : -0.6 });
       }
       this.lastSg = sg; }
     let dy = this.yaw - this.obj.rotation.y; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
@@ -4092,7 +4179,7 @@ class Critter {
     const near = player && player.pos.distanceTo(this.pos) < 5;
     if (near) {
       this.yaw = Math.atan2(player.pos.x - this.pos.x, player.pos.z - this.pos.z);
-      if (this.say <= 0 && !this.greeted) { this.talk(this.d.lines[(Math.random() * this.d.lines.length) | 0], 4); this.greeted = true; }
+      if (this.say <= 0 && !this.greeted) { this.talk(sayLine(this.d.lines, this.d.id), 4); this.greeted = true; }
     } else {
       if (player && player.pos.distanceTo(this.pos) > 9) this.greeted = false;
       if (this.goal) {
@@ -4135,6 +4222,20 @@ function emit(tex, pos, n, o = {}) {
   }
 }
 function puff(p) { emit(puffTex, p.clone().add(new V3(0, 0.15, 0)), 6, { size: 0.45, spread: 2, up: 0.2, life: 0.5, g: 0 }); }
+// rings spreading on water (feet in the brook, landings)
+const ripples = (() => { const g = new THREE.RingGeometry(0.8, 1, 28); g.rotateX(-Math.PI / 2);
+  return Array.from({ length: 14 }, () => { const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false })); m.visible = false; m.renderOrder = 2; m.userData.keep = true; scene.add(m); return { m, t: 9, s: 1 }; }); })();
+let ripI = 0;
+function ripple(x, y, z, s = 1) { const r = ripples[ripI++ % ripples.length]; r.t = 0; r.s = s; r.m.position.set(x, y + 0.04, z); r.m.visible = true; }
+function tickRipples(dt) { for (const r of ripples) if (r.m.visible) { r.t += dt; const u = r.t / 1.1; r.m.scale.setScalar(r.s * (0.25 + u * 1.15)); r.m.material.opacity = 0.75 * (1 - u); if (u >= 1) r.m.visible = false; } }
+const dropTex = spriteTex(x => { x.fillStyle = 'rgba(232,248,255,0.95)'; x.strokeStyle = 'rgba(90,150,190,.7)'; x.lineWidth = 3; x.beginPath(); x.arc(32, 36, 15, 0, 7); x.fill(); x.stroke(); });
+const snowTex = spriteTex(x => { x.fillStyle = 'rgba(255,255,255,0.95)'; x.strokeStyle = 'rgba(150,170,200,.5)'; x.lineWidth = 3; x.beginPath(); x.arc(32, 32, 22, 0, 7); x.fill(); x.stroke(); });
+// is this spot in one of the brooks (and not up on a bridge over it)? returns the water's height, or null
+function onStream(x, y, z) {
+  if (!falls.streams) return null;
+  for (const st of falls.streams) { const sy = st.y(x, z); if (Math.abs(y - sy) > 0.25) continue; const w2 = st.w * st.w * 0.85; for (const q of st.pts) if ((q.x - x) * (q.x - x) + (q.z - z) * (q.z - z) < w2) return sy; }
+  return null;
+}
 function tickParts(dt) {
   for (let i = parts.length - 1; i >= 0; i--) {
     const p = parts[i]; p.life -= dt;
@@ -4351,6 +4452,7 @@ async function start(i) {
   camYaw = Math.atan2(player.pos.x - 6, player.pos.z - 16) || 0.35;
   mode = 'play'; camIntro = 0; curZone = '몽글 마을'; zoneHold = 0;
   setTimeout(() => { if (mode === 'play') zoneBanner(curZone); }, 1500);
+  setTimeout(() => { if (mode === 'play' && WX_NOW[wx.stage]) toast(WX_NOW[wx.stage], 3600); }, 5200);
   ufoSet(Net.ufo ? 'crashed' : null);
   if (Net.shower > 1500) { startShower(Net.shower / 1000); setTimeout(() => toast('지금 이 채널에 별똥별이 쏟아지고 있어요!', 3500), 1200); }
   setTimeout(() => setMap(MAP.open), 0);
@@ -4392,7 +4494,7 @@ function connect(ch, charId, nick) {
     ws.onmessage = ev => {
       let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
       if (!settled) {
-        if (m.t === 'welcome') { settled = true; Object.assign(Net, { ws, id: m.id, nick: m.nick, ch: m.ch, max: m.max, ufo: !!m.ufo, shower: m.shower || 0 }); skyCh = m.ch; m.players.forEach(addRemote); resolve(m); }
+        if (m.t === 'welcome') { settled = true; Object.assign(Net, { ws, id: m.id, nick: m.nick, ch: m.ch, max: m.max, ufo: !!m.ufo, shower: m.shower || 0 }); if (m.now) WX.off = m.now - Date.now(); skyCh = m.ch; m.players.forEach(addRemote); resolve(m); }
         else if (m.t === 'full') { settled = true; reject('full'); }
         else if (m.t === 'taken') { settled = true; reject('taken'); }
         return;
@@ -4506,7 +4608,7 @@ function emote(k) {
   player.talk(PHRASES[k], 2.2); netSend({ t: 'e', k });
 }
 async function refreshChannels() {
-  try { const res = await fetch('/api/channels', { cache: 'no-store' }); chData = await res.json(); if (!joining && /서버에 연결할 수 없어요/.test($('status').textContent)) setStatus(''); }
+  try { const res = await fetch('/api/channels', { cache: 'no-store' }); chData = await res.json(); if (chData.now) WX.off = chData.now - Date.now(); if (!joining && /서버에 연결할 수 없어요/.test($('status').textContent)) setStatus(''); }
   catch (e) { chData = null; setStatus('서버에 연결할 수 없어요. 서버가 켜져 있는지 확인해 주세요.'); }
   if (chData && chData.channels[selCh] >= chData.max) { const free = chData.channels.findIndex(n => n < chData.max); if (free >= 0) selCh = free; }
   renderChannels();
@@ -4519,8 +4621,9 @@ function renderChannels() {
     const b = document.createElement('button'); b.className = 'ch'; b.id = 'ch-' + i;
     b.disabled = !chData || n >= max; b.setAttribute('aria-pressed', i === selCh);
     const sk = chSky(i);
-    b.title = '채널 ' + (i + 1) + ' · ' + sk.phase + ' ' + sk.time + ' (' + n + '/' + max + '명)';
-    b.innerHTML = '<i class="ph" data-phase="' + sk.phase + '" aria-hidden="true"></i><span class="n">' + (i + 1) + '</span><span class="c">' + n + '/' + max + '</span>';
+    const cw = weatherAt(i), wn = !cw.type ? '' : cw.type === 'rain' ? (cw.storm ? '천둥' : '비') : '눈';
+    b.title = '채널 ' + (i + 1) + ' · ' + sk.phase + ' ' + sk.time + (wn ? ' · ' + wn : '') + ' (' + n + '/' + max + '명)';
+    b.innerHTML = '<i class="ph" data-phase="' + sk.phase + '" aria-hidden="true"></i>' + (wn ? '<em class="wx" data-w="' + cw.type + '">' + wn + '</em>' : '') + '<span class="n">' + (i + 1) + '</span><span class="c">' + n + '/' + max + '</span>';
     b.addEventListener('click', () => { selCh = i; renderChannels(); Snd.pop(); });
     wrap.appendChild(b);
   }
@@ -4909,7 +5012,7 @@ function frame() {
   for (const s of forestBits.shafts) s.m.opacity = s.base * (0.7 + 0.3 * Math.sin(T * 0.5 + s.ph)) * S.shaft;
   TEX.water.offset.set(T * 0.012, T * 0.007);
   tickBlooms(dt);
-  tickParts(dt);
+  tickParts(dt); tickRipples(dt);
 
   // sun follows the player; snap to shadow texels so shadows don't shimmer
   const focus = player ? player.pos : camTarget.set(0, 0, 0);
@@ -4975,11 +5078,11 @@ if (renderer.capabilities.isWebGL2) {
   const field = new THREE.DataTexture(data, FW, FH, THREE.RGBAFormat); field.minFilter = field.magFilter = THREE.LinearFilter; field.generateMipmaps = false; field.needsUpdate = true;
   const MU = Meadow.U = { uGC: { value: Meadow.c }, uGL: { value: Meadow.L }, uField: { value: field }, uFRect: { value: new THREE.Vector4(FR.x0, FR.z0, 1 / FR.w, 1 / FR.h) }, uPlatY: { value: falls.top } };
   const mm = new THREE.MeshToonMaterial({ color: 0xffffff, gradientMap: GRAD_SOFT, vertexColors: true, side: THREE.DoubleSide });
-  patch(mm, {}); const base = mm.onBeforeCompile;
+  patch(mm, { snowUp: true }); const base = mm.onBeforeCompile;
   mm.customProgramCacheKey = () => 'meadow';
   mm.onBeforeCompile = sh => {
     base(sh); Object.assign(sh.uniforms, MU);
-    sh.vertexShader = `attribute vec4 aInst; uniform vec3 uGC; uniform float uGL, uPlatY; uniform sampler2D uField; uniform vec4 uFRect; varying float vTipK;
+    sh.vertexShader = `attribute vec4 aInst; uniform vec3 uWx; uniform vec3 uGC; uniform float uGL, uPlatY; uniform sampler2D uField; uniform vec4 uFRect; varying float vTipK;
       float rbox(vec2 p, vec2 c, vec2 b, float r){ vec2 q = abs(p - c) - b + r; return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r; }
       float terrainH(vec2 p){
         float h = 0.55 * sin(p.x * 0.07) * cos(p.y * 0.05) + 0.9 * sin(p.x * 0.023 + 1.3) * sin(p.y * 0.019 + 0.4);
@@ -4992,7 +5095,7 @@ if (renderer.capabilities.isWebGL2) {
       vec2 fuv = (ip - uFRect.xy) * uFRect.zw; vec4 fld = texture2D(uField, fuv);
       float gs = fld.r * step(0.0, fuv.x) * step(fuv.x, 1.0) * step(0.0, fuv.y) * step(fuv.y, 1.0) * (1.0 - smoothstep(HL * 0.66, HL * 0.97, length(ip - gc)));
       float ca = cos(aInst.z), sa = sin(aInst.z); vec3 lp = position;
-      lp.xz = vec2(ca * lp.x - sa * lp.z, sa * lp.x + ca * lp.z) * (0.75 + 0.5 * gs); lp.y *= (0.7 + 0.75 * aInst.w) * gs;
+      lp.xz = vec2(ca * lp.x - sa * lp.z, sa * lp.x + ca * lp.z) * (0.75 + 0.5 * gs); lp.y *= (0.7 + 0.75 * aInst.w) * gs * (1.0 - 0.76 * uWx.x);   // mostly buried under settled snow
       vec3 transformed = vec3(ip.x + lp.x, mix(terrainH(ip), uPlatY, step(0.5, fld.b)) + lp.y - 0.03, ip.y + lp.z);
       float hh = lp.y;
       float gust = sin(uTime * 0.85 - ip.x * 0.075 - ip.y * 0.05) * 0.5 + 0.5; gust *= gust;                                // slow waves rolling over the field
@@ -5007,6 +5110,133 @@ if (renderer.capabilities.isWebGL2) {
     sh.fragmentShader = 'varying float vTipK;\n' + sh.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n diffuseColor.rgb += vec3(0.10, 0.11, 0.03) * vTipK * 2.2;');   // the gust catches the light
   };
   Meadow.mesh = new THREE.Mesh(IG, mm); Meadow.mesh.frustumCulled = false; Meadow.mesh.receiveShadow = true; Meadow.mesh.userData.keep = true; scene.add(Meadow.mesh);
+}
+
+/* ---------------- weather on screen: rain and snow falling round the camera, lightning, and what changes with them ---------------- */
+const _wg = new THREE.Color(), WX_FLASH = new THREE.Color(0.86, 0.9, 1.0);
+function overcast(c, amt, r, g, b, dim) { const l = c.r * 0.3 + c.g * 0.59 + c.b * 0.11; c.lerp(_wg.setRGB(l * r, l * g, l * b), amt).multiplyScalar(1 - dim * amt); }
+function skyWeather(S) {
+  const r = wx.rain * 0.92, sn = wx.snowfall * 0.85;
+  if (r > 0.002) {         // rain: a low grey lid, weak sun, the far hills lost in it
+    overcast(S.zen, r, 0.74, 0.8, 0.92, 0.42); overcast(S.hor, r, 0.84, 0.89, 0.98, 0.34); overcast(S.fog, r, 0.84, 0.89, 0.98, 0.34); overcast(S.cloud, r, 0.8, 0.83, 0.92, 0.45);
+    overcast(S.hs, r * 0.7, 0.9, 0.94, 1.05, 0.12); overcast(S.lc, r * 0.8, 0.92, 0.96, 1.05, 0);
+    S.li *= 1 - 0.62 * r; S.hi *= 1 - 0.1 * r; S.glowK *= 1 - r; S.shaft *= 1 - r; S.fogMul *= 1 - 0.5 * r;
+  }
+  if (sn > 0.002) {        // snow: a pale, bright, close sky
+    const day = 1 - S.night;
+    overcast(S.zen, sn, 1.12 + 0.2 * day, 1.15 + 0.2 * day, 1.24 + 0.2 * day, 0); overcast(S.hor, sn, 1.08, 1.1, 1.15, 0); overcast(S.fog, sn, 1.1, 1.12, 1.17, 0); overcast(S.cloud, sn, 0.98, 1.0, 1.06, 0.1);
+    overcast(S.lc, sn * 0.8, 0.96, 0.98, 1.06, 0);
+    S.li *= 1 - 0.45 * sn; S.glowK *= 1 - sn; S.shaft *= 1 - sn; S.fogMul *= 1 - 0.55 * sn;
+  }
+  S.hi += 0.07 * wx.snow;                                            // settled snow throws light back up
+  if (wx.flash > 0.01) { const f = wx.flash; S.zen.lerp(WX_FLASH, f * 0.75); S.hor.lerp(WX_FLASH, f * 0.8); S.fog.lerp(WX_FLASH, f * 0.6); S.cloud.lerp(WX_FLASH, f * 0.7); S.hi += f * 0.9; }
+}
+const Precip = (() => {
+  const cabU = { value: new THREE.Vector4(CAB.x, CAB.z, CAB.hw + 0.3, CAB.hd + 0.3) }, cabTop = { value: CAB.fy + 9 };
+  const HIDE = `uniform vec4 uCab; uniform float uCabTop;
+    float hideIn(vec3 p){ return step(abs(p.x - uCab.x), uCab.z) * step(abs(p.z - uCab.y), uCab.w) * step(p.y, uCabTop); }`;   // nothing falls inside the lodge
+  // rain: short streaks, each a two-point line, falling fast on a slant and wrapping inside a box that follows the camera
+  const NR = IS_TOUCH ? 900 : 2400, rp = new Float32Array(NR * 6), re = new Float32Array(NR * 2), rr = new Float32Array(NR * 2);
+  for (let i = 0; i < NR; i++) { const x = Math.random(), y = Math.random(), z = Math.random(), q = Math.random(); rp.set([x, y, z, x, y, z], i * 6); re[i * 2] = 0; re[i * 2 + 1] = 1; rr[i * 2] = rr[i * 2 + 1] = q; }
+  const rg = new THREE.BufferGeometry(); rg.setAttribute('position', new THREE.BufferAttribute(rp, 3)); rg.setAttribute('aEnd', new THREE.BufferAttribute(re, 1)); rg.setAttribute('aR', new THREE.BufferAttribute(rr, 1));
+  const rU = { uC: { value: new V3() }, uTime: U.uTime, uK: { value: 0 }, uCol: { value: new THREE.Color(0.8, 0.88, 1) }, uCab: cabU, uCabTop: cabTop };
+  const rain = new THREE.LineSegments(rg, new THREE.ShaderMaterial({ uniforms: rU, transparent: true, depthWrite: false, fog: false,
+    vertexShader: HIDE + `attribute float aEnd, aR; uniform vec3 uC; uniform float uTime, uK; varying float vA;
+      void main(){ vec3 box = vec3(48.0, 30.0, 48.0), vel = vec3(-5.0 - 7.0 * uK, -(24.0 + 12.0 * aR + 10.0 * uK), -2.0 - 3.0 * uK);
+        vec3 p = mod(position * box + vel * uTime - uC + box * 0.5, box) - box * 0.5 + uC;
+        p -= normalize(vel) * aEnd * (0.5 + 0.9 * uK + 0.4 * aR);
+        vA = (0.3 + 0.35 * aR + 0.25 * uK) * (1.0 - hideIn(p)) * (1.0 - aEnd * 0.6);
+        gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0); }`,
+    fragmentShader: 'uniform vec3 uCol; varying float vA; void main(){ gl_FragColor = vec4(uCol, vA); }' }));
+  // snow: soft round flakes drifting down, swaying, near ones bigger
+  const NS = IS_TOUCH ? 1100 : 3000, sp = new Float32Array(NS * 3), sr = new Float32Array(NS);
+  for (let i = 0; i < NS; i++) { sp.set([Math.random(), Math.random(), Math.random()], i * 3); sr[i] = Math.random(); }
+  const sg = new THREE.BufferGeometry(); sg.setAttribute('position', new THREE.BufferAttribute(sp, 3)); sg.setAttribute('aR', new THREE.BufferAttribute(sr, 1));
+  const sU = { uC: { value: new V3() }, uTime: U.uTime, uPR: { value: 1 }, uCol: { value: new THREE.Color(1, 1, 1) }, uCab: cabU, uCabTop: cabTop };
+  const snow = new THREE.Points(sg, new THREE.ShaderMaterial({ uniforms: sU, transparent: true, depthWrite: false, fog: false,
+    vertexShader: HIDE + `attribute float aR; uniform vec3 uC; uniform float uTime, uPR; varying float vA;
+      void main(){ vec3 box = vec3(44.0, 26.0, 44.0);
+        vec3 p = position * box + vec3(uTime * 0.7 + sin(uTime * 0.7 + aR * 40.0) * 0.7, -uTime * (1.3 + aR * 1.5), cos(uTime * 0.5 + aR * 23.0) * 0.7);
+        p = mod(p - uC + box * 0.5, box) - box * 0.5 + uC;
+        vec4 mv = viewMatrix * vec4(p, 1.0); gl_Position = projectionMatrix * mv;
+        gl_PointSize = clamp((2.5 + 4.5 * aR) * uPR * 16.0 / max(-mv.z, 1.0), 1.5 * uPR, 16.0 * uPR);
+        vA = (0.65 + 0.35 * aR) * (1.0 - hideIn(p)); }`,
+    fragmentShader: 'uniform vec3 uCol; varying float vA; void main(){ float r = length(gl_PointCoord - 0.5); float a = (1.0 - smoothstep(0.22, 0.5, r)) * vA; if (a < 0.02) discard; gl_FragColor = vec4(uCol, a); }' }));
+  for (const m of [rain, snow]) { m.frustumCulled = false; m.userData.keep = true; m.renderOrder = 3; m.visible = false; scene.add(m); }
+  // a bolt of lightning: a jagged line far off in the sky, shown for the length of a flash
+  const bolt = new THREE.Line(new THREE.BufferGeometry().setFromPoints(Array.from({ length: 12 }, () => new V3())), new THREE.LineBasicMaterial({ color: 0xffffff, fog: false, transparent: true }));
+  bolt.frustumCulled = false; bolt.userData.keep = true; bolt.visible = false; scene.add(bolt);
+  return { rain, snow, bolt, NR, NS, rU, sU };
+})();
+const WX_MSG = { rain1: '비가 내리기 시작했어요', rain2: '빗줄기가 굵어지고 있어요', storm: '우르릉… 천둥번개가 쳐요!', snow1: '눈이 내리기 시작했어요', snow2: '눈이 소복이 쌓였어요', melt: '눈이 그치고 녹기 시작해요', clear: '날이 갰어요' };
+const WX_NOW = { rain1: '지금 이 채널엔 비가 내리고 있어요', rain2: '지금 이 채널엔 비가 세차게 내려요', storm: '지금 이 채널엔 천둥번개가 치고 있어요', snow1: '지금 이 채널엔 눈이 내리고 있어요', snow2: '지금 이 채널엔 눈이 소복이 쌓였어요', melt: '지금 이 채널은 쌓인 눈이 녹는 중이에요' };
+function strike() {   // lightning: a bolt somewhere ahead, a flash that flickers twice, and thunder a moment later
+  wx.ft = 0;
+  const f = new V3(); camera.getWorldDirection(f); const a = Math.atan2(f.x, f.z) + rand(-1.1, 1.1), d = rand(180, 300), pos = Precip.bolt.geometry.attributes.position;
+  let x = camera.position.x + Math.sin(a) * d, z = camera.position.z + Math.cos(a) * d, y = 170;
+  for (let i = 0; i < 12; i++) { pos.setXYZ(i, x, y, z); y -= rand(9, 15); x += rand(-11, 11); z += rand(-6, 6); }
+  pos.needsUpdate = true;
+  const near = 1 - (d - 180) / 240; setTimeout(() => Snd.thunder(0.55 + 0.45 * near), 250 + (d - 180) * 9);
+}
+function tickWeather(dt, T) {
+  const w = weatherAt(skyCh), inPlay = mode === 'play' && player;
+  wx.type = w.type; wx.p = w.p; wx.storm = w.storm;
+  wx.rain += ((w.type === 'rain' ? w.k : 0) - wx.rain) * Math.min(1, dt * 0.7);
+  wx.snowfall += ((w.type === 'snow' ? w.k : 0) - wx.snowfall) * Math.min(1, dt * 0.7);
+  wx.snow += (w.snow - wx.snow) * Math.min(1, dt * 0.5);
+  wx.bad = clamp(Math.max(wx.rain, wx.snowfall), 0, 1);
+  const stage = !w.type ? 'clear' : w.type === 'rain' ? (w.storm ? 'storm' : w.k > 0.5 ? 'rain2' : 'rain1') : (w.p > 0.78 ? 'melt' : w.snow > 0.55 ? 'snow2' : 'snow1');
+  if (stage !== wx.stage) {
+    if (wx.stage && inPlay && wx.ch === skyCh) toast(WX_MSG[stage], 3600);
+    wx.stage = stage; wx.ch = skyCh;
+    const el = $('clockW'); el.textContent = !w.type ? '' : w.type === 'rain' ? (w.storm ? '천둥' : '비') : '눈'; el.dataset.w = w.type || '';
+  }
+  U.uWx.value.set(wx.snow, wx.rain, 0);
+  // where the falling stuff is drawn: a box a little ahead of the camera; none inside the tree
+  const out = !(player && player.zone === 'tower'), q = [1, 0.7, 0.45, 0.25][level], f = new V3(); camera.getWorldDirection(f);
+  const cx = camera.position.x + f.x * 12, cy = camera.position.y + 6, cz = camera.position.z + f.z * 12;
+  Precip.rain.visible = out && wx.rain > 0.01; Precip.snow.visible = out && wx.snowfall > 0.01;
+  if (Precip.rain.visible) { Precip.rU.uC.value.set(cx, cy, cz); Precip.rU.uK.value = wx.rain; Precip.rain.geometry.setDrawRange(0, 2 * Math.round(Precip.NR * q * (0.12 + 0.88 * wx.rain)));
+    Precip.rU.uCol.value.setRGB(0.8, 0.88, 1).multiplyScalar(0.55 + 0.45 * U.uDay.value + wx.flash * 0.5); }
+  if (Precip.snow.visible) { Precip.sU.uC.value.set(cx, cy, cz); Precip.sU.uPR.value = renderer.getPixelRatio(); Precip.snow.geometry.setDrawRange(0, Math.round(Precip.NS * q * wx.snowfall));
+    Precip.sU.uCol.value.setRGB(1, 1, 1).multiplyScalar(0.6 + 0.4 * U.uDay.value); }
+  // thunderstorm: strikes every so often while the rain is at its heaviest
+  if (w.storm && wx.rain > 0.72 && out && (wx.next -= dt) <= 0) { wx.next = rand(7, 19); strike(); }
+  wx.ft += dt; wx.flash = wx.ft < 0.07 ? 1 : wx.ft < 0.15 ? 0.25 : wx.ft < 0.24 ? 0.8 : Math.max(0, 0.8 - (wx.ft - 0.24) * 2.6);
+  Precip.bolt.visible = wx.ft < 0.24 && out; Precip.bolt.material.opacity = wx.ft < 0.07 || wx.ft > 0.15 ? 1 : 0.3;
+  Snd.setRain(wx.rain * (!player ? 0.5 : player.zone === 'tower' ? 0.18 : player.zone === 'cabin' ? 0.5 : 1));
+}
+/* what everyone says about it: a creature's own line if it has one, else a general one; indoor folk only hear it through the walls */
+const WX_OUT = new Set(['mongsil', 'tosil', 'haneul', 'leo', 'fox', 'duck', 'post', 'turtle', 'woodcutter']);
+const WX_LINES = {
+  rain: { any: ['비 온다~ 우산 있어?', '빗소리 좋다~', '물웅덩이 조심해!'], in: ['밖에 비가 오나 봐요', '빗소리 들으며 차 한 잔 어때요?', '비 오는 날엔 나무 안이 제일 아늑해요'],
+    mongsil: ['비 오는 날엔 따뜻한 코코아지~', '모자가 다 젖겠어…', '토독토독, 빗소리 듣기 좋다'], tosil: ['물웅덩이에서 폴짝폴짝!', '귀에 빗방울이 톡톡 떨어져!', '비 와도 점프는 못 참지!'],
+    haneul: ['카메라 젖으면 안 되는데…', '빗방울 사진 찍는 중이야', '고양이는 비가 싫다냥…'], leo: ['갈기가 축 처졌어…', '빗속 달리기도 시원해!', '비 그치면 무지개 보러 가자!'],
+    fox: ['나비가 다 숨어 버렸어…', '빗방울이라도 잡아 볼까?', '잠자리채에 빗물이 고였어!'], duck: ['꽥꽥! 비 오는 날이 제일 좋아요', '아가들아, 빗방울 놀이하자~', '연못 물이 불어나네요, 꽥!'],
+    post: ['편지가 젖으면 큰일인데!', '비가 와도 배달은 계속돼요', '우비 입고 올 걸 그랬어요'], turtle: ['비 오는 날은 등딱지가 반짝반짝하단다', '촉촉하니 좋구나~', '미끄러지지 않게 천천히 걷자꾸나'],
+    woodcutter: ['비가 오는구먼, 장작이 젖겠어', '오두막에 들어가서 비 피하렴', '비 온 뒤엔 숲 냄새가 참 좋단다'],
+    hedgehog: ['비 오는 날엔 따뜻한 차가 최고예요', '젖었으면 벽난로 앞에서 말려요'], squirrel: ['비 오면 도토리 주우러 못 나가잖아!'], owl: ['부엉… 빗소리는 책 읽기 좋은 소리란다'], chick: ['삐약? (빗소리에 귀를 쫑긋)'] },
+  storm: { any: ['으앗, 천둥이다!', '번쩍했어! 봤어?', '무서워… 같이 있자'], in: ['천둥소리가 여기까지 들려요!', '우르릉… 밖은 요란하네요', '여기 있으면 안전해요'],
+    mongsil: ['천둥 치면 귀를 꼭 막아…', '우르릉 쾅! 깜짝이야…'], tosil: ['꺄악! 귀가 쫑긋 섰어!', '번개보다 빨리 숨을 거야!'], haneul: ['번개 사진 찍었다! …아마도', '냐앗! 깜짝 놀랐잖아'],
+    leo: ['나, 나는 하나도 안 무서워…!', '천둥보다 크게 어흥!'], fox: ['으앙, 천둥 무서워!', '잠자리채 들고 있으면 위험할까…?'], duck: ['아가들아, 엄마 옆에 꼭 붙으렴!', '꽥! 번개다!'],
+    post: ['천둥이 쳐도 편지는 가요…!', '으으, 빨리 배달하고 들어가야지'], turtle: ['천둥이 쳐도 등딱지 속은 안전하단다', '허허, 요란한 하늘이구나'],
+    woodcutter: ['허허, 하늘이 화가 났구먼', '번개 칠 땐 큰 나무 밑에 서 있으면 안 된단다'], chick: ['삐약삐약! (엄마 품으로 쏙)'], owl: ['부엉… 천둥은 구름이 부딪히는 소리란다'] },
+  snow: { any: ['눈이다, 눈!', '눈송이 예쁘다…', '하늘에서 솜사탕이 내려와~'], in: ['밖에 눈이 온대요!', '눈 오는 날엔 따뜻한 차죠', '창밖이 하얘지고 있어요'],
+    mongsil: ['눈 오는 날엔 군고구마지~', '모자에 눈이 소복소복'], tosil: ['눈송이 받아먹을 거야, 아~', '귀 끝이 시려워!'], haneul: ['눈 오는 마을, 찰칵!', '눈송이 접사 찍는 중이야'],
+    leo: ['갈기에 눈이 내려앉았어!', '눈 맞으며 달리자!'], fox: ['눈송이 잡았다! …녹았어', '나비 대신 눈송이 잡을 거야!'], duck: ['아가들아, 깃털 속에 꼭 붙으렴', '꽥! 연못이 차가워졌어요'],
+    post: ['눈길이라 조심조심 배달해요', '따뜻한 편지 왔어요~'], turtle: ['눈이 오면 더 천천히 걷는단다', '등딱지에 눈이 쌓이는구나, 허허'],
+    woodcutter: ['눈이 오는구먼, 장작을 넉넉히 패 둬야지', '벽난로에 불 지펴 놨단다, 들어가 쉬렴'], squirrel: ['눈 오기 전에 도토리 다 모아 뒀지!'], owl: ['부엉… 눈 내리는 날은 고요하구나'], chick: ['삐약! (눈이 신기한가 봐요)'] },
+  deep: { any: ['눈이 소복이 쌓였어!', '눈사람 만들자!', '사박사박, 눈 밟는 소리 좋다~'], in: ['밖이 온통 하얗대요!', '눈 구경하고 왔어요? 손이 차갑겠네', '이런 날엔 따뜻한 차가 딱이에요'],
+    mongsil: ['눈사람 만들까? 내 모자 씌워 줄게', '온 마을이 하얀 솜이불을 덮었어'], tosil: ['눈 속에 풍덩! 귀만 보이지?', '눈싸움하자!'], haneul: ['하얀 마을, 최고의 사진이야', '발이 시려워 냥…'],
+    leo: ['눈밭 질주다~!', '눈 위에 사자 발자국 꾹!'], fox: ['눈이 무릎까지 와!', '폭신폭신, 눈 이불이야'], duck: ['꽥, 발이 시려워요!', '아가들이 눈을 처음 봐요'],
+    post: ['눈이 쌓여서 발이 푹푹 빠져요', '눈길 뚫고 배달 왔어요!'], turtle: ['눈길은 미끄러우니 조심하렴', '하얀 길을 걷는 것도 운치 있구나'],
+    woodcutter: ['눈이 많이 쌓였구먼, 지붕 눈 좀 쓸어야겠어', '이런 날엔 벽난로 앞이 최고지'], squirrel: ['눈 덮인 도토리는 못 찾는단 말이야!'], owl: ['부엉… 눈 쌓인 밤엔 별이 더 밝단다'] },
+};
+function sayLine(lines, key) {
+  const kind = wx.rain > 0.1 ? (wx.storm && wx.rain > 0.72 ? 'storm' : 'rain') : wx.snow > 0.5 ? 'deep' : wx.snowfall > 0.1 ? 'snow' : null;
+  if (!kind || !key || Math.random() > 0.72) return pick(lines);
+  const B = WX_LINES[kind], own = B[key];
+  return pick(own && Math.random() < 0.8 ? own : WX_OUT.has(key) ? B.any : B.in);
 }
 
 /* ---------------- post-processing: the finishing coat over every frame ----------------
