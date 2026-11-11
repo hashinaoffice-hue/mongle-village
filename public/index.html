@@ -496,7 +496,9 @@ function patch(mat, o = {}) {
         vec3 ls = vec3(0.0);
         for (int i = 0; i < 8; i++) { float dd = length(uLamps[i].xyz - vWPos); float fo = max(0.0, 1.0 - dd / uLamps[i].w); ls += fo * fo * uLampI[i]; }
         gl_FragColor.rgb += diffuseColor.rgb * vec3(1.0, 0.8, 0.52) * min(ls, 1.25) * 0.6; }` : ''}
-      ${lift ? 'gl_FragColor.rgb += diffuseColor.rgb * vec3(0.55, 0.6, 0.8) * uNight * 0.32;' : ''}
+      ${lift ? `{ // living things keep their colour in the shade: never darker than a cool, soft version of themselves
+        gl_FragColor.rgb = max(gl_FragColor.rgb, diffuseColor.rgb * mix(vec3(0.79, 0.81, 0.91), vec3(0.36, 0.41, 0.62), uNight));
+        gl_FragColor.rgb += diffuseColor.rgb * vec3(0.55, 0.6, 0.8) * uNight * 0.2; }` : ''}
       #include <tonemapping_fragment>`);
     sh.fragmentShader = 'uniform float uTime;\nuniform float uDay;\nuniform float uNight;\nuniform vec4 uLamps[8];\nuniform float uLampI[8];\nvarying vec3 vWPos;\n' + (cloud ? GLSL_CLOUD : '') + '\n' + f;
   };
@@ -1926,6 +1928,16 @@ const CHARS = [
   { id: 'leo', name: '레오', kind: 'lion', desc: '들판을 누비는 달리기 사자', body: 0xfdf0d2, mane: 0xf1a15a, scarf: 0x8cc06f, speed: 8.3, jump: 7.5,
     lines: ['달리기 시합하자!', '꽃냄새 좋다~', '문 앞 풍선 봤어?'] },
 ];
+// everyone with eyes blinks now and then (sometimes twice); 'shut' holds them closed for sleeping
+const blinkers = [];
+function addBlink(eyes) { const b = { eyes, base: eyes.map(e => e.scale.y), t: rand(0.5, 5), k: 0, shut: false }; blinkers.push(b); return b; }
+function tickBlink(dt) {
+  for (const b of blinkers) {
+    if (b.shut) { b.eyes.forEach((e, i) => e.scale.y = b.base[i] * 0.1); b.k = 0.5; continue; }
+    if ((b.t -= dt) < 0) { b.k = 1; b.t = Math.random() < 0.18 ? 0.3 : rand(2.2, 6.5); }
+    if (b.k > 0) { b.k = Math.max(0, b.k - dt * 7); const sy = 1 - Math.sin(b.k * Math.PI) * 0.92; b.eyes.forEach((e, i) => e.scale.y = b.base[i] * sy); }
+  }
+}
 const BLOB_GEO = new THREE.SphereGeometry(1, 64, 48);
 const CIRCLE = new THREE.CircleGeometry(1, 24);
 const blushMat = new THREE.MeshBasicMaterial({ map: TEX.blush, transparent: true, depthWrite: false });
@@ -1944,12 +1956,14 @@ function buildChar(d) {
     const piv = new THREE.Group(); piv.position.copy(dir).multiplyScalar(1 + off);
     piv.quaternion.setFromUnitVectors(new V3(0, 0, 1), dir); piv.add(obj); blob.add(piv); return piv;
   };
-  const dark = basic(0x2b2220), white = basic(0xffffff);
+  const dark = basic(0x2b2220), white = basic(0xffffff), eyes = [], ears = [];
+  let tail = null, tailAxis = 'y';
+  const ear = (o, k) => ears.push({ o, k, rx: o.rotation.x, rz: o.rotation.z });
   for (const s of [-1, 1]) {
     const eye = new THREE.Mesh(SPH_MED, dark); eye.scale.set(0.088, 0.115, 0.05);
     const h1 = new THREE.Mesh(SPH_LO, white); h1.scale.set(0.36, 0.32, 0.5); h1.position.set(0.25, 0.35, 0.72);
     const h2 = new THREE.Mesh(SPH_LO, white); h2.scale.set(0.15, 0.13, 0.5); h2.position.set(-0.3, -0.4, 0.72);
-    eye.add(h1, h2); face(s * 0.3, 0.07, 0, eye);
+    eye.add(h1, h2); face(s * 0.3, 0.07, 0, eye); eyes.push(eye);
     const bl = new THREE.Mesh(CIRCLE, blushMat); bl.scale.set(0.19, 0.12, 1);
     const bp = face(s * 0.58, -0.1, 0.012, bl);
     for (let k = -1; k <= 1; k++) { const st = new THREE.Mesh(new THREE.PlaneGeometry(0.016, 0.075), basic(0xe57a92)); st.position.set(k * 0.05, 0, 0.003); st.rotation.z = 0.35; bp.add(st); }
@@ -1977,27 +1991,31 @@ function buildChar(d) {
   }
   // ears, manes and tails
   if (d.kind === 'bear') {
-    for (const s of [-1, 1]) { const e = mk(SPH_MED, skin, { parent: body, pos: [s * 0.66, 1.72, -0.05], scale: [0.24, 0.24, 0.18], outline: 0.035 }); mk(SPH_LO, pinkIn, { parent: e, pos: [0, -0.05, 0.6], scale: [0.55, 0.55, 0.45], outline: 0, shadow: false }); }
-    mk(SPH_MED, skin, { parent: body, pos: [0, 0.55, -0.95], scale: 0.16, outline: 0.03 });
+    for (const s of [-1, 1]) { const e = mk(SPH_MED, skin, { parent: body, pos: [s * 0.66, 1.72, -0.05], scale: [0.24, 0.24, 0.18], outline: 0.035 }); mk(SPH_LO, pinkIn, { parent: e, pos: [0, -0.05, 0.6], scale: [0.55, 0.55, 0.45], outline: 0, shadow: false }); ear(e, 0.5); }
+    tail = mk(SPH_MED, skin, { parent: body, pos: [0, 0.55, -0.95], scale: 0.16, outline: 0.03 });
   } else if (d.kind === 'bunny') {
     for (const s of [-1, 1]) {
-      const e = mk(SPH, skin, { parent: body, pos: [s * 0.3, 2.35, -0.05], scale: [0.17, 0.62, 0.13], rot: [0, 0, -s * 0.12], outline: 0.035 });
+      const ep = new THREE.Group(); ep.position.set(s * 0.3, 1.8, -0.05); ep.rotation.z = -s * 0.12; body.add(ep);   // hinged at the root so the long ears can flop
+      const e = mk(SPH, skin, { parent: ep, pos: [0, 0.55, 0], scale: [0.17, 0.62, 0.13], outline: 0.035 });
       mk(SPH_MED, pinkIn, { parent: e, pos: [0, -0.05, 0.62], scale: [0.5, 0.75, 0.4], outline: 0, shadow: false });
+      ear(ep, 1.6);
     }
-    mk(lumpy(1, 16, 12, 0.18, 3), soft(0xffffff), { parent: body, pos: [0, 0.55, -0.98], scale: 0.21, outline: 0.03 });
+    tail = mk(lumpy(1, 16, 12, 0.18, 3), soft(0xffffff), { parent: body, pos: [0, 0.55, -0.98], scale: 0.21, outline: 0.03 });
   } else if (d.kind === 'cat') {
     const acc = soft(d.accent);
-    for (const s of [-1, 1]) { const e = mk(new THREE.ConeGeometry(0.25, 0.44, 16), acc, { parent: body, pos: [s * 0.6, 1.72, -0.02], rot: [0, 0, -s * 0.5], outline: 0.035 }); mk(new THREE.ConeGeometry(0.15, 0.28, 12), pinkIn, { parent: e, pos: [0, -0.04, 0.1], outline: 0, shadow: false }); }
+    for (const s of [-1, 1]) { const e = mk(new THREE.ConeGeometry(0.25, 0.44, 16), acc, { parent: body, pos: [s * 0.6, 1.72, -0.02], rot: [0, 0, -s * 0.5], outline: 0.035 }); mk(new THREE.ConeGeometry(0.15, 0.28, 12), pinkIn, { parent: e, pos: [0, -0.04, 0.1], outline: 0, shadow: false }); ear(e, 0.6); }
     // blue patch over the back of the head
     const patchG = new THREE.SphereGeometry(1.012, 48, 24, Math.PI * 1.05, Math.PI * 0.9, 0, 1.45);
     mk(patchG, acc, { parent: blob, outline: 0, shadow: false });
-    mk(new THREE.TorusGeometry(0.32, 0.09, 10, 24, Math.PI * 1.1), acc, { parent: body, pos: [0.2, 0.6, -1.02], rot: [0, Math.PI / 2, 0.3], outline: 0.03 });
+    tail = new THREE.Group(); tail.position.set(0, 0.5, -0.95); body.add(tail);   // curled tail, hinged where it meets the body
+    mk(new THREE.TorusGeometry(0.32, 0.09, 10, 24, Math.PI * 1.1), acc, { parent: tail, pos: [0.2, 0.1, -0.07], rot: [0, Math.PI / 2, 0.3], outline: 0.03 });
   } else if (d.kind === 'lion') {
     const m1 = soft(darker(d.mane, 0.08)), m2 = soft(d.mane);
     for (let i = 0; i < 20; i++) { const a = i / 20 * Math.PI * 2; mk(SPH_MED, m1, { parent: body, pos: [Math.cos(a) * 1.1, 1.0 + Math.sin(a) * 0.98, -0.2], scale: [0.3, 0.3, 0.22], outline: 0.035 }); }
     for (let i = 0; i < 16; i++) { const a = i / 16 * Math.PI * 2 + 0.2; mk(SPH_MED, m2, { parent: body, pos: [Math.cos(a) * 0.98, 1.0 + Math.sin(a) * 0.88, -0.04], scale: [0.26, 0.26, 0.2], outline: 0.03 }); }
-    for (const s of [-1, 1]) { const e = mk(SPH_MED, skin, { parent: body, pos: [s * 0.55, 2.0, 0.05], scale: 0.18, outline: 0.03 }); mk(SPH_LO, pinkIn, { parent: e, pos: [0, 0, 0.6], scale: 0.5, outline: 0, shadow: false }); }
-    const t = mk(new THREE.CylinderGeometry(0.05, 0.05, 0.7, 8), skin, { parent: body, pos: [0, 0.55, -1.15], rot: [-1.0, 0, 0], outline: 0.02 });
+    for (const s of [-1, 1]) { const e = mk(SPH_MED, skin, { parent: body, pos: [s * 0.55, 2.0, 0.05], scale: 0.18, outline: 0.03 }); mk(SPH_LO, pinkIn, { parent: e, pos: [0, 0, 0.6], scale: 0.5, outline: 0, shadow: false }); ear(e, 0.4); }
+    tail = new THREE.Group(); tail.position.set(0, 0.45, -0.9); body.add(tail); tailAxis = 'z';
+    const t = mk(new THREE.CylinderGeometry(0.05, 0.05, 0.7, 8), skin, { parent: tail, pos: [0, 0.1, -0.25], rot: [-1.0, 0, 0], outline: 0.02 });
     mk(lumpy(1, 14, 10, 0.25, 3), m1, { parent: t, pos: [0, 0.4, 0], scale: 0.16, outline: 0.025 });
   }
   // hats
@@ -2029,7 +2047,7 @@ function buildChar(d) {
     mk(SPH_LO, gloss(0x6c88b8, { shin: 120, spec: 0xffffff }), { parent: cam, pos: [0, 0, 0.24], scale: [0.08, 0.08, 0.03], outline: 0 });
     mk(new THREE.BoxGeometry(0.12, 0.08, 0.05), 0xffffff, { parent: cam, pos: [-0.15, 0.1, 0.13], outline: 0, shadow: false });
   }
-  root.userData = { body, blob, feet, arms };
+  root.userData = { body, blob, feet, arms, ears, tail, tailAxis, tailBase: tail ? tail.rotation[tailAxis] : 0, blink: addBlink(eyes) };
   return root;
 }
 
@@ -2126,11 +2144,14 @@ function animalFace(m, o = {}) {
     const dir = new V3(Math.sin(yaw) * Math.cos(el), Math.sin(el), Math.cos(yaw) * Math.cos(el));
     const piv = new THREE.Group(); piv.position.copy(dir).multiplyScalar(1 + off); piv.quaternion.setFromUnitVectors(new V3(0, 0, 1), dir); piv.add(obj); m.add(piv); return piv;
   };
+  const eyes = [];
   if (o.eyes !== false) for (const s of [-1, 1]) {
     const eye = new THREE.Mesh(SPH_MED, basic(0x2b2220)); eye.scale.set(0.1 * es, 0.13 * es, 0.06);
     const h1 = new THREE.Mesh(SPH_LO, basic(0xffffff)); h1.scale.set(0.36, 0.32, 0.5); h1.position.set(0.25, 0.35, 0.72); eye.add(h1);
-    put(s * eyeX, eyeY, 0, eye);
+    const h2 = new THREE.Mesh(SPH_LO, basic(0xffffff)); h2.scale.set(0.16, 0.14, 0.5); h2.position.set(-0.28, -0.38, 0.72); eye.add(h2);
+    put(s * eyeX, eyeY, 0, eye); eyes.push(eye);
   }
+  if (eyes.length) put.blink = addBlink(eyes);
   if (o.blush !== false) for (const s of [-1, 1]) { const bl = new THREE.Mesh(CIRCLE, blushMat); bl.scale.set(0.2, 0.13, 1); put(s * 0.6, eyeY - 0.18, 0.012, bl); }
   if (o.mouth !== false) { const mo = new THREE.Mesh(MOUTH, basic(0x2b2220)); mo.rotation.z = Math.PI; put(0, eyeY - 0.17, 0.004, mo); }
   return put;
@@ -2194,6 +2215,8 @@ function makeMouse(chef) {
   for (const s of [-1, 1]) { const e = mk(SPH_MED, soft(0xd3cdd8), { parent: body, pos: [s * 0.34, 0.88, -0.02], scale: [0.25, 0.25, 0.06], outline: 0.025 }); mk(SPH_LO, soft(0xf6b7c4), { parent: e, pos: [0, 0, 0.6], scale: [0.65, 0.65, 0.5], outline: 0 }); }
   const put = animalFace(blob, { eyeY: 0.12 });
   const nose = new THREE.Mesh(SPH_LO, basic(0xf29db0)); nose.scale.set(0.07, 0.06, 0.06); put(0, -0.02, 0.04, nose);
+  for (const sd of [-1, 1]) { const wg = new THREE.Group(); for (const k of [-1, 0, 1]) { const wh = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.014, 0.014), basic(0x4b3a35)); wh.position.set(sd * 0.17, k * 0.05, 0); wh.rotation.z = sd * k * 0.22; wg.add(wh); } put(sd * 0.3, -0.05, 0.01, wg); }
+  mk(SPH_MED, soft(0xf3eff5), { parent: body, pos: [0, 0.36, 0.24], scale: [0.3, 0.28, 0.24], outline: 0 });
   const tail = new THREE.QuadraticBezierCurve3(new V3(0, 0.25, -0.42), new V3(0, 0.1, -0.9), new V3(0.25, 0.4, -1.05));
   mk(new THREE.TubeGeometry(tail, 12, 0.03, 5), soft(0xf3a5b6), { parent: body, outline: 0.012 });
   if (chef) { mk(new THREE.CylinderGeometry(0.22, 0.2, 0.28, 16), soft(0xffffff), { parent: body, pos: [0, 0.98, 0], outline: 0.02 }); mk(lumpy(1, 12, 8, 0.12, 3), soft(0xffffff), { parent: body, pos: [0, 1.16, 0], scale: [0.3, 0.2, 0.3], outline: 0.02 }); }
@@ -2235,29 +2258,55 @@ function tickResidents(dt) {
 
 /* ---------------- animal friends who walk about: a fox chasing a butterfly in the lodge woods, a duck family on the
    forest pond, a mouse carrying the post between the village and the lodge, and an old turtle strolling the village path ---------------- */
+TEX.net = canvasTex(64, 64, (x, w, h) => {   // fine diamond mesh for the butterfly net
+  x.clearRect(0, 0, w, h); x.fillStyle = 'rgba(255,255,255,0.16)'; x.fillRect(0, 0, w, h);
+  x.strokeStyle = 'rgba(255,255,255,0.92)'; x.lineWidth = 2.2;
+  for (let i = -64; i <= 128; i += 16) { x.beginPath(); x.moveTo(i, 0); x.lineTo(i + 64, 64); x.stroke(); x.beginPath(); x.moveTo(i, 64); x.lineTo(i + 64, 0); x.stroke(); }
+}, [1, 1]);
+// a child's butterfly net: a long bamboo pole, a wire hoop, and a deep soft mesh bag that trails and droops behind it
+function makeNet() {
+  const g = new THREE.Group(), bamboo = soft(0xe0c984), wire = soft(0x86bd68);
+  mk(new THREE.CylinderGeometry(0.03, 0.038, 2.1, 10), bamboo, { parent: g, pos: [0, 1.05, 0], outline: 0.014 });
+  for (const y of [0.42, 0.95, 1.5]) mk(new THREE.TorusGeometry(0.036, 0.011, 6, 14), soft(0xb99a52), { parent: g, pos: [0, y, 0], rot: [Math.PI / 2, 0, 0], outline: 0 });   // bamboo joints
+  mk(new THREE.CylinderGeometry(0.05, 0.05, 0.16, 10), wire, { parent: g, pos: [0, 2.1, 0], outline: 0.012 });
+  const R = 0.44, hoop = new THREE.Group(); hoop.position.set(0, 2.16 + R, 0); g.add(hoop);
+  mk(new THREE.TorusGeometry(R, 0.026, 8, 40), wire, { parent: hoop, outline: 0.012 });
+  const netMat = new THREE.MeshBasicMaterial({ map: TEX.net, transparent: true, side: THREE.DoubleSide, depthWrite: false });
+  const segs = []; let parent = hoop, r0 = R, zOff = 0;
+  for (const [r1, len] of [[0.34, 0.3], [0.22, 0.32], [0.1, 0.3], [0.012, 0.26]]) {     // four tapering sleeves hinged end to end
+    const j = new THREE.Group(); j.position.z = zOff; parent.add(j);
+    const geo = new THREE.CylinderGeometry(r1, r0, len, 20, 1, true); geo.rotateX(-Math.PI / 2); geo.translate(0, 0, -len / 2);
+    const uv = geo.attributes.uv; for (let k = 0; k < uv.count; k++) uv.setXY(k, uv.getX(k) * Math.max(3, Math.round((r0 + r1) * 14)), uv.getY(k) * 2);
+    const m = new THREE.Mesh(geo, netMat); m.renderOrder = 2; j.add(m);
+    segs.push(j); parent = j; r0 = r1; zOff = -len;
+  }
+  return { g, hoop, segs };
+}
 function makeFox() {
   const g = new THREE.Group(), body = new THREE.Group(); g.add(body);
-  const fur = soft(0xf0904a), cream = soft(0xfff3e2);
-  const blob = mk(SPH, fur, { parent: body, pos: [0, 0.62, 0], scale: [0.56, 0.56, 0.54], outline: 0.035 });
-  mk(SPH_MED, cream, { parent: body, pos: [0, 0.5, 0.3], scale: [0.36, 0.34, 0.26], outline: 0 });
+  const fur = soft(0xf79a48), cream = soft(0xfff4e0), sock = soft(0x5b3a2c);
+  const blob = mk(SPH, fur, { parent: body, pos: [0, 0.66, 0], scale: [0.6, 0.58, 0.56], outline: 0.035 });
+  mk(SPH_MED, cream, { parent: body, pos: [0, 0.4, 0.32], scale: [0.34, 0.3, 0.26], outline: 0 });                       // cream bib
+  const put = animalFace(blob, { eyeY: 0.17, eyeX: 0.36 });
+  const snout = new THREE.Mesh(SPH_MED, cream); snout.scale.set(0.3, 0.19, 0.26); put(0, -0.06, -0.08, snout);            // pointed cream muzzle
+  const nose = new THREE.Mesh(SPH_LO, basic(0x2b2220)); nose.scale.set(0.075, 0.06, 0.05); put(0, -0.01, 0.16, nose);
+  const ears = [];
   for (const s of [-1, 1]) {
-    const e = mk(new THREE.ConeGeometry(0.16, 0.42, 10), fur, { parent: body, pos: [s * 0.28, 1.2, -0.02], rot: [0, 0, -s * 0.28], outline: 0.025 });
-    mk(new THREE.ConeGeometry(0.07, 0.16, 8), soft(0x5a3a2a), { parent: e, pos: [0, 0.14, 0.02], outline: 0 });
-    mk(SPH_LO, soft(0x5a3a2a), { parent: g, pos: [s * 0.2, 0.08, 0.12], scale: [0.13, 0.09, 0.18], outline: 0.02 });
+    mk(new THREE.ConeGeometry(0.11, 0.3, 10), cream, { parent: body, pos: [s * 0.6, 0.5, 0.2], rot: [0.2, 0, -s * 2.0], outline: 0.02 });   // cheek tufts
+    const ep = new THREE.Group(); ep.position.set(s * 0.3, 1.1, -0.02); ep.rotation.z = -s * 0.22; body.add(ep);          // tall pointed ears, dark at the tips
+    mk(new THREE.ConeGeometry(0.2, 0.52, 14), fur, { parent: ep, pos: [0, 0.2, 0], outline: 0.028 });
+    mk(new THREE.ConeGeometry(0.105, 0.26, 12), sock, { parent: ep, pos: [0, 0.345, 0], outline: 0.02 });
+    mk(new THREE.ConeGeometry(0.1, 0.3, 10), cream, { parent: ep, pos: [0, 0.14, 0.09], scale: [1, 1, 0.5], outline: 0 });
+    ears.push({ o: ep, rz: ep.rotation.z, s });
+    mk(SPH_LO, sock, { parent: g, pos: [s * 0.22, 0.09, 0.14], scale: [0.14, 0.1, 0.2], outline: 0.02 });                  // dark socks
   }
-  const put = animalFace(blob, { eyeY: 0.14 });
-  const snout = new THREE.Mesh(SPH_MED, cream); snout.scale.set(0.26, 0.17, 0.2); put(0, -0.05, -0.06, snout);
-  const nose = new THREE.Mesh(SPH_LO, basic(0x2b2220)); nose.scale.set(0.07, 0.055, 0.05); put(0, 0.0, 0.1, nose);
-  const tail = new THREE.Group(); tail.position.set(0, 0.42, -0.42); body.add(tail);   // a big bushy tail with a white tip
-  for (let i = 0; i < 6; i++) { const t = i / 5; mk(SPH_MED, t > 0.75 ? cream : fur, { parent: tail, pos: [0, Math.sin(t * 1.6) * 0.55, -t * 0.62], scale: 0.2 + 0.14 * Math.sin(t * Math.PI * 0.9), outline: 0.03 }); }
-  const arm = new THREE.Group(); arm.position.set(0.48, 0.66, 0.12); body.add(arm);   // the butterfly net
-  mk(SPH_LO, fur, { parent: arm, scale: 0.13, outline: 0.02 });
-  mk(new THREE.CylinderGeometry(0.03, 0.035, 1.5, 6), 0x9a6b4c, { parent: arm, pos: [0, 0.7, 0.12], rot: [0.18, 0, 0], outline: 0.015 });
-  const ring = new THREE.Group(); ring.position.set(0, 1.5, 0.27); arm.add(ring);
-  mk(new THREE.TorusGeometry(0.3, 0.025, 6, 20), soft(0xf3a5b6), { parent: ring, rot: [Math.PI / 2, 0, 0], outline: 0.01 });
-  const net = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.55, 14, 1, true), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55, side: THREE.DoubleSide }));
-  net.position.y = -0.27; net.rotation.x = Math.PI; ring.add(net);
-  return { g, body, h: 1.55, arm, tail };
+  const tail = new THREE.Group(); tail.position.set(0, 0.42, -0.44); body.add(tail);                                      // a big brush of a tail with a white tip
+  for (let i = 0; i < 7; i++) { const t = i / 6; mk(SPH_MED, t > 0.7 ? cream : fur, { parent: tail, pos: [0, Math.sin(t * 1.5) * 0.62, -t * 0.78], scale: 0.2 + 0.2 * Math.sin(t * Math.PI * 0.86), outline: 0.03 }); }
+  mk(SPH_LO, fur, { parent: body, pos: [-0.58, 0.56, 0.12], scale: [0.13, 0.17, 0.13], outline: 0.02 });                   // left paw
+  const arm = new THREE.Group(); arm.position.set(0.56, 0.62, 0.12); body.add(arm);                                       // right paw, holding the net
+  mk(SPH_LO, fur, { parent: arm, pos: [0, 0, 0.04], scale: 0.14, outline: 0.02 });
+  const net = makeNet(); net.g.position.set(0.02, -0.5, 0.06); net.g.rotation.z = -0.1; arm.add(net.g);
+  return { g, body, h: 1.6, arm, tail, ears, net, blink: put.blink };
 }
 function makeDuck() {
   const g = new THREE.Group(), body = new THREE.Group(); g.add(body);
@@ -2341,10 +2390,19 @@ function polyAt(pts, L, s) { let i = 1; while (i < pts.length - 1 && L[i] < s) i
       const viaCorner = w.pos.x < home.x - 0.5 && w.pos.z < CAB.z - CAB.hd;
       const d = viaCorner ? (wGo(w, home.x, CAB.z - CAB.hd - 2.5, 2.2, dt), 9) : wGo(w, home.x, home.z, 2.2, dt);
       if (inCabinRect(w.pos.x, w.pos.z, 0.8)) w.pos.x = Math.max(w.pos.x, CAB.x + CAB.hw + 0.8);
-      if (d < 0.4) { w.speed = 0; w.yaw += (0.6 - w.yaw) * Math.min(1, dt * 2); w.body.scale.set(1.08, 0.82 + Math.sin(T * 1.6) * 0.03, 1.08); w.lines = w.nightLines; }
+      const asleep = d < 0.4; w.blink.shut = asleep;
+      if (asleep) { w.speed = 0; w.yaw += (0.6 - w.yaw) * Math.min(1, dt * 2); w.body.scale.set(1.08, 0.82 + Math.sin(T * 1.6) * 0.03, 1.08); w.lines = w.nightLines; }
+      w.arm.rotation.x += ((asleep ? 1.5 : -0.4) - w.arm.rotation.x) * Math.min(1, dt * 3);       // lays the net down beside her to sleep
+      w.net.segs.forEach((sg, i) => { sg.rotation.x = -0.3 - i * 0.1; });
       return;
     }
-    w.body.scale.set(1, 1, 1); w.lines = fox.dayLines;
+    w.body.scale.set(1, 1, 1); w.lines = fox.dayLines; w.blink.shut = false;
+    { // the net rides over her shoulder, bobbing as she runs; its bag droops and swings a beat behind
+      const sw = st.swing > 0 ? Math.sin(st.swing * Math.PI) : 0, bobN = w.speed > 0.1 ? Math.sin(w.step) * 0.08 : Math.sin(T * 1.8) * 0.03;
+      w.arm.rotation.x = -0.42 + bobN + sw * 1.85; w.arm.rotation.z = -0.12 + sw * 0.25;
+      st.lag = (st.lag || 0) + ((sw * 1.1 + (w.speed > 0.1 ? 0.25 : 0)) - (st.lag || 0)) * Math.min(1, dt * 5);
+      w.net.segs.forEach((sg, i) => { sg.rotation.x = -0.34 - i * 0.12 + st.lag * (0.35 + i * 0.12) + Math.sin(T * 2.6 - i * 0.7) * 0.06 * (i + 1); sg.rotation.y = Math.sin(T * 1.9 - i * 0.6) * 0.05 * (i + 1); });
+    }
     // the butterfly: drifts to new spots in the clearing, darting off after a pounce
     if ((B.t -= dt) <= 0 || B.pos.distanceTo(B.tgt) < 0.6) { const a = rand(0, 6.28), r = rand(0, C.r); B.tgt.set(C.x + Math.cos(a) * r, rand(1.2, 2.4), C.z + Math.sin(a) * r); B.t = rand(1.5, 3.5); }
     const bsp = B.fast > 0 ? 6 : 2.1; B.fast -= dt;
@@ -2359,7 +2417,7 @@ function polyAt(pts, L, s) { let i = 1; while (i < pts.length - 1 && L[i] < s) i
       if (Math.random() < 0.35) st.rest = rand(1.2, 2.5);
       if (w.near && Math.random() < 0.5 && w.say <= 0) wTalk(w, pick(['앗, 놓쳤다!', '거의 잡았는데~', '흐잉, 또 날아갔어', '조금만 더!']));
     }
-    if (st.swing > 0) { st.swing = Math.max(0, st.swing - dt * 2.5); w.arm.rotation.x = Math.sin(st.swing * Math.PI) * 1.5; }
+    if (st.swing > 0) st.swing = Math.max(0, st.swing - dt * 2.2);
     // stay in the clearing, clear of the lodge and the pool
     const ox = w.pos.x - C.x, oz = w.pos.z - C.z, od = Math.hypot(ox, oz); if (od > C.r + 2) { w.pos.x = C.x + ox / od * (C.r + 2); w.pos.z = C.z + oz / od * (C.r + 2); }
   };
@@ -2371,6 +2429,13 @@ function polyAt(pts, L, s) { let i = 1; while (i < pts.length - 1 && L[i] < s) i
     lines: ['꽥꽥! 우리 아기들 귀엽죠?', '아가들아, 엄마 따라오렴~', '연못 물이 참 시원해요', '꽥! 반가워요~'] });
   const kids = [0, 1, 2].map(() => { const k = makeDuckling(); k.g.scale.setScalar(0.85); scene.add(k.g); return k; });
   mom.st.a = rand(0, 6.28);
+  const ringGeo = new THREE.RingGeometry(0.82, 1, 32); ringGeo.rotateX(-Math.PI / 2);
+  const rings = Array.from({ length: 10 }, () => { const m = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false })); m.visible = false; m.renderOrder = 2; scene.add(m); return { m, t: 9 }; });
+  let ringT = 0, ringI = 0;
+  const tickRings = (dt, src) => {
+    if (src && (ringT -= dt) <= 0) { ringT = 0.55; const r = rings[ringI++ % rings.length], q = src[(Math.random() * src.length) | 0]; r.t = 0; r.m.position.set(q.x, waterY + 0.03, q.z); r.m.visible = true; }
+    for (const r of rings) if (r.m.visible) { r.t += dt; const u = r.t / 2.2; r.m.scale.setScalar(0.35 + u * 1.5); r.m.material.opacity = 0.5 * (1 - u); if (u >= 1) r.m.visible = false; }
+  };
   mom.tick = (w, dt, T) => {
     const st = w.st, sp = w.pause > 0 ? 0 : 0.42 * (0.75 + 0.25 * Math.sin(T * 0.3));
     st.a += sp * dt;
@@ -2382,8 +2447,9 @@ function polyAt(pts, L, s) { let i = 1; while (i < pts.length - 1 && L[i] < s) i
       k.g.position.set(kx, waterY - 0.05 + Math.sin(T * 3 + i) * 0.04, kz); k.g.rotation.y = Math.atan2(kx2 - kx, kz2 - kz); k.g.rotation.z = Math.sin(T * 4 + i * 2) * 0.08;
       k.g.visible = true;
     });
+    tickRings(dt, sp > 0 ? [w.pos, ...kids.map(k => k.g.position)] : null);
   };
-  mom.onFar = () => kids.forEach(k => { k.g.visible = false; });
+  mom.onFar = () => { kids.forEach(k => { k.g.visible = false; }); rings.forEach(r => { r.m.visible = false; }); };
 
   // 3. the post mouse walks the trail between the village and the lodge, resting at each end
   const route = TRAILS.cabin, RL = polyLen(route), RT = RL[RL.length - 1];
@@ -2439,6 +2505,7 @@ function tickWanderers(dt, T, night) {
     const wob = w.speed > 0.1 ? Math.sin(w.step) : 0;
     w.body.rotation.z = wob * (w.float ? 0.05 : 0.12); w.body.position.y = Math.abs(wob) * (w.float ? 0.02 : 0.08);
     if (w.tail) w.tail.rotation.y = Math.sin(T * 5) * 0.35;
+    if (w.ears) w.ears.forEach((e, i) => { e.o.rotation.z = e.rz + e.s * (Math.max(0, Math.sin(T * 1.1 + i * 2.3) - 0.9) * 2.4 - (w.speed > 0.1 ? 0.12 : 0)); });
     w.g.position.set(w.pos.x, w.pos.y + w.oy + (w.float ? Math.sin(T * 2.4) * 0.04 : 0), w.pos.z); w.g.rotation.y = w.yaw;
     placeBubble(w, dt);
   }
@@ -3739,7 +3806,7 @@ function ear(pos) {
 }
 
 /* ---------------- critter (player & NPC) ---------------- */
-const GRAV = 22;
+const GRAV = 22, tmpD = new V3();
 const SHADOW_GEO = new THREE.PlaneGeometry(2.4, 2.4); SHADOW_GEO.rotateX(-Math.PI / 2);
 const shadowMat = new THREE.MeshBasicMaterial({ map: TEX.soft, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
 class Critter {
@@ -3747,7 +3814,7 @@ class Critter {
     this.d = d; this.obj = buildChar(d); scene.add(this.obj);
     this.blobShadow = new THREE.Mesh(SHADOW_GEO, shadowMat); this.blobShadow.renderOrder = 1; scene.add(this.blobShadow);
     this.pos = new V3(x, terrain(x, z), z); this.vy = 0; this.yaw = rand(0, 6.28); this.ground = true; this.sup = this.pos.y; this.supSolid = null;
-    this.speed = 0; this.phase = 0; this.wave = 0; this.squash = 0; this.t = rand(0, 5);
+    this.speed = 0; this.phase = 0; this.wave = 0; this.squash = 0; this.t = rand(0, 5); this.bank = 0; this.earA = 0;
     this.home = new V3(x, 0, z); this.goal = null; this.idle = rand(1, 3); this.say = 0; this.sayText = ''; this.zone = 'world';
     this.el = document.createElement('div'); this.el.className = 'bubble'; $('bubbles').appendChild(this.el);
   }
@@ -3824,22 +3891,36 @@ class Critter {
       this.blobShadow.position.set(this.pos.x, this.pos.y + 0.03, this.pos.z); this.blobShadow.scale.setScalar(0.7);
       return;
     }
-    if (this === player && this.ground && this.speed > 0.6) { // footsteps on each stride
-      const sg = sn >= 0; if (sg !== this.lastSg) Snd.step(this.speed > this.d.speed * 1.2); this.lastSg = sg;
-    }
-    u.body.position.y = Math.abs(sn) * 0.16 * w + Math.sin(this.t * 2.2) * 0.02 * (1 - w);
-    u.body.rotation.z = sn * 0.08 * w;
-    u.body.rotation.x = 0.06 * w;
-    u.feet[0].position.z = 0.12 + sn * 0.3 * w; u.feet[1].position.z = 0.12 - sn * 0.3 * w;
-    u.feet[0].position.y = 0.14 + Math.max(0, sn) * 0.14 * w; u.feet[1].position.y = 0.14 + Math.max(0, -sn) * 0.14 * w;
-    const air = this.ground ? 0 : 1;
-    u.arms[0].rotation.x = -sn * 0.7 * w; u.arms[1].rotation.x = sn * 0.7 * w;
+    { const sg = sn >= 0;                                                    // each stride: a footstep for you, a puff of dust for anyone running
+      if (sg !== this.lastSg && this.ground && this.speed > 0.6) {
+        if (this === player) Snd.step(this.speed > this.d.speed * 1.2);
+        if (this.speed > this.d.speed * 1.15 && this.obj.visible) emit(puffTex, tmpD.set(this.pos.x - Math.sin(this.yaw) * 0.5, this.pos.y + 0.12, this.pos.z - Math.cos(this.yaw) * 0.5), 2, { size: 0.3, spread: 0.7, up: 0.25, life: 0.45, g: -0.6 });
+      }
+      this.lastSg = sg; }
+    let dy = this.yaw - this.obj.rotation.y; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+    const air = this.ground ? 0 : 1, run = clamp((this.speed - 5) / 4, 0, 1);
+    this.bank += (clamp(dy * 0.7, -0.3, 0.3) * w - this.bank) * Math.min(1, dt * 8);              // lean into turns
+    u.body.position.y = Math.abs(sn) * (0.16 + 0.05 * run) * w + Math.sin(this.t * 2.2) * 0.02 * (1 - w);
+    u.body.rotation.z = sn * 0.08 * w - this.bank;
+    u.body.rotation.x = (0.06 + 0.1 * run) * w - air * clamp(this.vy * 0.012, -0.12, 0.12);   // lean into a run; tip back going up, forward coming down
+    const stride = 0.3 + 0.08 * run;
+    u.feet[0].position.z = 0.12 + sn * stride * w; u.feet[1].position.z = 0.12 - sn * stride * w;
+    u.feet[0].position.y = 0.14 + Math.max(0, sn) * 0.14 * w + air * 0.08; u.feet[1].position.y = 0.14 + Math.max(0, -sn) * 0.14 * w + air * 0.08;
+    u.arms[0].rotation.x = -sn * (0.7 + 0.25 * run) * w; u.arms[1].rotation.x = sn * (0.7 + 0.25 * run) * w;
     u.arms[0].rotation.z = -0.25 - air * 1.6; u.arms[1].rotation.z = 0.25 + air * 1.6;
     if (this.wave > 0) { this.wave -= dt; u.arms[1].rotation.z = 2.4 + Math.sin(this.t * 18) * 0.35; u.arms[1].rotation.x = 0; }
     this.squash += (0 - this.squash) * Math.min(1, dt * 9);
-    const q = this.squash; u.blob.scale.set(1.06 * (1 + q * 0.16), 0.94 * (1 - q * 0.22), 0.98 * (1 + q * 0.16));
+    const q = this.squash, st = air * clamp(Math.abs(this.vy) * 0.016, 0, 0.14), br = Math.sin(this.t * 2.2) * 0.012 * (1 - w);   // squash on landing, stretch in flight, breathe at rest
+    u.blob.scale.set(1.06 * (1 + q * 0.16 - st * 0.55 - br), 0.94 * (1 - q * 0.22 + st + br), 0.98 * (1 + q * 0.16 - st * 0.55 - br));
+    // ears trail behind speed and bounces, and flick now and then; the tail wags faster the faster you go
+    const bob = Math.cos(this.phase) * w;
+    this.earA += ((-this.speed * 0.03 + (this.ground ? 0 : this.vy * 0.035)) - this.earA) * Math.min(1, dt * 7);
+    u.ears.forEach((e, i) => {
+      e.o.rotation.x = e.rx + (this.earA + bob * 0.09) * e.k;
+      e.o.rotation.z = e.rz + (i ? 1 : -1) * (bob * 0.04 * e.k + Math.max(0, Math.sin(this.t * 0.9 + i * 2.1) - 0.93) * 2.2);
+    });
+    if (u.tail) u.tail.rotation[u.tailAxis] = u.tailBase + Math.sin(this.t * (3.2 + w * 7)) * (0.16 + 0.22 * w);
     this.obj.position.copy(this.pos);
-    let dy = this.yaw - this.obj.rotation.y; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
     this.obj.rotation.y += dy * Math.min(1, dt * 12);
     const hgt = this.pos.y - this.sup;
     this.blobShadow.position.set(this.pos.x, this.sup + 0.05, this.pos.z);
@@ -4631,6 +4712,7 @@ function frame() {
   scene.fog.near = LEVELS[level].fogN * viewBoost * S.fogMul; scene.fog.far = LEVELS[level].fogF * viewBoost * (0.6 + 0.4 * S.fogMul);
   if (player) tickResidents(dt);
   tickWanderers(dt, T, skyU.night.value);
+  tickBlink(dt);
   tickUfo(dt, T);
   for (const l of lanterns) l.s.material.opacity = 0.7 + 0.15 * Math.sin(T * 3 + l.ph);
   fires.forEach((f, i) => f.scale.set(1 + 0.08 * Math.sin(T * 17 + i), 1 + 0.15 * Math.sin(T * 11 + 1 + i), 1));
