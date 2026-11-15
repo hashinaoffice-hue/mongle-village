@@ -791,15 +791,38 @@ function cabinSDF(x, z) {
   const qx = Math.abs(x - WOODS.cx) - WOODS.bx + WOODS.r, qz = Math.abs(z - WOODS.cz) - WOODS.bz + WOODS.r;
   return Math.hypot(Math.max(qx, 0), Math.max(qz, 0)) + Math.min(Math.max(qx, qz), 0) - WOODS.r;
 }
-// you can walk anywhere up to the wall of trees that rings each area (no invisible walls inside open-looking ground)
-const walkable = (x, z) => Math.hypot(x, z) < 86 || forestSDF(x, z) < 6 || cabinSDF(x, z) < 6;
+// the beach south of the meadow: a lawn running down from the gate, dunes, sand, and then the sea all the way to the horizon
+const BEACH = { cx: 10, cz: -160, bx: 70, bz: 76, r: 14 };
+function beachSDF(x, z) {
+  const qx = Math.abs(x - BEACH.cx) - BEACH.bx + BEACH.r, qz = Math.abs(z - BEACH.cz) - BEACH.bz + BEACH.r;
+  return Math.hypot(Math.max(qx, 0), Math.max(qz, 0)) + Math.min(Math.max(qx, qz), 0) - BEACH.r;
+}
+const SEA_Y = -2.0;                                             // the sea's surface
+const shoreZ = x => -150 + 5 * Math.sin(x * 0.045 + 0.6);        // the waterline; the sea lies south of it
+const seaward = (x, z) => shoreZ(x) - z;                         // metres out to sea from the waterline (negative: inland)
+const sandK = (x, z) => smooth(-34, -24, seaward(x, z));         // 0 on grass, 1 on sand
+const ISLE = { x: 52, z: -184, r: 13, y: SEA_Y + 2.2 };          // the lighthouse islet, out past the end of the pier
+const isleH = (x, z) => SEA_Y - 3 + 5.2 * smooth(ISLE.r + 3, ISLE.r - 6, Math.hypot(x - ISLE.x, z - ISLE.z));
+// the pier: a straight boardwalk from the upper beach, over the water, to the islet
+const PIER = (() => { const ax = 41, az = -131, dx = ax - ISLE.x, dz = az - ISLE.z, l = Math.hypot(dx, dz); return { ax, az, bx: ISLE.x + dx / l * 9.4, bz: ISLE.z + dz / l * 9.4, y: SEA_Y + 1.15, hw: 1.45 }; })();
+function pierDist(x, z) {
+  const ex = PIER.bx - PIER.ax, ez = PIER.bz - PIER.az, t = clamp(((x - PIER.ax) * ex + (z - PIER.az) * ez) / (ex * ex + ez * ez), 0, 1);
+  return Math.hypot(x - PIER.ax - ex * t, z - PIER.az - ez * t);
+}
+// you can walk anywhere up to the wall of trees that rings each area (no invisible walls inside open-looking ground);
+// at the beach you can wade in up to your knees
+const walkable = (x, z) => Math.hypot(x, z) < 86 || forestSDF(x, z) < 6 || cabinSDF(x, z) < 6 || (beachSDF(x, z) < 6 && terrain(x, z) > SEA_Y - 0.55);
 const forestK = (x, z) => Math.max(smooth(2, -10, forestSDF(x, z)), smooth(2, -10, cabinSDF(x, z))) * smooth(74, 88, Math.hypot(x, z));
 function terrain(x, z) {
   const r = Math.hypot(x, z);
   let h = 0.55 * Math.sin(x * 0.07) * Math.cos(z * 0.05) + 0.9 * Math.sin(x * 0.023 + 1.3) * Math.sin(z * 0.019 + 0.4);
   // rise toward the edges of the playable area, then level off into far rolling hills
-  const d = Math.max(0, Math.min(r - 60, forestSDF(x, z) + 6, cabinSDF(x, z) + 6));
-  if (d > 0) h += 14 * (1 - Math.exp(-d * d * 0.0065 / 14)) + 9 * smooth(25, 90, d) * (0.5 + 0.5 * Math.sin(x * 0.021 + 1.7) * Math.cos(z * 0.017 - 0.6));
+  // toward the sea the land gives way to a long, even slope of sand that carries on under the water
+  const s = seaward(x, z);
+  if (s > -36) h += ((s < 0 ? SEA_Y - s * 0.06 : Math.max(SEA_Y - s * 0.13, -7.5)) - h) * smooth(-36, -20, s);
+  const d = Math.max(0, Math.min(r - 60, forestSDF(x, z) + 6, cabinSDF(x, z) + 6, beachSDF(x, z) + 6));
+  if (d > 0 && s < 30) h += (14 * (1 - Math.exp(-d * d * 0.0065 / 14)) + 9 * smooth(25, 90, d) * (0.5 + 0.5 * Math.sin(x * 0.021 + 1.7) * Math.cos(z * 0.017 - 0.6))) * (1 - smooth(-12, 30, s));   // the hills run down into the sea as headlands
+  if (s > 0) h = Math.max(h, isleH(x, z));
   return h;
 }
 const decalMat = toon(0xffffff, { map: TEX.dirt });
@@ -854,11 +877,14 @@ const TRAILS = {
   tree: [[6, 128], [8, 142], [4, 156], [2, 170], [0, 180]],
   cabin: [[-4, -6], [-16, -12], [-30, -10], [-46, -12], [-62, -16], [-80, -18], [-98, -20], [-116, -20], [-126, -20], [-133, -20]],
   falls: [[-139, -33], [-134, -45], [-127, -56], [-120, -62], [-116.5, -65]],   // lodge yard → over the creek → foot of the stone stairs
+  beach: [[0, -69], [2, -80], [7, -92], [9, -104], [6, -114], [4, -121]],        // out of the gate and down the lawn to the dunes
 };
 const trailMat = toon(0xf0e2c4, { map: TEX.dirt });
 trailMat.polygonOffset = true; trailMat.polygonOffsetFactor = -2; trailMat.polygonOffsetUnits = -4;
 const trailEdge = new THREE.MeshBasicMaterial({ color: 0x9fb37c, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 });
+let BEACH_S0 = 0;   // where the beach lane's samples start (the village walkers keep to the older paths)
 for (const k in TRAILS) {
+  if (k === 'beach') BEACH_S0 = PATH_SAMPLES.length;
   const c = new THREE.CatmullRomCurve3(TRAILS[k].map(p => new V3(p[0], 0, p[1])));
   ribbon(c, 2.0, trailEdge, 0.03); ribbon(c, 1.75, trailMat, 0.05);
   const n = Math.ceil(c.getLength() / 2); for (let i = 0; i <= n; i++) PATH_SAMPLES.push(c.getPoint(i / n));
@@ -1189,10 +1215,10 @@ function roundTree(x, z, s, kind) {
 for (let i = 0; i < 64; i++) {
   const a = i / 64 * Math.PI * 2 + rand(-0.03, 0.03), r = rand(80, 110);
   const x = Math.cos(a) * r, z = Math.sin(a) * r;
-  if (Math.hypot(x, z + 66) < 14 || forestSDF(x, z) < 4 || cabinSDF(x, z) < 4 || pathDist(x, z) < 5) continue;   // fills the gaps between areas
+  if (Math.hypot(x, z + 66) < 14 || forestSDF(x, z) < 4 || cabinSDF(x, z) < 4 || beachSDF(x, z) < 4 || pathDist(x, z) < 5) continue;   // fills the gaps between areas
   i % 3 ? pine(x, z, rand(1.1, 1.7)) : roundTree(x, z, rand(1.1, 1.6), pick(['green', 'green', 'blossom', 'fruit']));
 }
-for (let i = 0; i < 22; i++) { const a = rand(0, 6.28), r = rand(116, 145), x = Math.cos(a) * r, z = Math.sin(a) * r; if (forestSDF(x, z) > 8 && cabinSDF(x, z) > 8) pine(x, z, rand(1.6, 2.3)); }
+for (let i = 0; i < 22; i++) { const a = rand(0, 6.28), r = rand(116, 145), x = Math.cos(a) * r, z = Math.sin(a) * r; if (forestSDF(x, z) > 8 && cabinSDF(x, z) > 8 && beachSDF(x, z) > 8 && seaward(x, z) < -30) pine(x, z, rand(1.6, 2.3)); }
 // a few trees inside the meadow for shade
 [[-58, -30], [60, 32], [-40, 52], [58, -46]].forEach(([x, z], i) => { roundTree(x, z, 1.25, i % 2 ? 'blossom' : 'fruit'); avoid.push({ x, z, r: 4 }); });
 
@@ -1221,7 +1247,7 @@ for (let i = 0; i < 22; i++) { const a = rand(0, 6.28), r = rand(116, 145), x = 
 for (let i = 0; i < 16; i++) {
   const a = i / 16 * Math.PI * 2 + rand(-0.1, 0.1), r = rand(200, 235), H0 = rand(30, 52);
   // the whole base has to stay outside the woods you can walk in, not just the peak: shrink a mountain that would reach in
-  const room = Math.min(forestSDF(Math.cos(a) * r, Math.sin(a) * r), cabinSDF(Math.cos(a) * r, Math.sin(a) * r));
+  const room = Math.min(forestSDF(Math.cos(a) * r, Math.sin(a) * r), cabinSDF(Math.cos(a) * r, Math.sin(a) * r), beachSDF(Math.cos(a) * r, Math.sin(a) * r), -seaward(Math.cos(a) * r, Math.sin(a) * r) - 30);   // and none standing in the sea
   const R = Math.min(rand(32, 56), (room - 10) / 1.15); if (R < 18) continue;
   const H = H0 * Math.min(1, R / 32);
   const g = new THREE.ConeGeometry(R, H, 28, 8), p = g.attributes.position;
@@ -1233,7 +1259,7 @@ for (let i = 0; i < 16; i++) {
 }
 for (let i = 0; i < 20; i++) {
   const a = i / 20 * Math.PI * 2 + rand(-0.1, 0.1), r = rand(152, 172);
-  const room = Math.min(forestSDF(Math.cos(a) * r, Math.sin(a) * r), cabinSDF(Math.cos(a) * r, Math.sin(a) * r));
+  const room = Math.min(forestSDF(Math.cos(a) * r, Math.sin(a) * r), cabinSDF(Math.cos(a) * r, Math.sin(a) * r), beachSDF(Math.cos(a) * r, Math.sin(a) * r), -seaward(Math.cos(a) * r, Math.sin(a) * r) - 24);
   const s = Math.min(rand(18, 28), (room - 6) / 1.85); if (s < 9) continue;   // the long side reaches about 1.8 s
   const G = new Geo().add(lumpy(1, 20, 14, 0.15, 1.5), (c, px, py, pz, nx, ny) => mixC(c, col(0x86b394), col(0xc4dfb8), ny * 0.6 + 0.3));
   const m = new THREE.Mesh(G.build(), toon(0xffffff, { vc: true }));
@@ -1398,12 +1424,13 @@ TEX.plank = canvasTex(256, 64, (x, w, h) => {
 function waterMaterial(o = {}) {
   const m = new THREE.MeshToonMaterial({ color: 0xffffff, gradientMap: GRAD_SOFT, transparent: true, side: THREE.DoubleSide });
   patch(m, { snow: false }); const base = m.onBeforeCompile;
-  const u = { uWk: { value: new THREE.Vector4(o.ribbon ? 1 : 0, o.R || 1, o.W || 1, o.flow || 0) }, uImpact: { value: o.impact || new V3(0, 0, 0) }, uZen: skyU.zenith, uHor: skyU.horizon };
-  m.customProgramCacheKey = () => 'water';
+  const u = { uWk: { value: new THREE.Vector4(o.ribbon ? 1 : 0, o.R || 1, o.W || 1, o.flow || 0) }, uImpact: { value: o.impact || new V3(0, 0, 0) }, uZen: skyU.zenith, uHor: skyU.horizon, uSea: o.sea || { value: new THREE.Vector4() } };
+  const sea = !!o.sea;   // the sea is one huge sheet: its shore is the beach's waterline and the rim of the islet
+  m.customProgramCacheKey = () => sea ? 'sea' : 'water';
   m.onBeforeCompile = sh => {
     base(sh); Object.assign(sh.uniforms, u);
     sh.vertexShader = 'varying vec2 vWuv;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n vWuv = uv;');
-    sh.fragmentShader = `uniform vec4 uWk; uniform vec3 uImpact, uZen, uHor; varying vec2 vWuv;
+    sh.fragmentShader = `uniform vec4 uWk, uSea; uniform vec3 uImpact, uZen, uHor; varying vec2 vWuv;
       #define below(hi, lo, x) (1.0 - smoothstep(lo, hi, x))
       vec2 wh2(vec2 p){ return fract(sin(vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)))) * 43758.5453); }
       vec3 wVoro(vec2 p, float t){   // x: distance to the nearest cell point, y: how close to a cell edge, z: that cell's random number
@@ -1413,27 +1440,31 @@ function waterMaterial(o = {}) {
         return vec3(sqrt(f1), sqrt(f2) - sqrt(f1), id); }
       ` + sh.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
       // how far in from the edge, in metres: from either bank of a stream (its uv runs across and along it), or from the rim of a pond (its uv is its own flat shape)
-      float wSh = uWk.x > 0.5 ? (1.0 - abs(2.0 * vWuv.x * 8.0 / uWk.z - 1.0)) * uWk.z * 0.5 : uWk.y - length(vWuv);
+      float wSh = ${sea ? `min(uSea.x + (-150.0 + 5.0 * sin(vWPos.x * 0.045 + 0.6)) - vWPos.z, length(vWPos.xz - vec2(${ISLE.x.toFixed(1)}, ${ISLE.z.toFixed(1)})) - ${(ISLE.r - 2).toFixed(1)} + uSea.x * 0.3)` : 'uWk.x > 0.5 ? (1.0 - abs(2.0 * vWuv.x * 8.0 / uWk.z - 1.0)) * uWk.z * 0.5 : uWk.y - length(vWuv)'};
+      float wShD = wSh * ${sea ? '0.2' : '1.0'};   // the sea shelves far more gently than a pond
       float wT = uTime; vec2 wp = uWk.x > 0.5 ? vec2(vWuv.x * 8.0, vWuv.y * 4.0 - wT * uWk.w) : vWPos.xz;
       float wn = sin(wp.x * 1.7 + wT * 0.9) * sin(wp.y * 1.3 - wT * 0.7);
       vec3 v1 = wVoro(wp * 0.6 + vec2(wn * 0.12, wT * 0.05), wT * 0.9), v2 = wVoro(wp * 1.3 + 7.3 - vec2(wT * 0.06, wn * 0.1), wT * 1.2);
-      float wDepth = smoothstep(0.0, 2.4, wSh);
-      vec3 wc = mix(vec3(0.33, 0.66, 0.63), vec3(0.14, 0.42, 0.66), wDepth); wc = mix(wc, vec3(0.09, 0.31, 0.58), smoothstep(2.2, 6.0, wSh) * 0.55);   // kept well under white: sunlight here adds up to more than 1
+      float wDepth = smoothstep(0.0, 2.4, wShD);
+      vec3 wc = mix(vec3(0.33, 0.66, 0.63), vec3(0.14, 0.42, 0.66), wDepth); wc = mix(wc, vec3(0.09, 0.31, 0.58), smoothstep(2.2, 6.0, wShD) * 0.55);   // kept well under white: sunlight here adds up to more than 1
       float wFres = pow(1.0 - abs(dot(normalize(vNormal), normalize(vViewPosition))), 2.5);
       wc = mix(wc, mix(uHor, uZen, 0.6) * 0.72, wFres * 0.45);                                                   // the sky, where you look across the water
       float wLines = below(0.08, 0.02, v1.y) * 0.55 + below(0.06, 0.02, v2.y) * 0.25;
+      ${sea ? 'float wNear = below(150.0, 45.0, length(vViewPosition)); wLines *= wNear;   // far out the fine detail would only shimmer' : ''}
       wc = mix(wc, vec3(0.62, 0.80, 0.82), wLines * (0.55 - 0.2 * wFres));                                       // the net of light
       float wLap = 0.3 + 0.12 * sin(wT * 1.2 + wp.x * 0.9 + wp.y * 0.7) + (v2.x - 0.4) * 0.25;
       float wFoam = below(wLap, wLap - 0.1, wSh);                                                               // foam lapping at the edge…
       wFoam = max(wFoam, below(0.07, 0.01, abs(wSh - 0.75 - 0.3 * sin(wT * 0.7 + wp.x * 0.5))) * 0.7 * step(0.33, v1.x));   // …and a broken line of it further out
+      ${sea ? `{ float wv = wSh + 1.6 * sin(vWPos.x * 0.06 + wT * 0.25) + (v1.x - 0.4) * 1.5, ph = fract(wv / 12.0 + wT * 0.085);      // rollers: broken lines of foam running in to the shore
+        wFoam = max(wFoam, below(0.05, 0.012, abs(ph - 0.5)) * step(0.24, v2.x) * smoothstep(0.6, 3.0, wSh) * below(40.0, 10.0, wSh) * 0.75); }` : ''}
       if (uImpact.z > 0.0) { float wd = length(vWPos.xz - uImpact.xy);                                           // where a waterfall lands: churned foam, and rings running outward
         wFoam = max(wFoam, below(2.4, 1.1, wd + (v2.x - 0.4) * 1.3) * uImpact.z);
         wFoam = max(wFoam, smoothstep(0.72, 0.98, sin(wd * 4.2 - wT * 4.5)) * below(6.5, 2.0, wd) * 0.6 * uImpact.z); }
       if (uWx.y > 0.02) { vec3 v3 = wVoro(vWPos.xz * 1.7 + 3.1, 0.0); float wr = fract(wT * 1.4 + v3.z * 9.0);     // raindrops: rings opening all over the surface
         wFoam = max(wFoam, below(0.035, 0.0, abs(v3.x - wr * 0.42)) * (1.0 - wr) * step(1.0 - uWx.y * 0.9, fract(v3.z * 57.0)) * 0.8); }
       wFoam = clamp(wFoam, 0.0, 1.0);
-      float wSpark = below(0.075, 0.02, v2.x) * step(0.5, sin(wT * 2.5 + v2.z * 40.0)) * (1.0 - wFoam);
-      diffuseColor.rgb = mix(wc, vec3(0.8), wFoam); diffuseColor.a = mix(0.86, 1.0, clamp(wFoam + wFres * 0.6, 0.0, 1.0));`)
+      float wSpark = below(0.075, 0.02, v2.x) * step(0.5, sin(wT * 2.5 + v2.z * 40.0)) * (1.0 - wFoam)${sea ? ' * wNear' : ''};
+      diffuseColor.rgb = mix(wc, vec3(0.8), wFoam); diffuseColor.a = mix(${sea ? 'mix(0.8, 0.95, wDepth)' : '0.86'}, 1.0, clamp(wFoam + wFres * 0.6, 0.0, 1.0));`)
       .replace('#include <tonemapping_fragment>', 'gl_FragColor.rgb += vec3(1.0, 0.98, 0.9) * wSpark * 0.75 * uDay;\n#include <tonemapping_fragment>');
   };
   return m;
@@ -1823,8 +1854,8 @@ const grassChunks = [];
   const M4 = new THREE.Matrix4(), Q = new THREE.Quaternion(), S = new V3(), P = new V3(), E = new THREE.Euler(), C = new THREE.Color();
   let n = 0, guard = 0;
   while (n < N && guard++ < N * 8) {
-    const x = rand(-206, 96), z = rand(-114, 212), inF = forestSDF(x, z) < 3 || cabinSDF(x, z) < 3;
-    if ((Math.hypot(x, z) > 96 && !inF) || !free(x, z, -0.6) || inPlat(x, z, 1)) continue;
+    const x = rand(-206, 96), z = rand(-126, 212), inF = forestSDF(x, z) < 3 || cabinSDF(x, z) < 3 || beachSDF(x, z) < 3;
+    if ((Math.hypot(x, z) > 96 && !inF) || seaward(x, z) > -37 || !free(x, z, -0.6) || inPlat(x, z, 1)) continue;
     const fk = forestK(x, z), dens = fbm(x * 0.05, 3, z * 0.05);
     if (Math.random() > (0.55 + dens * 0.8) * (1 - fk * 0.3)) continue;
     const tall = 0.75 + Math.max(0, dens) * 1.5 + rand(0, 0.35);
@@ -1923,7 +1954,7 @@ function spawnBloom() {
   for (let tries = 0; tries < 14; tries++) {
     const a = camYaw + Math.PI + rand(-1.0, 1.0), r = rand(3.5, 11);
     const x = player.pos.x + Math.sin(a) * r, z = player.pos.z + Math.cos(a) * r;
-    if (!walkable(x, z) || !free(x, z, 0.2) || Math.hypot(x - POND.x, z - POND.z) < POND.r + 1) continue;
+    if (!walkable(x, z) || !free(x, z, 0.2) || Math.hypot(x - POND.x, z - POND.z) < POND.r + 1 || sandK(x, z) > 0) continue;
     const F = FL[pick(['daisy', 'cosmos', 'buttercup', 'bluebell'])]; if (!F) return;
     const n = 2 + (Math.random() * 4 | 0);
     for (let k = 0; k < n; k++) {
@@ -1956,6 +1987,7 @@ function tickBlooms(dt) {
   const p = G.attributes.position, cols = new Float32Array(p.count * 3);
   const a = col(0xb9e088), b = col(0x97cc6c), sunny = col(0xd2ea96), t = new THREE.Color();
   const fA = col(0x86ba6a), fB = col(0x71a65c), fGlade = col(0xaed988), tc2 = new THREE.Color();
+  const sandA = col(0xf2dfb2), sandB = col(0xe7cd98), sandWet = col(0xc6aa76), isleRock = col(0xb9b3a8), isleGrass = col(0xa9d67e);
   const big = solids.filter(s => s.r > 0.9 && s.bottom < -50);
   for (let i = 0; i < p.count; i++) {
     const x = p.getX(i), z = p.getZ(i); p.setY(i, terrain(x, z));
@@ -1966,6 +1998,13 @@ function tickBlooms(dt) {
       mixC(tc2, fA, fB, 0.5 + noise3(x * 0.08, 7, z * 0.08));
       if (Math.hypot(x - GLADE.x, z - GLADE.z) < 11) tc2.lerp(fGlade, 0.6);
       t.lerp(tc2, fk * 0.85);
+    }
+    const sea = seaward(x, z);
+    if (sea > -36) {   // dunes and beach: pale dry sand, darker where the waves wet it, and the islet's rock out in the bay
+      mixC(tc2, sandA, sandB, 0.5 + fbm(x * 0.09, 5, z * 0.09) * 0.9); tc2.lerp(sandWet, smooth(-5, -1.5, sea) * 0.75);
+      t.lerp(tc2, clamp(smooth(-36, -25, sea) + (sea > -34 ? fbm(x * 0.2, 9, z * 0.2) * 0.35 : 0), 0, 1));
+      const di = Math.hypot(x - ISLE.x, z - ISLE.z);
+      if (di < ISLE.r + 4) { mixC(tc2, isleRock, isleGrass, smooth(ISLE.r - 4.5, ISLE.r - 7.5, di + fbm(x * 0.3, 2, z * 0.3) * 2)); t.lerp(tc2, smooth(ISLE.r + 4, ISLE.r, di)); }
     }
     let ao = 1;
     if (Math.hypot(x, z) < 125 || forestSDF(x, z) < 12 || cabinSDF(x, z) < 12) for (const s of big) { const d = Math.hypot(x - s.x, z - s.z) / (s.r + 1.8); if (d < 1) ao = Math.min(ao, 0.74 + 0.26 * d * d); }
@@ -1979,10 +2018,10 @@ function tickBlooms(dt) {
 
 { // coarse far ground under the detailed one, so the land runs on to the horizon when the haze is light
   const G = new THREE.PlaneGeometry(1800, 1800, 120, 120); G.rotateX(-Math.PI / 2);
-  const p = G.attributes.position, cols = new Float32Array(p.count * 3), a = col(0xb4dc8c), b = col(0x94c676), t = new THREE.Color();
+  const p = G.attributes.position, cols = new Float32Array(p.count * 3), a = col(0xb4dc8c), b = col(0x94c676), sand = col(0xe9d3a2), t = new THREE.Color();
   for (let i = 0; i < p.count; i++) {
     const x = p.getX(i), z = p.getZ(i); p.setY(i, terrain(x, z) - 1.2);
-    mixC(t, a, b, 0.5 + fbm(x * 0.012, 1, z * 0.012) * 0.9); t.toArray(cols, i * 3);
+    mixC(t, a, b, 0.5 + fbm(x * 0.012, 1, z * 0.012) * 0.9); t.lerp(sand, smooth(-40, -20, seaward(x, z))); t.toArray(cols, i * 3);
   }
   G.setAttribute('color', new THREE.BufferAttribute(cols, 3));
   G.computeVertexNormals();
@@ -2612,7 +2651,7 @@ function polyAt(pts, L, s) { let i = 1; while (i < pts.length - 1 && L[i] < s) i
   };
 
   // 4. grandma turtle strolls the village path, very slowly, stopping now and then to enjoy the view
-  const walk = PATH_SAMPLES.map(q => [q.x + 1.6, q.z]), WL = polyLen(walk), WT = WL[WL.length - 1];
+  const walk = PATH_SAMPLES.slice(0, BEACH_S0).map(q => [q.x + 1.6, q.z]), WL = polyLen(walk), WT = WL[WL.length - 1];
   const turtle = addWanderer(makeTurtle(), { name: '거북이 할머니', voice: 'turtle', key: 'turtle', pos: new V3(walk[0][0], 0, walk[0][1]), scale: 1.1,
     lines: ['천천히 가도 괜찮단다~', '오늘 햇살이 참 좋구나', '푸딩 산 꼭대기엔 가 봤니?', '나는 이 길을 백 년째 걷는단다', '서두르지 말고 꽃도 보렴'] });
   turtle.st.s = rand(0, WT); turtle.st.dir = 1; turtle.st.wait = 0;
@@ -2631,7 +2670,7 @@ function polyAt(pts, L, s) { let i = 1; while (i < pts.length - 1 && L[i] < s) i
 const MAP_MID = new V3(0, 0, 0);
 function tickWanderers(dt, T, night) {
   // on the select screen the camera circles the village, so the village walkers keep going there too
-  const focus = player ? (player.zone !== 'tower' && player.zone !== 'terrace' ? player.pos : null) : MAP_MID;
+  const focus = player ? (player.zone !== 'tower' && player.zone !== 'terrace' && player.zone !== 'lighthouse' ? player.pos : null) : MAP_MID;
   for (const w of wanderers) {
     const dist = focus ? Math.hypot(focus.x - w.pos.x, focus.z - w.pos.z) : 999;
     w.near = dist < 80;
@@ -3620,6 +3659,256 @@ function tickSmoke(dt) {
   }
 }
 
+/* ---------------- Mongle beach: dunes, sand and sea, a pier out to a lighthouse on its islet ---------------- */
+const beach = { sea: null, seaU: null, beams: null, glow: null, top: null, boat: null, crown: [] };
+const LH = { x: ISLE.x, z: ISLE.z, y0: ISLE.y, gy: ISLE.y + 17.2, r: 4.4, ux: 0, uz: 0 };   // gy: the gallery floor; (ux, uz): from the tower toward the pier
+{ const l = Math.hypot(PIER.bx - ISLE.x, PIER.bz - ISLE.z); LH.ux = (PIER.bx - ISLE.x) / l; LH.uz = (PIER.bz - ISLE.z) / l; }
+const LH_STAR = new V3(LH.x - LH.ux * 3.3, LH.gy + 1.3, LH.z - LH.uz * 3.3);
+const SANDCASTLE = { x: -16, z: shoreZ(-16) + 13 };
+function makeCrab() {
+  const g = new THREE.Group(), body = new THREE.Group(); g.add(body);
+  const red = soft(0xf07a5c), dark = soft(0xd9583f), claws = [];
+  const shell = mk(SPH_MED, red, { parent: body, pos: [0, 0.34, 0], scale: [0.62, 0.36, 0.46], outline: 0.035 });
+  animalFace(shell, { eyes: false, eyeY: 0.05 });
+  for (const s of [-1, 1]) {
+    mk(new THREE.CylinderGeometry(0.035, 0.045, 0.3, 6), dark, { parent: body, pos: [s * 0.2, 0.72, 0.22], outline: 0.012 });   // eyes up on stalks
+    const eye = mk(SPH_LO, basic(0xffffff), { parent: body, pos: [s * 0.2, 0.92, 0.22], scale: 0.115, outline: 0.02, shadow: false });
+    const pu = new THREE.Mesh(SPH_LO, basic(0x2b2220)); pu.scale.setScalar(0.55); pu.position.set(0, 0, 0.62); eye.add(pu);
+    const arm = new THREE.Group(); arm.position.set(s * 0.58, 0.4, 0.2); body.add(arm);                                          // a claw held up on each side
+    mk(SPH_LO, dark, { parent: arm, pos: [s * 0.16, 0.1, 0.06], scale: [0.2, 0.1, 0.1], rot: [0, 0, s * 0.6], outline: 0.02 });
+    mk(SPH_LO, red, { parent: arm, pos: [s * 0.34, 0.36, 0.12], scale: [0.2, 0.25, 0.14], outline: 0.025 });
+    mk(SPH_LO, red, { parent: arm, pos: [s * 0.24, 0.58, 0.12], scale: [0.07, 0.15, 0.08], rot: [0, 0, s * 0.35], outline: 0.015 });
+    for (let i = 0; i < 3; i++) mk(SPH_LO, dark, { parent: g, pos: [s * (0.56 + 0.05 * i), 0.1, 0.12 - i * 0.2], scale: [0.2, 0.055, 0.06], rot: [0, s * (0.3 - i * 0.3), -s * 0.5], outline: 0.014 });
+    claws.push(arm);
+  }
+  return { g, body, h: 1.1, claws };
+}
+function makeGull() {
+  const g = new THREE.Group(), body = new THREE.Group(); g.add(body);
+  const wht = soft(0xffffff), gry = soft(0xaebdd0);
+  mk(SPH, wht, { parent: body, pos: [0, 0.36, 0], scale: [0.36, 0.33, 0.52], outline: 0.03 });
+  const head = mk(SPH_MED, wht, { parent: body, pos: [0, 0.82, 0.26], scale: 0.27, outline: 0.028 });
+  const put = animalFace(head, { eyeY: 0.18, eyeX: 0.42, mouth: false });
+  const beak = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.5, 8), soft(0xf6b03c)); beak.rotation.x = Math.PI / 2; put(0, -0.02, 0.16, beak);
+  for (const s of [-1, 1]) mk(SPH_MED, gry, { parent: body, pos: [s * 0.33, 0.42, -0.08], scale: [0.08, 0.2, 0.44], rot: [0.25, 0, s * 0.2], outline: 0.022 });
+  mk(new THREE.ConeGeometry(0.13, 0.36, 8), gry, { parent: body, pos: [0, 0.42, -0.56], rot: [-1.25, 0, 0], outline: 0.018 });
+  for (const s of [-1, 1]) mk(new THREE.CylinderGeometry(0.025, 0.025, 0.16, 5), soft(0xf6b03c), { parent: g, pos: [s * 0.12, 0.06, 0.02], outline: 0.008 });
+  mk(new THREE.CylinderGeometry(0.3, 0.3, 0.07, 14), soft(0x4f6fa8), { parent: body, pos: [0, 1.07, 0.24], rot: [-0.15, 0, 0], outline: 0.015 });      // a little sailor cap
+  mk(new THREE.CylinderGeometry(0.2, 0.23, 0.14, 14), soft(0xffffff), { parent: body, pos: [0, 1.16, 0.23], rot: [-0.15, 0, 0], outline: 0.015 });
+  return { g, body, h: 1.3 };
+}
+{
+  const vc = toon(0xffffff, { vc: true }), vc2 = toon(0xffffff, { vc: true, side: THREE.DoubleSide });
+  // --- the sea: one sheet out to the horizon; its shader knows where the waterline runs, so foam laps along it
+  beach.seaU = { value: new THREE.Vector4(0, 0, 0, 0) };
+  const sg = new THREE.PlaneGeometry(2600, 1200, 1, 1); sg.rotateX(-Math.PI / 2);
+  const sea = beach.sea = new THREE.Mesh(sg, waterMaterial({ sea: beach.seaU })); sea.position.set(0, SEA_Y, -122 - 600); sea.receiveShadow = true; sea.userData.keep = true; scene.add(sea);
+
+  // --- palms: a leaning ringed trunk, a crown of drooping fronds, a few coconuts
+  const frondCol = (c, x, y, z, nx, ny) => mixC(c, col(0x4f9a4a), col(0x9ed06a), ny * 0.5 + 0.5 + noise3(x * 0.8, y, z * 0.8) * 0.2);
+  function palm(x, z, s = 1, dir = rand(0, 6.28), lean = rand(0.1, 0.3)) {
+    const y = terrain(x, z) - 0.15, piv = new THREE.Group(); piv.position.set(x, y, z); piv.scale.setScalar(s); scene.add(piv);
+    const G = new Geo(), H = rand(5.6, 7.2), N = 8; let p0 = new V3(0, 0, 0);
+    for (let i = 1; i <= N; i++) { const t = i / N, off = lean * H * t * t, p1 = new V3(Math.sin(dir) * off, H * t, Math.cos(dir) * off);
+      beam(G, p0, p1, 0.36 - 0.15 * t, i % 2 ? 0xcaa174 : 0xb68d61, { round: true, taper: 0.88, seg: 9 }); p0 = p1; }
+    mk(G.build(), vc, { parent: piv, outline: 0.04 });
+    const crown = new THREE.Group(); crown.position.copy(p0); piv.add(crown);
+    const C = new Geo(), dv = (a, th) => new V3(Math.sin(a) * Math.cos(th), -Math.sin(th), Math.cos(a) * Math.cos(th));
+    for (let i = 0; i < 9; i++) {
+      const a = i / 9 * Math.PI * 2 + rand(-0.2, 0.2), t1 = rand(-0.45, -0.1), t2 = t1 + rand(0.7, 1.0), L1 = rand(1.3, 1.7), L2 = rand(1.3, 1.8);
+      const d1 = dv(a, t1), d2 = dv(a, t2), e1 = d1.clone().multiplyScalar(L1);
+      C.add(SPH_LO, frondCol, d1.clone().multiplyScalar(L1 * 0.5).toArray(), [t1, a, 0, 'YXZ'], [0.42, 0.07, L1 * 0.56]);
+      C.add(SPH_LO, frondCol, e1.clone().addScaledVector(d2, L2 * 0.45).toArray(), [t2, a, 0, 'YXZ'], [0.36, 0.06, L2 * 0.56]);
+    }
+    for (let i = 0; i < 3; i++) { const a = i * 2.1 + rand(0, 1); C.add(SPH_LO, 0x8a5a3c, [Math.sin(a) * 0.3, -0.28, Math.cos(a) * 0.3], [0, 0, 0], 0.2); }
+    mk(C.build(), vc, { parent: crown, outline: 0.045 });
+    swayers.push({ o: crown, ph: rand(0, 6), amp: 0.05 });
+    solid(x, z, 0.42 * s, y + H * s); avoid.push({ x, z, r: 1.2 });
+  }
+  // along the dunes, down both sides of the sand and a pair on the islet
+  [[-34, 0], [-20, 3], [22, 1], [33, -2], [-48, -4], [56, 2], [70, -3], [-56, -16], [76, -14], [-8, 2]].forEach(([x, dz], i) => { const z = shoreZ(x) + 27 + dz; palm(x, z, rand(0.95, 1.25), rand(2.4, 3.9)); });
+  palm(ISLE.x + 5.8, ISLE.z + 2.5, 0.8, 1.2, 0.3); palm(ISLE.x - 5.2, ISLE.z - 3.6, 0.9, 4.2, 0.28);
+
+  // --- rocks: heaped up at either end of the sand where the headlands begin, and round the islet
+  for (const side of [-1, 1]) for (let i = 0; i < 8; i++) {
+    const x = BEACH.cx + side * (BEACH.bx + rand(1, 6)), z = -122 - i * 5.2 + rand(-1.5, 1.5); rockAt(x, z, rand(1.6, 3.2), true);
+    if (i % 2) rockAt(x - side * rand(3.5, 5.5), z + rand(-2, 2), rand(0.7, 1.3), true);
+  }
+  for (let i = 0; i < 9; i++) { const a = i / 9 * Math.PI * 2 + 0.5, x = ISLE.x + Math.sin(a) * (ISLE.r - 1.6), z = ISLE.z + Math.cos(a) * (ISLE.r - 1.6); if (pierDist(x, z) > 3.2) rockAt(x, z, rand(1.0, 1.9), true); }
+
+  // --- the pier: planks on posts, rope rails, lanterns, and a rowing boat tied up beside it
+  {
+    const ex = PIER.bx - PIER.ax, ez = PIER.bz - PIER.az, L = Math.hypot(ex, ez), ux = ex / L, uz = ez / L, ang = Math.atan2(ux, uz), nx = uz, nz = -ux;
+    const G = new Geo(), plankCols = [0xd9b488, 0xcfa878, 0xe2c096, 0xc79e70];
+    for (let d = 0.2; d < L; d += 0.52) G.add(new THREE.BoxGeometry(PIER.hw * 2 + rand(0, 0.16), 0.14, 0.46), pick(plankCols), [PIER.ax + ux * d, PIER.y - 0.07, PIER.az + uz * d], [0, ang, 0]);
+    for (const s of [-1, 1]) G.add(new THREE.BoxGeometry(0.2, 0.2, L), 0xa9825a, [PIER.ax + ex / 2 + nx * s * (PIER.hw - 0.3), PIER.y - 0.24, PIER.az + ez / 2 + nz * s * (PIER.hw - 0.3)], [0, ang, 0]);
+    const tall = [];
+    for (let d = 1.2, k = 0; d < L - 0.5; d += 4.1, k++) for (const s of [-1, 1]) {
+      const px = PIER.ax + ux * d + nx * s * (PIER.hw + 0.08), pz = PIER.az + uz * d + nz * s * (PIER.hw + 0.08), gy = Math.max(terrain(px, pz), SEA_Y - 3), top = PIER.y + 1.0;
+      G.add(new THREE.CylinderGeometry(0.15, 0.17, top - gy + 0.6, 8), 0x9a7450, [px, (top + gy - 0.6) / 2, pz]); G.add(new THREE.CylinderGeometry(0.19, 0.19, 0.1, 8), 0xe9dcc4, [px, top + 0.03, pz]);
+      tall.push({ x: px, z: pz, s, k, top });
+    }
+    for (const s of [-1, 1]) { const ps = tall.filter(t => t.s === s); for (let i = 0; i < ps.length - 1; i++) {      // ropes sagging from post to post
+      const a = ps[i], b = ps[i + 1]; let q0 = new V3(a.x, a.top - 0.14, a.z);
+      for (let j = 1; j <= 5; j++) { const t = j / 5, q1 = new V3(a.x + (b.x - a.x) * t, a.top - 0.14 - Math.sin(t * Math.PI) * 0.32, a.z + (b.z - a.z) * t); beam(G, q0, q1, 0.035, 0xf3ead8, { round: true, seg: 5 }); q0 = q1; } } }
+    const pm = mk(G.build(), vc, { outline: 0.03 }); pm.userData.keep = true; scene.add(pm);
+    for (let d = 0; d <= L; d += 0.8) solid(PIER.ax + ux * d, PIER.az + uz * d, PIER.hw + 0.25, PIER.y, PIER.y - 0.5).nocam = true;
+    tall.filter(t => t.k % 3 === 1).forEach(t => lantern(t.x, t.top + 0.5, t.z));
+    // the boat
+    const B = new Geo(), hullC = (c, x, y) => mixC(c, col(0x5fa8d6), col(0x8fd0ee), y + 1);
+    B.add(new THREE.SphereGeometry(1, 20, 10, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), hullC, [0, 0, 0], [0, 0, 0], [0.8, 0.7, 1.9]);
+    B.add(new THREE.TorusGeometry(1, 0.075, 6, 30), 0xfff6ea, [0, 0, 0], [Math.PI / 2, 0, 0], [0.8, 1.9, 1]);
+    B.add(new THREE.CircleGeometry(1, 20), 0xd9b488, [0, -0.2, 0], [-Math.PI / 2, 0, 0], [0.7, 1.72, 1]);
+    for (const z of [-0.55, 0.6]) B.add(new THREE.BoxGeometry(1.4, 0.07, 0.3), 0xc79e70, [0, -0.02, z]);
+    const bd = PIER.ax + ux * (L * 0.62), bz = PIER.az + uz * (L * 0.62);
+    beach.boat = mk(B.build(), vc2, { pos: [bd + nx * 3.0, SEA_Y + 0.42, bz + nz * 3.0], rot: [0, ang + 0.25, 0], outline: 0.035 }); beach.boat.userData.keep = true; scene.add(beach.boat);
+  }
+
+  // --- the lighthouse: a striped tower on a stone foot, a railed gallery, the lamp room under a red cap
+  {
+    const g = new THREE.Group(); g.position.set(LH.x, LH.y0, LH.z); g.userData.keep = true; scene.add(g);
+    const H = 16, R0 = 3.0, R1 = 2.1, da = Math.atan2(LH.ux, LH.uz);
+    mk(new THREE.CylinderGeometry(R0 + 0.55, R0 + 0.9, 1.2, 28), toon(0xddd6c9, { rim: 0.08 }), { parent: g, pos: [0, 0.3, 0], outline: 0.06 });
+    const T = new Geo();
+    for (let i = 0; i < 5; i++) { const t0 = i / 5, t1 = (i + 1) / 5; T.add(new THREE.CylinderGeometry(R0 + (R1 - R0) * t1, R0 + (R1 - R0) * t0, H / 5, 36, 1, true), i % 2 ? 0xfff7ec : 0xec6a58, [0, 0.9 + H * (t0 + t1) / 2, 0]); }
+    mk(T.build(), toon(0xffffff, { vc: true, rim: 0.1 }), { parent: g, outline: 0.07 });
+    // door facing the pier, and little round windows up the tower
+    const dg = new THREE.Group(); dg.position.set(Math.sin(da) * (R0 - 0.06), 0.9, Math.cos(da) * (R0 - 0.06)); dg.rotation.y = da; g.add(dg);
+    mk(new THREE.ExtrudeGeometry(archShape(0.86, 1.5), { depth: 0.3, bevelEnabled: false }), 0xfff7ec, { parent: dg, outline: 0.035 });
+    mk(new THREE.ExtrudeGeometry(archShape(0.7, 1.42), { depth: 0.3, bevelEnabled: true, bevelSize: 0.03, bevelThickness: 0.03, bevelSegments: 2 }), soft(0x4f8fc0), { parent: dg, pos: [0, 0.03, 0.05], outline: 0.02 });
+    mk(SPH_LO, gloss(0xf3c64a, { shin: 100, spec: 0xffffff }), { parent: dg, pos: [0.42, 0.95, 0.42], scale: 0.07, outline: 0.012 });
+    mk(new THREE.BoxGeometry(2.4, 0.22, 1.3), toon(0xc9c1b3), { parent: dg, pos: [0, -0.2, 0.7], outline: 0.03 });
+    for (const [a, hy] of [[da + 0.5, 6.2], [da - 1.6, 10.2], [da + 2.6, 8.0], [da - 0.4, 13.4]]) {
+      const r = R0 + (R1 - R0) * ((hy - 0.9) / H) + 0.02, w = new THREE.Group(); w.position.set(Math.sin(a) * r, hy, Math.cos(a) * r); w.rotation.y = a; g.add(w);
+      mk(new THREE.TorusGeometry(0.42, 0.09, 8, 20), 0xfff7ec, { parent: w, outline: 0.02 }); const gl = new THREE.Mesh(new THREE.CircleGeometry(0.42, 20), basic(0xcfeefc)); gl.position.z = 0.02; w.add(gl);
+    }
+    // the gallery
+    const gy = LH.gy - LH.y0, top = beach.top = new THREE.Group(); top.position.y = gy; g.add(top);
+    mk(new THREE.CylinderGeometry(LH.r, LH.r - 0.5, 0.36, 40), [woodMat, woodMat, woodMat], { parent: top, pos: [0, -0.18, 0], outline: 0.05 });
+    mk(new THREE.CylinderGeometry(LH.r - 0.6, R1 + 0.05, 1.5, 32), 0xfff7ec, { parent: top, pos: [0, -1.1, 0], outline: 0.05 });
+    const RG = new Geo();
+    for (let i = 0; i < 24; i++) { const a = i / 24 * Math.PI * 2; RG.add(new THREE.CylinderGeometry(0.055, 0.065, 1.1, 6), 0xec6a58, [Math.sin(a) * (LH.r - 0.22), 0.55, Math.cos(a) * (LH.r - 0.22)]); }
+    RG.add(new THREE.TorusGeometry(LH.r - 0.22, 0.07, 6, 72), 0xfff7ec, [0, 1.12, 0], [Math.PI / 2, 0, 0]); RG.add(new THREE.TorusGeometry(LH.r - 0.22, 0.04, 6, 72), 0xfff7ec, [0, 0.6, 0], [Math.PI / 2, 0, 0]);
+    mk(RG.build(), vc, { parent: top, outline: 0.028 });
+    // lamp room: glass between slim posts, the lamp itself, and the cap
+    const room = beach.room = new THREE.Group(); top.add(room);
+    const LR = 1.55, glass = new THREE.Mesh(new THREE.CylinderGeometry(LR, LR, 2.3, 24, 1, true), new THREE.MeshBasicMaterial({ color: 0xcfeefc, transparent: true, opacity: 0.38, side: THREE.DoubleSide, depthWrite: false })); glass.position.y = 1.75; room.add(glass);
+    mk(new THREE.CylinderGeometry(LR + 0.15, LR + 0.15, 0.6, 24), 0xfff7ec, { parent: room, pos: [0, 0.3, 0], outline: 0.04 });
+    const FG = new Geo(); for (let i = 0; i < 8; i++) { const a = i / 8 * Math.PI * 2; FG.add(new THREE.BoxGeometry(0.1, 2.3, 0.1), 0x4b3a35, [Math.sin(a) * LR, 1.75, Math.cos(a) * LR], [0, a, 0]); }
+    FG.add(new THREE.TorusGeometry(LR, 0.06, 6, 40), 0x4b3a35, [0, 2.9, 0], [Math.PI / 2, 0, 0]); mk(FG.build(), vc, { parent: room, outline: 0 });
+    mk(new THREE.ConeGeometry(LR + 0.75, 1.7, 28), toon(0xe2574a, { rim: 0.12 }), { parent: room, pos: [0, 3.75, 0], outline: 0.06 });
+    mk(SPH_LO, gloss(0xf3c64a, { shin: 100, spec: 0xffffff }), { parent: room, pos: [0, 4.75, 0], scale: 0.24, outline: 0.03 });
+    mk(new THREE.CylinderGeometry(0.03, 0.03, 0.9, 6), 0x4b3a35, { parent: room, pos: [0, 5.3, 0], outline: 0 });
+    const lampM = new THREE.MeshBasicMaterial({ color: 0xfff1b8 }); mk(new THREE.CylinderGeometry(0.42, 0.42, 1.0, 14), lampM, { parent: room, pos: [0, 1.7, 0], outline: 0.03, shadow: false });
+    beach.glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX.mote, color: 0xffe9a8, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0, fog: false }));
+    beach.glow.position.y = 1.8; beach.glow.scale.setScalar(13); top.add(beach.glow);
+    // two beams that sweep round after dark
+    const bt = canvasTex(8, 128, (x, w, h) => { const gr = x.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, '#fff3c4'); gr.addColorStop(0.25, '#8a7f5c'); gr.addColorStop(1, '#000'); x.fillStyle = gr; x.fillRect(0, 0, w, h); });
+    const bgeo = new THREE.ConeGeometry(9, 95, 20, 1, true); bgeo.translate(0, -47.5, 0); bgeo.rotateZ(Math.PI / 2);
+    beach.beamMat = new THREE.MeshBasicMaterial({ map: bt, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false });
+    beach.beams = new THREE.Group(); beach.beams.position.y = 1.8; top.add(beach.beams);
+    for (const s of [0, Math.PI]) { const b = new THREE.Mesh(bgeo, beach.beamMat); b.rotation.set(0, s, -0.035); b.frustumCulled = false; beach.beams.add(b); }
+    lampLights.push({ p: new V3(LH.x + LH.ux * 4, LH.y0 + 2.6, LH.z + LH.uz * 4), r: 9, kind: 'out' });
+    // collisions: the tower is a pillar; the gallery is a floor high up; the lamp room stands in its middle
+    solid(LH.x, LH.z, R0 + 0.5, LH.y0 + 0.9).nocam = true; solid(LH.x, LH.z, R0 - 0.1, LH.gy - 1.2).nocam = true;
+    solid(LH.x, LH.z, LH.r, LH.gy, LH.gy - 1.2).nocam = true; solid(LH.x, LH.z, LR + 0.2, LH.gy + 4.4, LH.gy - 0.5).nocam = true;
+    const out = new V3(LH.x + LH.ux * (R0 + 2.4), 0, LH.z + LH.uz * (R0 + 2.4)); out.y = terrain(out.x, out.z);
+    const tx = LH.uz, tz = -LH.ux, up = new V3(LH.x + LH.ux * 3.1, LH.gy, LH.z + LH.uz * 3.1);   // you come out on the side that faces the village
+    portals.push(
+      { zone: 'world', at: new V3(LH.x + LH.ux * (R0 + 1.0), LH.y0 + 0.9, LH.z + LH.uz * (R0 + 1.0)), r: 2.0, label: '등대에 올라가기',
+        to: { p: up, yaw: Math.atan2(LH.ux, LH.uz), cam: Math.atan2(tx, tz), zone: 'lighthouse' } },
+      { zone: 'lighthouse', at: up.clone(), r: 1.5, label: '아래로 내려가기', to: { p: out, yaw: Math.atan2(LH.ux, LH.uz), cam: Math.atan2(LH.ux, LH.uz), zone: 'world' } });
+  }
+
+  // --- on the sand: parasols with deck chairs, a sandcastle, surfboards, a beach ball, shells and starfish
+  const stripe = (R, h, n, c1, c2) => { const G = new Geo(), a = Math.PI / n, tg = new THREE.BufferGeometry();
+    tg.setAttribute('position', new THREE.Float32BufferAttribute([0, h, 0, -Math.sin(a) * R, 0, Math.cos(a) * R, Math.sin(a) * R, 0, Math.cos(a) * R], 3)); tg.setAttribute('uv', new THREE.Float32BufferAttribute([0.5, 1, 0, 0, 1, 0], 2)); tg.computeVertexNormals();
+    for (let i = 0; i < n; i++) G.add(tg, i % 2 ? c1 : c2, [0, 0, 0], [0, i * 2 * a, 0]); return G.build(); };
+  function deckChair(x, z, yaw, c) {
+    const y = terrain(x, z), g = new THREE.Group(); g.position.set(x, y, z); g.rotation.y = yaw; scene.add(g);
+    const G = new Geo();
+    G.add(new THREE.BoxGeometry(0.78, 0.07, 1.05), c, [0, 0.42, 0.2], [0.12, 0, 0]); G.add(new THREE.BoxGeometry(0.78, 0.07, 0.95), 0xfff7ec, [0, 0.82, -0.62], [-1.0, 0, 0]);
+    for (const s of [-1, 1]) { beam(G, new V3(s * 0.42, 0, 0.75), new V3(s * 0.42, 1.25, -0.95), 0.07, 0xc79e70); beam(G, new V3(s * 0.42, 0, -0.55), new V3(s * 0.42, 0.5, 0.72), 0.07, 0xc79e70); }
+    mk(G.build(), vc, { parent: g, outline: 0.03 });
+    seats.push({ p: new V3(x - Math.sin(yaw) * 0.05, y + 0.5, z - Math.cos(yaw) * 0.05), yaw, zone: 'world', floor: y, label: '의자에 앉기', say: ['파도 소리 좋다~', '바다다~!', '햇살이 따뜻해', '등대가 보여!'] });
+    solid(x, z, 0.75, y + 0.45).nocam = true; avoid.push({ x, z, r: 1.2 });
+  }
+  function parasol(x, z, c1, c2) {
+    const y = terrain(x, z), g = new THREE.Group(); g.position.set(x, y, z); g.rotation.set(0.1, rand(0, 6), 0.06); scene.add(g);
+    mk(new THREE.CylinderGeometry(0.05, 0.06, 3.0, 8), 0xfff7ec, { parent: g, pos: [0, 1.5, 0], outline: 0.02 });
+    mk(stripe(2.3, 0.8, 12, c1, c2), vc2, { parent: g, pos: [0, 2.35, 0], outline: 0.05 });
+    mk(SPH_LO, c1, { parent: g, pos: [0, 3.2, 0], scale: 0.1, outline: 0.02 });
+    solid(x, z, 0.2, y + 2.2).nocam = true; avoid.push({ x, z, r: 0.8 });
+  }
+  [[-34, 0xf2879f, 0xfff7ec, 0x8fd0ee], [16, 0x6fb4e8, 0xfff7ec, 0xffd76a], [62, 0xffc94f, 0xfff7ec, 0xf2879f]].forEach(([x, c1, c2, cc]) => {
+    const z = shoreZ(x) + 13; parasol(x, z, c1, c2); deckChair(x - 1.5, z - 0.8, Math.PI + 0.12, cc); deckChair(x + 1.5, z - 0.8, Math.PI - 0.12, cc);
+  });
+  { // sandcastle (a star candy sits on its tallest tower)
+    const { x, z } = SANDCASTLE, y = terrain(x, z), G = new Geo(), c = 0xf7e6b8, d = 0xecd49c;
+    G.add(new THREE.CylinderGeometry(1.5, 1.75, 0.5, 20), c, [0, 0.25, 0]);
+    for (let i = 0; i < 4; i++) { const a = i * Math.PI / 2 + 0.785, px = Math.sin(a) * 1.25, pz = Math.cos(a) * 1.25; G.add(new THREE.CylinderGeometry(0.34, 0.4, 1.0, 12), c, [px, 0.8, pz]); G.add(new THREE.ConeGeometry(0.42, 0.5, 12), d, [px, 1.55, pz]); }
+    for (let i = 0; i < 4; i++) { const a = i * Math.PI / 2; G.add(new THREE.BoxGeometry(1.5, 0.6, 0.26), c, [Math.sin(a) * 1.15, 0.75, Math.cos(a) * 1.15], [0, a, 0]); }
+    G.add(new THREE.CylinderGeometry(0.62, 0.72, 1.4, 14), c, [0, 1.15, 0]); G.add(new THREE.ConeGeometry(0.78, 0.7, 14), d, [0, 2.2, 0]);
+    scene.add(mk(G.build(), toon(0xffffff, { vc: true, soft: true }), { pos: [x, y - 0.05, z], outline: 0.035 }));
+    solid(x, z, 1.75, y + 0.5); avoid.push({ x, z, r: 2.6 });
+    // a bucket and spade beside it
+    scene.add(mk(new THREE.CylinderGeometry(0.3, 0.22, 0.45, 12), soft(0xf2879f), { pos: [x + 2.5, y + 0.2, z - 0.8], rot: [0.1, 0, 0.2], outline: 0.025 }));
+  }
+  { // surfboards stood in the sand
+    const G = new Geo(), x0 = 40, z0 = shoreZ(40) + 21;
+    [[0, 0xff9ab0, 0xfff7ec], [0.9, 0x8fd0ee, 0xffd76a], [1.8, 0xfff0a0, 0xf2879f]].forEach(([dx, c, c2], i) => {
+      G.add(SPH_MED, c, [dx, 1.25, 0], [-0.16, 0.2 * (i - 1), 0.05 * (i - 1)], [0.36, 1.45, 0.06]); G.add(SPH_LO, c2, [dx, 1.35, 0.01], [-0.16, 0.2 * (i - 1), 0.05 * (i - 1)], [0.07, 1.3, 0.065]); });
+    G.add(new THREE.BoxGeometry(2.9, 0.1, 0.1), 0xc79e70, [0.9, 1.0, -0.26]); for (const dx of [-0.5, 2.3]) G.add(new THREE.BoxGeometry(0.1, 1.1, 0.1), 0xc79e70, [dx, 0.5, -0.26]);
+    scene.add(mk(G.build(), vc, { pos: [x0, terrain(x0, z0), z0], rot: [0, 0.3, 0], outline: 0.035 })); solid(x0 + 0.9, z0, 1.5, terrain(x0, z0) + 1.2); avoid.push({ x: x0 + 0.9, z: z0, r: 2 });
+  }
+  { // beach ball
+    const G = new Geo(), cs = [0xf2879f, 0xfff7ec, 0x6fb4e8, 0xfff7ec, 0xffd76a, 0xfff7ec];
+    for (let i = 0; i < 6; i++) G.add(new THREE.SphereGeometry(1, 6, 12, i * Math.PI / 3, Math.PI / 3), cs[i]);
+    const x = 4, z = shoreZ(4) + 9; scene.add(mk(G.build(), toon(0xffffff, { vc: true, soft: true, rim: 0.15 }), { pos: [x, terrain(x, z) + 0.5, z], rot: [0.5, 0.3, 0.4], scale: 0.55, outline: 0.03 })); solid(x, z, 0.55, terrain(x, z) + 0.9);
+  }
+  { // shells and starfish along the tide line
+    const G = new Geo();
+    for (let i = 0; i < 46; i++) {
+      const x = rand(BEACH.cx - BEACH.bx + 6, BEACH.cx + BEACH.bx - 6), z = shoreZ(x) + rand(1.5, 20); if (!free(x, z, 0)) continue;
+      const y = terrain(x, z);
+      if (i % 3 === 0) G.add(STAR_GEO, pick([0xff9a7a, 0xffb85c, 0xf2879f]), [x, y + 0.05, z], [-Math.PI / 2, 0, rand(0, 6)], [0.24, 0.24, 0.16]);
+      else { const c = pick([0xfff1e6, 0xf9c9d4, 0xd9c8f2, 0xffe2b8]); G.add(SPH_LO, c, [x, y + 0.03, z], [0, rand(0, 6), 0], [0.2, 0.09, 0.17]); G.add(SPH_LO, c, [x, y + 0.1, z], [0, 0, 0], [0.09, 0.07, 0.09]); }
+    }
+    const m = mk(G.build(), toon(0xffffff, { vc: true, soft: true }), { outline: 0.016, shadow: false }); m.userData.keep = true; scene.add(m);
+  }
+  signpost(4.5, -74, [{ text: '몽글 해변', to: [6, -120] }]);
+  signpost(9, -119, [{ text: '등대', to: [PIER.ax, PIER.az] }, { text: '몽글 해변', to: [-10, -150] }, { text: '몽글 마을', to: [0, -66] }]);
+
+  // --- friends: a crab who scuttles sideways along the wet sand, and a gull keeping watch from a pier post
+  const crab = addWanderer(makeCrab(), { name: '꽃게 아저씨', voice: 'crab', key: 'crab', pos: new V3(-6, 0, shoreZ(-6) + 4), rad: 0.5,
+    lines: ['옆으로 옆으로~ 이게 제일 빠르다구', '파도가 간질간질하지?', '조개껍데기는 내가 다 모아 놨지', '등대 꼭대기엔 올라가 봤나?', '집게는 인사할 때 쓰는 거야, 딱딱!'],
+    nightLines: ['밤바다엔 등대 불빛이 최고지', '별이 바다에 다 빠졌네, 딱딱', '파도 소리 들으며 자는 게 최고야'] });
+  crab.st.dir = 1; crab.st.wait = 0; crab.yaw = Math.PI; crab.dayLines = crab.lines;
+  crab.tick = (w, dt, T, night) => {
+    const st = w.st; w.lines = night > 0.6 ? w.nightLines : w.dayLines;
+    w.claws.forEach((c, i) => { c.rotation.z = (i ? -1 : 1) * (0.1 + 0.18 * Math.sin(T * (w.pause > 0 ? 9 : 2.2) + i)); });
+    let a = Math.PI - w.yaw; w.yaw += Math.atan2(Math.sin(a), Math.cos(a)) * Math.min(1, dt * 5);   // always facing the sea: he walks sideways
+    if (w.pause > 0) { w.speed = 0; return; }
+    if (st.wait > 0) { st.wait -= dt; w.speed = 0; return; }
+    if (Math.random() < dt * 0.12) st.wait = rand(1.5, 4);
+    w.pos.x += st.dir * 1.7 * dt; if (w.pos.x > 28 || w.pos.x < -40) st.dir = w.pos.x > 0 ? -1 : 1;
+    w.pos.z = shoreZ(w.pos.x) + 4.2 + Math.sin(w.pos.x * 0.35) * 1.2; w.speed = 1.7;
+  };
+  { const d = Math.hypot(PIER.bx - PIER.ax, PIER.bz - PIER.az) * 0.45, ux = (PIER.bx - PIER.ax), uz = (PIER.bz - PIER.az), l = Math.hypot(ux, uz);
+    const px = PIER.ax + ux / l * d - uz / l * (PIER.hw - 0.2), pz = PIER.az + uz / l * d + ux / l * (PIER.hw - 0.2);
+    scene.add(mk(new THREE.CylinderGeometry(0.2, 0.22, 1.5, 10), 0x9a7450, { pos: [px, PIER.y + 0.75, pz], outline: 0.03 }));
+    solid(px, pz, 0.3, PIER.y + 1.5, PIER.y - 0.2);
+    addResident(makeGull, '갈매기 끼룩이', 'gull', ['끼룩! 오늘 바다는 잔잔하다구', '등대지기는 바로 나야, 끼룩!', '밤이 되면 등대 불이 빙글빙글 돌아', '저 배 타고 멀리 가 보고 싶지 않아?', '부두 끝에서 보는 노을이 최고야'], new V3(px, PIER.y + 1.5, pz), 0.9, false, Math.atan2(uz, -ux)); }
+}
+function tickBeach(dt, T, S) {
+  const y = SEA_Y + 0.05 * Math.sin(T * 0.55); beach.sea.position.y = y; beach.seaU.value.x = (y - SEA_Y) / 0.06;
+  beach.boat.position.y = y + 0.42 + 0.04 * Math.sin(T * 1.3); beach.boat.rotation.z = 0.05 * Math.sin(T * 0.9); beach.boat.rotation.x = 0.03 * Math.sin(T * 1.1 + 1);
+  const n = smooth(0.25, 0.8, Math.max(S.night, wx.rain * 0.6));
+  beach.beams.visible = n > 0.01; beach.beams.rotation.y = T * 0.45; beach.beamMat.opacity = 0.34 * n; beach.glow.material.opacity = 0.2 + 0.75 * n;
+  const d = player && player.pos.x < 1000 ? -seaward(player.pos.x, player.pos.z) : 999;
+  Snd.setSea(player ? Math.pow(clamp(1 - d / 80, 0, 1), 1.6) * (player.zone === 'world' || player.zone === 'lighthouse' ? 1 : 0) : 0);
+}
+
 /* ---------------- lamps along the paths that light up after dark ---------------- */
 const lampBulb = new THREE.MeshBasicMaterial({ color: 0xd9cfb0 });
 const lampGlow = new THREE.SpriteMaterial({ map: TEX.mote, color: 0xffd27a, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 });
@@ -3628,7 +3917,7 @@ const lampFoot = new THREE.CylinderGeometry(0.2, 0.3, 0.24, 12);
 const lampCage = (() => { const G = new Geo(); for (let i = 0; i < 4; i++) { const a = i * Math.PI / 2 + 0.785; G.add(new THREE.CylinderGeometry(0.014, 0.014, 0.62, 5), 0xffffff, [Math.cos(a) * 0.235, 0.02, Math.sin(a) * 0.235]); } return G.build(); })();
 {
   let side = 1, n = 0;
-  for (let i = 3; i < PATH_SAMPLES.length - 2 && n < 40; i += 7) {
+  for (let i = 3; i < PATH_SAMPLES.length - 2 && n < 54; i += 7) {
     const p = PATH_SAMPLES[i], q = PATH_SAMPLES[i + 1], dl = Math.hypot(q.x - p.x, q.z - p.z);
     if (dl < 0.2 || dl > 4) continue;                                  // skip joins between separate trails
     side = -side;
@@ -3954,6 +4243,8 @@ const Snd = (() => {
     turtle:   { base: 330, type: 'triangle', fm: 1.05, syl: 0.17, vib: 3, depth: 0.02 },  // slow and gentle
     alien:    { base: 900, type: 'square', fm: 1.9, syl: 0.08, vib: 22, depth: 0.12 },     // warbly beeps
     woodcutter: { base: 205, type: 'sawtooth', fm: 0.95, syl: 0.13, vib: 3, depth: 0.02 }, // deep, slow and warm
+    crab:     { base: 380, type: 'square', fm: 1.2, syl: 0.1, vib: 6, depth: 0.03 },       // clicky and gruff
+    gull:     { base: 640, type: 'sawtooth', fm: 1.75, syl: 0.1, vib: 8, depth: 0.07 },    // a bright squawk
     mongsil: { base: 470, type: 'triangle', fm: 1.25, syl: 0.12, vib: 5, depth: 0.03 },  // soft & slow
     tosil:   { base: 780, type: 'square',   fm: 1.45, syl: 0.075, vib: 8, depth: 0.045 }, // squeaky & quick
     haneul:  { base: 610, type: 'sawtooth', fm: 1.35, syl: 0.1, vib: 6, depth: 0.035, nya: true }, // starts with a little "nya" swoop
@@ -4002,6 +4293,21 @@ const Snd = (() => {
   function setSfx(v) { st.sfx = v; save(); if (sfxBus) sfxBus.gain.setTargetAtTime(v ? 0.85 : 0, ctx.currentTime, 0.05); }
   function splash() { if (!on()) return; hiss({ ft: 'highpass', f: 1600, d: 0.4, v: 0.14 }); tone({ f: 520, f2: 170, glide: 0.16, d: 0.2, v: 0.1 }); tone({ t: ctx.currentTime + 0.12, f: 700, f2: 300, glide: 0.1, d: 0.12, v: 0.05 }); }
   const setForest = k => { forest = k; };
+  let seaGain = null; // surf: soft noise that swells and falls back, louder the nearer you are to the water
+  function setSea(k) {
+    if (!ctx || (!seaGain && k < 0.01)) return;
+    if (!seaGain) {
+      const src = ctx.createBufferSource(); src.buffer = noise; src.loop = true;
+      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 780;
+      const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 110;
+      const swell = ctx.createGain(); swell.gain.value = 0.62;
+      const lfo = ctx.createOscillator(); lfo.frequency.value = 0.13; const depth = ctx.createGain(); depth.gain.value = 0.38; lfo.connect(depth); depth.connect(swell.gain); lfo.start();
+      const lfo2 = ctx.createOscillator(); lfo2.frequency.value = 0.13; const sweep = ctx.createGain(); sweep.gain.value = 380; lfo2.connect(sweep); sweep.connect(lp.frequency); lfo2.start();
+      seaGain = ctx.createGain(); seaGain.gain.value = 0;
+      src.connect(lp); lp.connect(hp); hp.connect(swell); swell.connect(seaGain); seaGain.connect(sfxBus); src.start(0, 0.71);
+    }
+    seaGain.gain.setTargetAtTime(k * 0.2, ctx.currentTime, 0.5);
+  }
   let fallsGain = null; // rushing water: looped noise, louder as you get near the waterfall
   function setFalls(k) {
     if (!ctx) return;
@@ -4024,7 +4330,7 @@ const Snd = (() => {
     tone({ f: 180, f2: 70, glide: 0.08, d: 0.12, v: 0.22 * k, pan }); hiss({ ft: 'bandpass', f: 1200, q: 2, d: 0.08, v: 0.12 * k, pan });
     tone({ t: t + 0.13, f: 520, f2: 380, glide: 0.05, d: 0.08, v: 0.06 * k, type: 'triangle', pan }); tone({ t: t + 0.2, f: 430, f2: 300, glide: 0.05, d: 0.08, v: 0.05 * k, type: 'triangle', pan });
   }
-  return { init, pop, step, jump, land, wobble, bloom, splash, door, chop, setFalls, setForest, star, fanfare, twinkle, boom, splish, snowStep, setRain, thunder, chime, speak, setMusic, setSfx, st };
+  return { init, pop, step, jump, land, wobble, bloom, splash, door, chop, setFalls, setForest, setSea, star, fanfare, twinkle, boom, splish, snowStep, setRain, thunder, chime, speak, setMusic, setSfx, st };
 })();
 const tmpE = new V3();
 // loudness (0..1) and stereo pan of a sound at `pos`, heard from the player
@@ -4066,7 +4372,8 @@ class Critter {
     const ok = (x, z) => this.zone === 'tower' ? Math.hypot(x - INT.x, z - INT.z) < INT.R - 0.9
       : this.zone === 'terrace' ? Math.hypot(x - TER.x, z - TER.z) < TER.r - 0.9
       : this.zone === 'cabin' ? inCabinRect(x, z, -1.15)
-      : walkable(x, z) && !inCabinRect(x, z, 0.85);   // outside, the cabin's log walls are solid
+      : this.zone === 'lighthouse' ? Math.hypot(x - LH.x, z - LH.z) < LH.r - 0.6
+      : (walkable(x, z) || (this.pos.y > SEA_Y + 0.6 && pierDist(x, z) < PIER.hw - 0.2)) && !inCabinRect(x, z, 0.85);   // outside, the cabin's log walls are solid; the pier carries you over deep water
     if (!ok(nx, nz)) {
       if (ok(nx, this.pos.z)) nz = this.pos.z;
       else if (ok(this.pos.x, nz)) nx = this.pos.x;
@@ -4232,6 +4539,7 @@ const dropTex = spriteTex(x => { x.fillStyle = 'rgba(232,248,255,0.95)'; x.strok
 const snowTex = spriteTex(x => { x.fillStyle = 'rgba(255,255,255,0.95)'; x.strokeStyle = 'rgba(150,170,200,.5)'; x.lineWidth = 3; x.beginPath(); x.arc(32, 32, 22, 0, 7); x.fill(); x.stroke(); });
 // is this spot in one of the brooks (and not up on a bridge over it)? returns the water's height, or null
 function onStream(x, y, z) {
+  if (z < -140 && y < SEA_Y + 0.1 && seaward(x, z) > 0) return SEA_Y;   // wading in the sea
   if (!falls.streams) return null;
   for (const st of falls.streams) { const sy = st.y(x, z); if (Math.abs(y - sy) > 0.25) continue; const w2 = st.w * st.w * 0.85; for (const q of st.pts) if ((q.x - x) * (q.x - x) + (q.z - z) * (q.z - z) < w2) return sy; }
   return null;
@@ -4246,7 +4554,7 @@ function tickParts(dt) {
 }
 
 /* ---------------- collectible stars ---------------- */
-// twenty stars, spread over the three areas: the village (7), the north forest (6) and the lodge woods with the falls (7)
+// the stars are spread over the four areas: the village (7), the north forest (6), the lodge woods with the falls (7) and the beach (3)
 const STAIR_MID = (() => { const gA = terrain(STAIR.x, STAIR.zA), n = 40, k = 20; return { z: STAIR.zA - (k + 0.5) * (STAIR.zA - STAIR.zB) / n, y: gA + (k + 1) * (falls.top - gA) / n }; })();
 const STAR_SPOTS = [
   // village
@@ -4256,7 +4564,9 @@ const STAR_SPOTS = [
   [TOWER_STAR.x, TOWER_STAR.z, null, TOWER_STAR.y], [TERRACE_STAR.x, TERRACE_STAR.z, null, TERRACE_STAR.y],
   // the trail west, the lodge (yard and inside), the falls pool, halfway up the stairs, and two up on the plateau
   [-72, -24], [CAB.x + CAB.hw + 7, CAB.z - 9], [CAB.x - 3, CAB.z - 2, null, CAB.fy + 1.3], [FALLS.x + FALLS.pr + 3.5, FALLS.pz + 2],
-  [STAIR.x, STAIR_MID.z, null, STAIR_MID.y + 1.3], [falls.spring.x + 6.5, falls.spring.z + 1, null, falls.top + 1.3], [falls.deck.x, falls.deck.z, null, falls.top + 1.6]];
+  [STAIR.x, STAIR_MID.z, null, STAIR_MID.y + 1.3], [falls.spring.x + 6.5, falls.spring.z + 1, null, falls.top + 1.3], [falls.deck.x, falls.deck.z, null, falls.top + 1.6],
+  // the beach: on the sandcastle, out along the pier, and up on the lighthouse gallery
+  [SANDCASTLE.x, SANDCASTLE.z, null, terrain(SANDCASTLE.x, SANDCASTLE.z) + 3.6], [PIER.ax + (PIER.bx - PIER.ax) * 0.8, PIER.az + (PIER.bz - PIER.az) * 0.8, null, PIER.y + 1.3], [LH_STAR.x, LH_STAR.z, null, LH_STAR.y]];
 const stars = STAR_SPOTS.map((s, i) => {
   let y;
   if (s[3] != null) y = s[3];
@@ -4269,8 +4579,9 @@ const stars = STAR_SPOTS.map((s, i) => {
   return { m, y, got: false, gold, ph: i, sc: gold ? 0.75 : 0.45, fx: null };
 });
 const STAR_TERRACE = STAR_SPOTS.findIndex(q => q[0] === TERRACE_STAR.x && q[1] === TERRACE_STAR.z);
+const STAR_LH = STAR_SPOTS.findIndex(q => q[0] === LH_STAR.x && q[1] === LH_STAR.z);
 $('tot').textContent = stars.length;
-$('starHint').textContent = '마을·숲·오두막·폭포 곳곳에 숨은 별사탕 ' + stars.length + '개를 모아 보세요 · 지도에 위치가 나와요';
+$('starHint').textContent = '마을·숲·오두막·폭포·해변 곳곳에 숨은 별사탕 ' + stars.length + '개를 모아 보세요 · 지도에 위치가 나와요';
 let got = 0, shoutTip = false;
 function onShowerEnd() {   // after a shower, tell someone who has every star that they can call another
   if (mode === 'play' && got === stars.length && !shoutTip) { shoutTip = true; toast('채팅으로 "별똥별이다!"라고 외치면 유성우를 또 볼 수 있어요', 5000); }
@@ -4278,7 +4589,7 @@ function onShowerEnd() {   // after a shower, tell someone who has every star th
 
 /* ---------------- map: a little paper map of the whole village, with the star candies still to find ---------------- */
 // seen from above, screen right is -x and screen up is +z (north, toward the forest)
-const MAP = { x0: -205, x1: 72, z0: -125, z1: 222, open: true, t: 1, bg: null, w: 0, h: 0, dpr: 1 };
+const MAP = { x0: -205, x1: 88, z0: -204, z1: 222, open: true, t: 1, bg: null, w: 0, h: 0, dpr: 1 };
 try { if (localStorage.getItem('mongle-map') === '0') MAP.open = false; } catch (e) {}
 const mapXY = (x, z) => [(MAP.x1 - x) / (MAP.x1 - MAP.x0) * MAP.w, (MAP.z1 - z) / (MAP.z1 - MAP.z0) * MAP.h];
 const mapPos = (x, z) => x > 1000 ? [BIGTREE.x, BIGTREE.z] : [x, z];   // inside grandpa tree shows at the tree
@@ -4293,8 +4604,9 @@ function buildMapBg() {
   const lg = lo.getContext('2d'), img = lg.createImageData(gw, gh);
   for (let j = 0; j < gh; j++) for (let i = 0; i < gw; i++) {
     const x = MAP.x1 - (i + 0.5) * S, z = MAP.z1 - (j + 0.5) * S, k = (j * gw + i) * 4;
-    const inside = Math.min(Math.hypot(x, z) - 60, forestSDF(x, z) + 6, cabinSDF(x, z) + 6) <= 0;
-    const cc = !inside ? [191, 219, 158] : forestK(x, z) > 0.5 ? [158, 205, 126] : [229, 243, 199];
+    const inside = Math.min(Math.hypot(x, z) - 60, forestSDF(x, z) + 6, cabinSDF(x, z) + 6, beachSDF(x, z) + 6) <= 0, sea = seaward(x, z);
+    const cc = sea > 0 ? (Math.hypot(x - ISLE.x, z - ISLE.z) < ISLE.r - 2 ? [214, 226, 190] : sea < 2.5 ? [222, 242, 250] : [143, 211, 242])
+      : sea > -30 ? (inside ? [249, 236, 200] : [226, 219, 178]) : !inside ? [191, 219, 158] : forestK(x, z) > 0.5 ? [158, 205, 126] : [229, 243, 199];
     img.data[k] = cc[0]; img.data[k + 1] = cc[1]; img.data[k + 2] = cc[2]; img.data[k + 3] = 255;
   }
   lg.putImageData(img, 0, 0); g.imageSmoothingEnabled = true; g.drawImage(lo, 0, 0, w, h);
@@ -4314,6 +4626,9 @@ function buildMapBg() {
   disc(POND.x, POND.z, POND.r, W, WE); disc(FALLS.x, FALLS.pz, FALLS.pr, W, WE); if (fs) disc(fs.x, fs.z, 4.2, W, WE);
   // landmarks
   const ink = '#4b3a35';
+  line([[PIER.ax, PIER.az], [PIER.bx, PIER.bz]], 3.4, '#8a6a4a'); line([[PIER.ax, PIER.az], [PIER.bx, PIER.bz]], 2, '#e2c096');
+  { const [a, b] = P(ISLE.x, ISLE.z); g.beginPath(); g.moveTo(a - 3.2, b + 3); g.lineTo(a - 2.2, b - 7); g.lineTo(a + 2.2, b - 7); g.lineTo(a + 3.2, b + 3); g.closePath(); g.fillStyle = '#fff7ec'; g.fill(); g.lineWidth = 1.2; g.strokeStyle = ink; g.stroke();
+    g.fillStyle = '#ec6a58'; g.fillRect(a - 2.8, b - 1.2, 5.6, 2.2); g.fillRect(a - 2.4, b - 5.4, 4.8, 2); g.beginPath(); g.moveTo(a - 3.4, b - 7); g.lineTo(a, b - 11); g.lineTo(a + 3.4, b - 7); g.closePath(); g.fill(); g.stroke(); }
   { const [a, b] = P(PUD.x, PUD.z); g.beginPath(); g.ellipse(a, b, 5.2, 4.4, 0, 0, 7); g.fillStyle = '#c8873f'; g.fill(); g.lineWidth = 1.2; g.strokeStyle = ink; g.stroke(); g.beginPath(); g.ellipse(a, b - 1.2, 3.2, 2, 0, 0, 7); g.fillStyle = '#7a4a26'; g.fill(); }
   { const [a, b] = P(0, -66); g.beginPath(); g.arc(a, b + 1, 3.4, Math.PI, 0); g.lineWidth = 2; g.strokeStyle = '#ef8fa6'; g.stroke(); }
   { const [a, b] = P(BIGTREE.x, BIGTREE.z); g.beginPath(); g.arc(a, b, 6.5, 0, 7); g.fillStyle = '#5f9e4b'; g.fill(); g.lineWidth = 1.3; g.strokeStyle = ink; g.stroke(); g.fillStyle = '#8a5a3c'; g.fillRect(a - 1.3, b + 1, 2.6, 4); }
@@ -4321,7 +4636,7 @@ function buildMapBg() {
     g.beginPath(); g.moveTo(a - 6.5, b - 2); g.lineTo(a, b - 7.5); g.lineTo(a + 6.5, b - 2); g.closePath(); g.fillStyle = '#d9654b'; g.fill(); g.stroke(); }
   // a few names, with a paper halo so they read over anything
   g.font = '11px Jua, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineJoin = 'round';
-  for (const [t, x, z] of [['몽글 마을', 4, 16], ['숲', 22, 112], ['할아버지 나무', BIGTREE.x, BIGTREE.z + 12], ['오두막', CAB.x, CAB.z + 13], ['폭포', FALLS.x - 13, FALLS.pz + 6], ['쉼터', (PLAT.x0 + PLAT.x1) / 2 + 12, (PLAT.z0 + PLAT.z1) / 2]]) {
+  for (const [t, x, z] of [['몽글 마을', 4, 16], ['숲', 22, 112], ['할아버지 나무', BIGTREE.x, BIGTREE.z + 12], ['오두막', CAB.x, CAB.z + 13], ['폭포', FALLS.x - 13, FALLS.pz + 6], ['쉼터', (PLAT.x0 + PLAT.x1) / 2 + 12, (PLAT.z0 + PLAT.z1) / 2], ['해변', -8, -140], ['등대', ISLE.x - 14, ISLE.z - 6]]) {
     const [a, b] = P(x, z); g.lineWidth = 3; g.strokeStyle = 'rgba(255,250,241,.95)'; g.strokeText(t, a, b); g.fillStyle = ink; g.fillText(t, a, b);
   }
   MAP.bg = bg;
@@ -4338,7 +4653,7 @@ function drawMap(T) {
   stars.forEach((s, i) => {
     if (s.got) return; left++;
     let [x, z] = mapPos(s.m.position.x, s.m.position.z);
-    if (s.m.position.x > 1000) x += 5; else if (s === stars[STAR_TERRACE]) x -= 5;   // inside the tree / up on its terrace: either side of it
+    if (s.m.position.x > 1000) x += 5; else if (s === stars[STAR_TERRACE]) x -= 5; else if (s === stars[STAR_LH]) x -= 7;   // inside the tree / up on its terrace: either side of it
     const [a, b] = mapXY(x, z); mapStar(g, a, b, (s.gold ? 6 : 4.4) * (1 + 0.12 * Math.sin(T * 4 + i)), s.gold ? '#ffb21e' : '#ffe066');
   });
   $('mapLeft').textContent = left;
@@ -4818,12 +5133,14 @@ let curZone = '몽글 마을', zoneHold = 0, forestAmb = 0;
 const FOG_M = new THREE.Color(0xe2f1f8), FOG_F = new THREE.Color(0xcfe4d0);
 const ZONE_SUB = { '몽글 마을': '몽글몽글 포근한 들판', '숲 오솔길': '나무 사이로 햇살이 드는 길', '이끼 빈터': '폭신한 이끼가 깔린 쉼터', '옹달샘': '오리 가족이 사는 연못',
   '할아버지 나무': '숲에서 가장 오래된 나무', '숲속 오두막': '나무꾼 아저씨네 숲', '무지개 폭포': '물안개에 무지개가 뜨는 곳', '폭포 위 쉼터': '바람이 시원한 절벽 위 풀밭',
-  '할아버지 나무 안': '동물 친구들의 보금자리', '나무 꼭대기 테라스': '마을이 한눈에 보이는 곳', '나무꾼 오두막 안': '벽난로가 따뜻한 산장' };
+  '할아버지 나무 안': '동물 친구들의 보금자리', '나무 꼭대기 테라스': '마을이 한눈에 보이는 곳', '나무꾼 오두막 안': '벽난로가 따뜻한 산장',
+  '몽글 해변': '파도가 찰랑이는 모래사장', '등대 부두': '바다 위를 걷는 나무 길', '등대 섬': '빨간 줄무늬 등대가 서 있는 작은 섬', '등대 전망대': '바다와 마을이 한눈에 보이는 곳' };
 function zoneBanner(name) {
   const el = $('zoneTitle'); $('zoneName').textContent = name; $('zoneSub').textContent = ZONE_SUB[name] || '';
   el.classList.remove('show'); void el.offsetWidth; el.classList.add('show');
 }
 function zoneOf(x, z) {
+  if (z < -100) { if (Math.hypot(x - ISLE.x, z - ISLE.z) < ISLE.r) return '등대 섬'; if (seaward(x, z) > 2 && pierDist(x, z) < 2) return '등대 부두'; if (sandK(x, z) > 0.5 && beachSDF(x, z) < 8) return '몽글 해변'; }
   if (inPlat(x, z, 1)) return '폭포 위 쉼터';
   if (Math.hypot(x - FALLS.x, z - FALLS.pz) < 17) return '무지개 폭포';
   if (Math.hypot(x - GLADE.x, z - GLADE.z) < 13) return '이끼 빈터';
@@ -4899,6 +5216,11 @@ function frame() {
       const b = ox * sx + oz * sz, reach = -b + Math.sqrt(Math.max(0, b * b - (ox * ox + oz * oz - m * m)));
       dist = Math.max(2.6, Math.min(camDist, reach / Math.max(cp, 0.2)));
     }
+    { // on the lighthouse gallery the lamp room is drawn only while it is not between you and the camera
+      let show = true;
+      if (player.zone === 'lighthouse') { const ox = camTarget.x - LH.x, oz = camTarget.z - LH.z, b = ox * Math.sin(camYaw) + oz * Math.cos(camYaw); show = !(b < 0 && ox * ox + oz * oz - b * b < 7.5); }
+      if (beach.room.visible !== show) beach.room.visible = show;
+    }
     if (player.zone === 'cabin') { // same idea inside the cabin's rectangular room
       const ox = camTarget.x - CAB.x, oz = camTarget.z - CAB.z, sx = Math.sin(camYaw), sz = Math.cos(camYaw), bx = CAB.hw - 0.6, bz = CAB.hd - 0.6;
       const tx = sx > 1e-4 ? (bx - ox) / sx : sx < -1e-4 ? (-bx - ox) / sx : 1e9, tz = sz > 1e-4 ? (bz - oz) / sz : sz < -1e-4 ? (-bz - oz) / sz : 1e9;
@@ -4931,7 +5253,7 @@ function frame() {
       want.x = clamp(want.x, CAB.x - CAB.hw + 0.55, CAB.x + CAB.hw - 0.55); want.z = clamp(want.z, CAB.z - CAB.hd + 0.55, CAB.z + CAB.hd - 0.55);
       want.y = Math.min(want.y, CAB.fy + 8.2);
     }
-    const gy = baseY(want.x, want.z) + 0.8; if (want.y < gy) want.y = gy;
+    const gy = Math.max(baseY(want.x, want.z), want.x < 1000 && seaward(want.x, want.z) > 0 ? SEA_Y : -99) + 0.8; if (want.y < gy) want.y = gy;
     if (camSnap) { camera.position.copy(want); camSnap = false; }
     else camera.position.lerp(want, 1 - Math.exp(-dt * (camIntro < 1 ? 1.1 + 10.9 * camIntro * camIntro * camIntro : 12)));
     if (camIntro < 1) camIntro = Math.min(1, camIntro + dt / 2.6);
@@ -4941,7 +5263,7 @@ function frame() {
     if (camShake > 0) { camera.rotateX(rand(-1, 1) * camShake * 0.03); camera.rotateZ(rand(-1, 1) * camShake * 0.04); camShake = Math.max(0, camShake - dt * 1.4); }
     if (player.zone === 'world' && (bloomTimer -= dt) <= 0) { spawnBloom(); bloomTimer = rand(2.5, 5.5); }
     updatePrompt();
-    const zn = player.zone === 'tower' ? '할아버지 나무 안' : player.zone === 'terrace' ? '나무 꼭대기 테라스' : player.zone === 'cabin' ? '나무꾼 오두막 안' : zoneOf(player.pos.x, player.pos.z);
+    const zn = player.zone === 'tower' ? '할아버지 나무 안' : player.zone === 'terrace' ? '나무 꼭대기 테라스' : player.zone === 'cabin' ? '나무꾼 오두막 안' : player.zone === 'lighthouse' ? '등대 전망대' : zoneOf(player.pos.x, player.pos.z);
     if (zn !== curZone) { if ((zoneHold += dt) > 0.6) { curZone = zn; zoneHold = 0; zoneBanner(zn); } } else zoneHold = 0;
   } else {
     selT += dt * 0.06;
@@ -4992,7 +5314,7 @@ function frame() {
   const S = updateSky(dt, T);
   scene.fog.color.copy(S.fog).lerp(FOG_F, forestAmb * (1 - S.night) * 0.8);
   // from the treetop terrace the haze lifts and far things stay drawn, so the whole village shows
-  viewBoost += ((player && player.zone === 'terrace' ? 1.9 : 1) - viewBoost) * Math.min(1, dt * 2);
+  viewBoost += ((player && (player.zone === 'terrace' || player.zone === 'lighthouse') ? 1.9 : 1) - viewBoost) * Math.min(1, dt * 2);
   scene.fog.near = LEVELS[level].fogN * viewBoost * S.fogMul; scene.fog.far = LEVELS[level].fogF * viewBoost * (0.6 + 0.4 * S.fogMul);
   if (player) tickResidents(dt);
   tickWanderers(dt, T, skyU.night.value);
@@ -5002,6 +5324,7 @@ function frame() {
   fires.forEach((f, i) => f.scale.set(1 + 0.08 * Math.sin(T * 17 + i), 1 + 0.15 * Math.sin(T * 11 + 1 + i), 1));
   tickSmoke(dt);
   tickFalls(dt, S);
+  tickBeach(dt, T, S);
   // indoors the light turns warm and soft, like lamplight inside a tree
   indoorAmb += ((player && player.zone === 'tower' ? 1 : player && player.zone === 'cabin' ? 0.35 : 0) - indoorAmb) * Math.min(1, dt * 3);
   const outHemi = S.hi - 0.1 * forestAmb * (1 - S.night);
@@ -5031,7 +5354,7 @@ function frame() {
   // keep the player in focus; looking up at the sky or out from the treetop lets the distance stay sharper
   { const fd = player ? camera.position.distanceTo(tmpV.copy(player.pos).add(UP1)) : camera.position.distanceTo(MAP_MID) * 0.8;
     Post.focus += (clamp(fd, 4, 70) - Post.focus) * Math.min(1, dt * 4);
-    const k = mode !== 'play' ? 0.7 : (player.zone === 'terrace' ? 0.35 : 1) * (1 - 0.7 * smooth(0, -0.35, camPitch));
+    const k = mode !== 'play' ? 0.7 : (player.zone === 'terrace' || player.zone === 'lighthouse' ? 0.35 : 1) * (1 - 0.7 * smooth(0, -0.35, camPitch));
     Post.dofK += (k - Post.dofK) * Math.min(1, dt * 3); }
   Post.render();
   requestAnimationFrame(frame);
@@ -5063,10 +5386,10 @@ if (renderer.capabilities.isWebGL2) {
   const FR = { x0: -214, z0: -130, w: 320, h: 352 }, FW = 400, FH = 440, raw = new Float32Array(FW * FH), data = new Uint8Array(FW * FH * 4);
   for (let j = 0; j < FH; j++) for (let i = 0; i < FW; i++) {
     const x = FR.x0 + (i + 0.5) / FW * FR.w, z = FR.z0 + (j + 0.5) / FH * FR.h, k = (j * FW + i) * 4;
-    const plat = inPlat(x, z, 0), inF = forestSDF(x, z) < 3 || cabinSDF(x, z) < 3;
+    const plat = inPlat(x, z, 0), inF = forestSDF(x, z) < 3 || cabinSDF(x, z) < 3 || beachSDF(x, z) < 3;
     let ok;
     if (inPlat(x, z, 1.6)) ok = plat && inPlat(x, z, -1.6) && falls.grassOK(x, z);
-    else ok = (Math.hypot(x, z) < 100 || inF) && free(x, z, -0.7) && !inCabinRect(x, z, 1.2) && Object.values(TRAILS).every(t => t.every(q => (q[0] - x) ** 2 + (q[1] - z) ** 2 > 2.0));
+    else ok = (Math.hypot(x, z) < 100 || inF) && seaward(x, z) < -37 && free(x, z, -0.7) && !inCabinRect(x, z, 1.2) && Object.values(TRAILS).every(t => t.every(q => (q[0] - x) ** 2 + (q[1] - z) ** 2 > 2.0));
     raw[j * FW + i] = ok ? 1 : 0;
     data[k + 1] = Math.round(clamp(forestK(x, z), 0, 1) * 255); data[k + 2] = plat ? 255 : 0; data[k + 3] = 255;
   }
@@ -5086,7 +5409,7 @@ if (renderer.capabilities.isWebGL2) {
       float rbox(vec2 p, vec2 c, vec2 b, float r){ vec2 q = abs(p - c) - b + r; return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r; }
       float terrainH(vec2 p){
         float h = 0.55 * sin(p.x * 0.07) * cos(p.y * 0.05) + 0.9 * sin(p.x * 0.023 + 1.3) * sin(p.y * 0.019 + 0.4);
-        float d = max(0.0, min(length(p) - 60.0, min(rbox(p, vec2(${FOREST.cx.toFixed(2)}, ${FOREST.cz.toFixed(2)}), vec2(${FOREST.bx.toFixed(2)}, ${FOREST.bz.toFixed(2)}), ${FOREST.r.toFixed(2)}), rbox(p, vec2(${WOODS.cx.toFixed(2)}, ${WOODS.cz.toFixed(2)}), vec2(${WOODS.bx.toFixed(2)}, ${WOODS.bz.toFixed(2)}), ${WOODS.r.toFixed(2)})) + 6.0));
+        float d = max(0.0, min(length(p) - 60.0, min(rbox(p, vec2(${FOREST.cx.toFixed(2)}, ${FOREST.cz.toFixed(2)}), vec2(${FOREST.bx.toFixed(2)}, ${FOREST.bz.toFixed(2)}), ${FOREST.r.toFixed(2)}), min(rbox(p, vec2(${WOODS.cx.toFixed(2)}, ${WOODS.cz.toFixed(2)}), vec2(${WOODS.bx.toFixed(2)}, ${WOODS.bz.toFixed(2)}), ${WOODS.r.toFixed(2)}), rbox(p, vec2(${BEACH.cx.toFixed(2)}, ${BEACH.cz.toFixed(2)}), vec2(${BEACH.bx.toFixed(2)}, ${BEACH.bz.toFixed(2)}), ${BEACH.r.toFixed(2)}))) + 6.0));   // (grass stops short of the dunes, so the beach's slope is not needed here)
         if (d > 0.0) h += 14.0 * (1.0 - exp(-d * d * 0.0065 / 14.0)) + 9.0 * smoothstep(25.0, 90.0, d) * (0.5 + 0.5 * sin(p.x * 0.021 + 1.7) * cos(p.y * 0.017 - 0.6));
         return h; }
       ` + sh.vertexShader.replace('#include <begin_vertex>', `
@@ -5096,7 +5419,7 @@ if (renderer.capabilities.isWebGL2) {
       float gs = fld.r * step(0.0, fuv.x) * step(fuv.x, 1.0) * step(0.0, fuv.y) * step(fuv.y, 1.0) * (1.0 - smoothstep(HL * 0.66, HL * 0.97, length(ip - gc)));
       float ca = cos(aInst.z), sa = sin(aInst.z); vec3 lp = position;
       lp.xz = vec2(ca * lp.x - sa * lp.z, sa * lp.x + ca * lp.z) * (0.75 + 0.5 * gs); lp.y *= (0.7 + 0.75 * aInst.w) * gs * (1.0 - 0.76 * uWx.x);   // mostly buried under settled snow
-      vec3 transformed = vec3(ip.x + lp.x, mix(terrainH(ip), uPlatY, step(0.5, fld.b)) + lp.y - 0.03, ip.y + lp.z);
+      vec3 transformed = vec3(ip.x + lp.x, mix(terrainH(ip), uPlatY, step(0.5, fld.b)) + lp.y - 0.03 - step(gs, 0.015) * 60.0, ip.y + lp.z);   // where no grass grows the clump is dropped out of sight (the beach's sand lies lower than this formula knows)
       float hh = lp.y;
       float gust = sin(uTime * 0.85 - ip.x * 0.075 - ip.y * 0.05) * 0.5 + 0.5; gust *= gust;                                // slow waves rolling over the field
       float ww = sin(uTime * 1.9 + ip.x * 0.31 + ip.y * 0.23) * 0.5 + sin(uTime * 3.3 + ip.x * 0.71 - ip.y * 0.47) * 0.2;   // each clump's own flutter
@@ -5207,7 +5530,7 @@ function tickWeather(dt, T) {
   Snd.setRain(wx.rain * (!player ? 0.5 : player.zone === 'tower' ? 0.18 : player.zone === 'cabin' ? 0.5 : 1));
 }
 /* what everyone says about it: a creature's own line if it has one, else a general one; indoor folk only hear it through the walls */
-const WX_OUT = new Set(['mongsil', 'tosil', 'haneul', 'leo', 'fox', 'duck', 'post', 'turtle', 'woodcutter']);
+const WX_OUT = new Set(['mongsil', 'tosil', 'haneul', 'leo', 'fox', 'duck', 'post', 'turtle', 'woodcutter', 'crab', 'gull']);
 const WX_LINES = {
   rain: { any: ['비 온다~ 우산 있어?', '빗소리 좋다~', '물웅덩이 조심해!'], in: ['밖에 비가 오나 봐요', '빗소리 들으며 차 한 잔 어때요?', '비 오는 날엔 나무 안이 제일 아늑해요'],
     mongsil: ['비 오는 날엔 따뜻한 코코아지~', '모자가 다 젖겠어…', '토독토독, 빗소리 듣기 좋다'], tosil: ['물웅덩이에서 폴짝폴짝!', '귀에 빗방울이 톡톡 떨어져!', '비 와도 점프는 못 참지!'],
@@ -5215,21 +5538,25 @@ const WX_LINES = {
     fox: ['나비가 다 숨어 버렸어…', '빗방울이라도 잡아 볼까?', '잠자리채에 빗물이 고였어!'], duck: ['꽥꽥! 비 오는 날이 제일 좋아요', '아가들아, 빗방울 놀이하자~', '연못 물이 불어나네요, 꽥!'],
     post: ['편지가 젖으면 큰일인데!', '비가 와도 배달은 계속돼요', '우비 입고 올 걸 그랬어요'], turtle: ['비 오는 날은 등딱지가 반짝반짝하단다', '촉촉하니 좋구나~', '미끄러지지 않게 천천히 걷자꾸나'],
     woodcutter: ['비가 오는구먼, 장작이 젖겠어', '오두막에 들어가서 비 피하렴', '비 온 뒤엔 숲 냄새가 참 좋단다'],
+    crab: ['비가 와도 나는 원래 젖어 있다구, 딱딱', '빗방울이 등딱지를 톡톡 두드리네'], gull: ['끼룩! 비 오는 날엔 날개가 무거워', '등대 처마 밑에서 비 좀 피해야겠어'],
     hedgehog: ['비 오는 날엔 따뜻한 차가 최고예요', '젖었으면 벽난로 앞에서 말려요'], squirrel: ['비 오면 도토리 주우러 못 나가잖아!'], owl: ['부엉… 빗소리는 책 읽기 좋은 소리란다'], chick: ['삐약? (빗소리에 귀를 쫑긋)'] },
   storm: { any: ['으앗, 천둥이다!', '번쩍했어! 봤어?', '무서워… 같이 있자'], in: ['천둥소리가 여기까지 들려요!', '우르릉… 밖은 요란하네요', '여기 있으면 안전해요'],
     mongsil: ['천둥 치면 귀를 꼭 막아…', '우르릉 쾅! 깜짝이야…'], tosil: ['꺄악! 귀가 쫑긋 섰어!', '번개보다 빨리 숨을 거야!'], haneul: ['번개 사진 찍었다! …아마도', '냐앗! 깜짝 놀랐잖아'],
     leo: ['나, 나는 하나도 안 무서워…!', '천둥보다 크게 어흥!'], fox: ['으앙, 천둥 무서워!', '잠자리채 들고 있으면 위험할까…?'], duck: ['아가들아, 엄마 옆에 꼭 붙으렴!', '꽥! 번개다!'],
     post: ['천둥이 쳐도 편지는 가요…!', '으으, 빨리 배달하고 들어가야지'], turtle: ['천둥이 쳐도 등딱지 속은 안전하단다', '허허, 요란한 하늘이구나'],
+    crab: ['으악, 모래 속으로 숨어야겠어!', '파도가 높아졌어, 조심하라구!'], gull: ['끼루룩! 이런 날엔 등대 불이 꼭 필요해', '바다가 성났어, 끼룩!'],
     woodcutter: ['허허, 하늘이 화가 났구먼', '번개 칠 땐 큰 나무 밑에 서 있으면 안 된단다'], chick: ['삐약삐약! (엄마 품으로 쏙)'], owl: ['부엉… 천둥은 구름이 부딪히는 소리란다'] },
   snow: { any: ['눈이다, 눈!', '눈송이 예쁘다…', '하늘에서 솜사탕이 내려와~'], in: ['밖에 눈이 온대요!', '눈 오는 날엔 따뜻한 차죠', '창밖이 하얘지고 있어요'],
     mongsil: ['눈 오는 날엔 군고구마지~', '모자에 눈이 소복소복'], tosil: ['눈송이 받아먹을 거야, 아~', '귀 끝이 시려워!'], haneul: ['눈 오는 마을, 찰칵!', '눈송이 접사 찍는 중이야'],
     leo: ['갈기에 눈이 내려앉았어!', '눈 맞으며 달리자!'], fox: ['눈송이 잡았다! …녹았어', '나비 대신 눈송이 잡을 거야!'], duck: ['아가들아, 깃털 속에 꼭 붙으렴', '꽥! 연못이 차가워졌어요'],
     post: ['눈길이라 조심조심 배달해요', '따뜻한 편지 왔어요~'], turtle: ['눈이 오면 더 천천히 걷는단다', '등딱지에 눈이 쌓이는구나, 허허'],
+    crab: ['바다에 눈이 내리다니, 딱딱!', '집게가 시려워…'], gull: ['끼룩! 눈송이가 바다에 닿으면 사라져', '깃털을 부풀려야겠어'],
     woodcutter: ['눈이 오는구먼, 장작을 넉넉히 패 둬야지', '벽난로에 불 지펴 놨단다, 들어가 쉬렴'], squirrel: ['눈 오기 전에 도토리 다 모아 뒀지!'], owl: ['부엉… 눈 내리는 날은 고요하구나'], chick: ['삐약! (눈이 신기한가 봐요)'] },
   deep: { any: ['눈이 소복이 쌓였어!', '눈사람 만들자!', '사박사박, 눈 밟는 소리 좋다~'], in: ['밖이 온통 하얗대요!', '눈 구경하고 왔어요? 손이 차갑겠네', '이런 날엔 따뜻한 차가 딱이에요'],
     mongsil: ['눈사람 만들까? 내 모자 씌워 줄게', '온 마을이 하얀 솜이불을 덮었어'], tosil: ['눈 속에 풍덩! 귀만 보이지?', '눈싸움하자!'], haneul: ['하얀 마을, 최고의 사진이야', '발이 시려워 냥…'],
     leo: ['눈밭 질주다~!', '눈 위에 사자 발자국 꾹!'], fox: ['눈이 무릎까지 와!', '폭신폭신, 눈 이불이야'], duck: ['꽥, 발이 시려워요!', '아가들이 눈을 처음 봐요'],
     post: ['눈이 쌓여서 발이 푹푹 빠져요', '눈길 뚫고 배달 왔어요!'], turtle: ['눈길은 미끄러우니 조심하렴', '하얀 길을 걷는 것도 운치 있구나'],
+    crab: ['모래사장이 눈밭이 됐네!', '눈 위에 옆걸음 발자국, 딱딱'], gull: ['하얀 해변은 처음 봐, 끼룩!', '눈 덮인 부두는 미끄러워'],
     woodcutter: ['눈이 많이 쌓였구먼, 지붕 눈 좀 쓸어야겠어', '이런 날엔 벽난로 앞이 최고지'], squirrel: ['눈 덮인 도토리는 못 찾는단 말이야!'], owl: ['부엉… 눈 쌓인 밤엔 별이 더 밝단다'] },
 };
 function sayLine(lines, key) {
