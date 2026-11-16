@@ -819,9 +819,13 @@ function hillSDF(x, z) {
   return Math.hypot(Math.max(qx, 0), Math.max(qz, 0)) + Math.min(Math.max(qx, qz), 0) - HILL.r;
 }
 const hillUp = (x, z) => HILL.H * smooth(HILL.r1, HILL.r0, Math.hypot(x - HILL.px, z - HILL.pz));
-// you can walk anywhere up to the wall of trees that rings each area (no invisible walls inside open-looking ground);
+// all the places lie inside one big ring of open country: you can walk anywhere in it, from one place straight across to the next
+const RING = 200;
+const SPOTS = { orchard: { x: 118, z: 122 }, lily: { x: -124, z: 104, r: 6.5 }, camp: { x: 132, z: -84 } };   // little places to rest out in the open country
+const openLand = (x, z) => { const r = Math.hypot(x, z); return r > 94 && r < RING - 3 && forestSDF(x, z) > 11 && cabinSDF(x, z) > 11 && hillSDF(x, z) > 9 && seaward(x, z) < -40; };
+// (the old note still holds: no invisible walls inside open-looking ground);
 // at the beach you can wade in up to your knees
-const walkable = (x, z) => Math.hypot(x, z) < 86 || forestSDF(x, z) < 6 || cabinSDF(x, z) < 6 || hillSDF(x, z) < 6 || (beachSDF(x, z) < 6 && terrain(x, z) > SEA_Y - 0.55);
+const walkable = (x, z) => (Math.hypot(x, z) < RING + 4 || forestSDF(x, z) < 6 || cabinSDF(x, z) < 6 || hillSDF(x, z) < 6 || beachSDF(x, z) < 6) && terrain(x, z) > SEA_Y - 0.55;
 const forestK = (x, z) => Math.max(smooth(2, -10, forestSDF(x, z)), smooth(2, -10, cabinSDF(x, z))) * smooth(74, 88, Math.hypot(x, z));
 function terrain(x, z) {
   const r = Math.hypot(x, z);
@@ -830,7 +834,7 @@ function terrain(x, z) {
   // toward the sea the land gives way to a long, even slope of sand that carries on under the water
   const s = seaward(x, z);
   if (s > -36) h += ((s < 0 ? SEA_Y - s * 0.06 : Math.max(SEA_Y - s * 0.13, -7.5)) - h) * smooth(-36, -20, s);
-  const d = Math.max(0, Math.min(r - 60, forestSDF(x, z) + 6, cabinSDF(x, z) + 6, beachSDF(x, z) + 6, hillSDF(x, z) + 6));
+  const d = Math.max(0, Math.min(r - RING, forestSDF(x, z) + 6, cabinSDF(x, z) + 6, beachSDF(x, z) + 6, hillSDF(x, z) + 6));
   if (d > 0 && s < 30) h += (14 * (1 - Math.exp(-d * d * 0.0065 / 14)) + 9 * smooth(25, 90, d) * (0.5 + 0.5 * Math.sin(x * 0.021 + 1.7) * Math.cos(z * 0.017 - 0.6))) * (1 - smooth(-12, 30, s));   // the hills run down into the sea as headlands
   if (s > 0) h = Math.max(h, isleH(x, z));
   if (x > 100) h += hillUp(x, z);
@@ -907,6 +911,7 @@ disc(6, 128, 4.3, trailEdge, 0.035); disc(6, 128, 4.0, trailMat, 0.06);
 const solids = [];
 function solid(x, z, r, top, bottom = -99) { const s = { x, z, r, top, bottom }; solids.push(s); return s; }
 const avoid = [];
+avoid.push({ x: SPOTS.orchard.x, z: SPOTS.orchard.z, r: 3.4 }, { x: SPOTS.lily.x, z: SPOTS.lily.z, r: SPOTS.lily.r + 2.6 }, { x: SPOTS.camp.x, z: SPOTS.camp.z, r: 6.5 });
 avoid.push({ x: HILL.obs.x, z: HILL.obs.z, r: 6.2 }, { x: HILL.obs.x - 6, z: HILL.obs.z, r: 2.2 }, { x: HILL.scope.x, z: HILL.scope.z, r: 3.6 }, { x: HILL.mat.x, z: HILL.mat.z, r: 2.7 });   // what stands on starlight hill: keep grass and flowers off it
 const free = (x, z, pad = 0) => avoid.every(a => Math.hypot(a.x - x, a.z - z) > a.r + pad) && pathDist(x, z) > 3 + pad;
 // forest landmarks
@@ -1258,7 +1263,7 @@ for (let i = 0; i < 22; i++) { const a = rand(0, 6.28), r = rand(116, 145), x = 
 
 // --- distant mountains and rolling hills
 for (let i = 0; i < 16; i++) {
-  const a = i / 16 * Math.PI * 2 + rand(-0.1, 0.1), r = rand(200, 235), H0 = rand(30, 52);
+  const a = i / 16 * Math.PI * 2 + rand(-0.1, 0.1), r = rand(275, 305), H0 = rand(34, 56);
   // the whole base has to stay outside the woods you can walk in, not just the peak: shrink a mountain that would reach in
   const room = Math.min(forestSDF(Math.cos(a) * r, Math.sin(a) * r), cabinSDF(Math.cos(a) * r, Math.sin(a) * r), beachSDF(Math.cos(a) * r, Math.sin(a) * r), hillSDF(Math.cos(a) * r, Math.sin(a) * r), -seaward(Math.cos(a) * r, Math.sin(a) * r) - 30);   // and none standing in the sea
   const R = Math.min(rand(32, 56), (room - 10) / 1.15); if (R < 18) continue;
@@ -1270,8 +1275,8 @@ for (let i = 0; i < 16; i++) {
   const m = new THREE.Mesh(G.build(), toon(0xffffff, { vc: true, cloud: false }));
   const mx = Math.cos(a) * r, mz = Math.sin(a) * r; m.position.set(mx, terrain(mx, mz) + H / 2 - 6, mz); m.userData.keep = true; scene.add(m);
 }
-for (let i = 0; i < 20; i++) {
-  const a = i / 20 * Math.PI * 2 + rand(-0.1, 0.1), r = rand(152, 172);
+for (let i = 0; i < 26; i++) {
+  const a = i / 26 * Math.PI * 2 + rand(-0.1, 0.1), r = rand(238, 256);
   const room = Math.min(forestSDF(Math.cos(a) * r, Math.sin(a) * r), cabinSDF(Math.cos(a) * r, Math.sin(a) * r), beachSDF(Math.cos(a) * r, Math.sin(a) * r), hillSDF(Math.cos(a) * r, Math.sin(a) * r), -seaward(Math.cos(a) * r, Math.sin(a) * r) - 24);
   const s = Math.min(rand(18, 28), (room - 6) / 1.85); if (s < 9) continue;   // the long side reaches about 1.8 s
   const G = new Geo().add(lumpy(1, 20, 14, 0.15, 1.5), (c, px, py, pz, nx, ny) => mixC(c, col(0x86b394), col(0xc4dfb8), ny * 0.6 + 0.3));
@@ -1868,7 +1873,7 @@ const grassChunks = [];
   let n = 0, guard = 0;
   while (n < N && guard++ < N * 8) {
     const x = rand(-206, 204), z = rand(-126, 212), inF = forestSDF(x, z) < 3 || cabinSDF(x, z) < 3 || beachSDF(x, z) < 3 || hillSDF(x, z) < 3;
-    if ((Math.hypot(x, z) > 96 && !inF) || seaward(x, z) > -37 || !free(x, z, -0.6) || inPlat(x, z, 1)) continue;
+    if ((Math.hypot(x, z) > RING + 2 && !inF) || seaward(x, z) > -37 || !free(x, z, -0.6) || inPlat(x, z, 1)) continue;
     const fk = forestK(x, z), dens = fbm(x * 0.05, 3, z * 0.05);
     if (Math.random() > (0.55 + dens * 0.8) * (1 - fk * 0.3)) continue;
     const tall = 0.75 + Math.max(0, dens) * 1.5 + rand(0, 0.35);
@@ -1934,6 +1939,8 @@ const FL_KINDS = ['daisy', 'cosmos', 'buttercup', 'bluebell', 'clover', 'whitecl
   const patches = Math.round(80 * QUALITY.flowers);
   // a few patches along the forest trails too
   for (let i = 0, n = 0; i < 12 && n < 300; n++) { const p = pick(PATH_SAMPLES), x = p.x + rand(-6, 6), z = p.z + rand(-6, 6); if (forestK(x, z) > 0.6 && free(x, z, 0.5) && !inClearing(x, z, -4)) { EXTRA_PATCHES.push([x, z]); i++; } }
+  for (let i = 0, n = 0; i < Math.round(46 * QUALITY.flowers) && n < 4000; n++) { const x = rand(-196, 196), z = rand(-120, 196); if (openLand(x, z) && free(x, z, 0.5)) { EXTRA_PATCHES.push([x, z]); i++; } }   // and out in the open country
+  for (let i = 0; i < 9; i++) { const a = i / 9 * 6.28, r = rand(4.5, 11); EXTRA_PATCHES.push([SPOTS.orchard.x + Math.cos(a) * r, SPOTS.orchard.z + Math.sin(a) * r]); }
   for (let p = 0; p < patches + EXTRA_PATCHES.length; p++) {
     let cx, cz, n = 0;
     if (p >= patches) [cx, cz] = EXTRA_PATCHES[p - patches];
@@ -4166,6 +4173,90 @@ function tickHill(dt, T, S) {
   }
 }
 
+/* ---------------- the open country between the places: scattered trees, bushes and rocks, a blossom orchard, a lily pond, a campfire, and a wall of pines round the edge of the world ---------------- */
+{
+  // --- scattered about so no stretch is bare: trees alone or in twos and threes, bushes, rocks
+  for (let i = 0, n = 0; i < 16 && n < 3000; n++) {
+    const x = rand(-196, 196), z = rand(-120, 196); if (!openLand(x, z) || !free(x, z, 5) || pathDist(x, z) < 8) continue;
+    const k = 1 + (Math.random() * 3 | 0), kind = Math.random() < 0.4 ? 'pine' : pick(['green', 'green', 'blossom', 'fruit']);
+    for (let j = 0; j < k; j++) {
+      const tx = x + (j ? rand(-5, 5) : 0), tz = z + (j ? rand(-5, 5) : 0); if (j && (!openLand(tx, tz) || !free(tx, tz, 2.4))) continue;
+      const s = rand(1.1, 1.7);
+      if (kind === 'pine') { pine(tx, tz, s); solid(tx, tz, 0.8 * s, terrain(tx, tz) + 8 * s); } else roundTree(tx, tz, s, kind);
+      avoid.push({ x: tx, z: tz, r: 3.2 });
+    }
+    i++;
+  }
+  for (let i = 0, n = 0; i < 16 && n < 2000; n++) { const x = rand(-196, 196), z = rand(-120, 196); if (!openLand(x, z) || !free(x, z, 2.5)) continue; bush(x, z, rand(0.7, 1.15)); avoid.push({ x, z, r: 2.4 }); i++; }
+  for (let i = 0, n = 0; i < 18 && n < 2000; n++) { const x = rand(-196, 196), z = rand(-146, 196), sandy = seaward(x, z) > -34 && seaward(x, z) < -6 && beachSDF(x, z) > 10 && Math.hypot(x, z) < RING - 3;
+    if (!(openLand(x, z) || sandy) || !free(x, z, 2)) continue; const s = rand(0.5, 1.5); rockAt(x, z, s, s > 0.9); i++; }
+  // --- the blossom orchard (north-east): a ring of flowering trees round a picnic blanket
+  { const O = SPOTS.orchard, y = terrain(O.x, O.z);
+    for (let i = 0; i < 7; i++) { const a = i / 7 * 6.283 + 0.3, r = rand(8.5, 10.5), x = O.x + Math.cos(a) * r, z = O.z + Math.sin(a) * r; roundTree(x, z, rand(1.25, 1.6), i % 3 ? 'blossom' : 'fruit'); avoid.push({ x, z, r: 3 }); }
+    const g = new THREE.Group(); g.position.set(O.x, y, O.z); g.rotation.y = 0.4; scene.add(g);
+    const bl = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.08, 3.2), toon(0xffffff, { map: gingham(0xe98aa0, [5, 4]) })); bl.position.y = 0.06; bl.receiveShadow = true; g.add(bl);
+    mk(new THREE.CylinderGeometry(0.42, 0.36, 0.42, 14), toon(0xd9a066, { map: TEX.plank }), { parent: g, pos: [1.2, 0.3, -0.7], outline: 0.025 });           // a basket, a loaf and an apple
+    mk(new THREE.TorusGeometry(0.36, 0.035, 6, 16, Math.PI), 0xb9834f, { parent: g, pos: [1.2, 0.5, -0.7], outline: 0.012 });
+    mk(SPH_LO, 0xe9b872, { parent: g, pos: [0.3, 0.2, -0.9], scale: [0.34, 0.16, 0.2], outline: 0.02 }); mk(SPH_LO, gloss(0xe0464f, { shin: 90, spec: 0xffffff }), { parent: g, pos: [-0.3, 0.2, -0.8], scale: 0.14, outline: 0.015 });
+    const c = Math.cos(0.4), s = Math.sin(0.4);
+    for (const sx of [-0.9, 0.7]) seats.push({ p: new V3(O.x + sx * c + 0.5 * s, y + 0.12, O.z - sx * s + 0.5 * c), yaw: 0.4 + Math.PI, zone: 'world', floor: y, label: '돗자리에 앉기', say: ['꽃잎이 떨어져~', '소풍 왔다!', '도시락 먹고 싶다', '꽃향기 좋아~'] }); }
+  // --- the lily pond (north-west): still water, pads and lotus flowers, reeds, a bench on the bank
+  { const L = SPOTS.lily, R = L.r; let wy = -1e9; for (let a = 0; a < 6.3; a += 0.3) for (const rr of [0, R * 0.5, R, R + 1]) wy = Math.max(wy, terrain(L.x + Math.cos(a) * rr, L.z + Math.sin(a) * rr)); wy += 0.05;
+    const bank = new THREE.Mesh(new THREE.CircleGeometry(R + 1.1, 40).rotateX(-Math.PI / 2), toon(0x8f8166)); bank.position.set(L.x, wy - 0.03, L.z); bank.receiveShadow = true; scene.add(bank);
+    const wg = new THREE.CircleGeometry(R, 40); { const p0 = wg.attributes.position, uv = wg.attributes.uv; for (let k = 0; k < p0.count; k++) uv.setXY(k, p0.getX(k), p0.getY(k)); } wg.rotateX(-Math.PI / 2);
+    const w = new THREE.Mesh(wg, waterMaterial({ R })); w.position.set(L.x, wy, L.z); w.renderOrder = 1; w.receiveShadow = true; scene.add(w);
+    const g = new THREE.Group(); g.position.set(L.x, wy, L.z); scene.add(g);
+    const RG = new Geo(); for (let i = 0; i < 24; i++) { const a = i / 24 * 6.283 + rand(-0.08, 0.08); RG.add(rocky(10), rockCol, [Math.cos(a) * (R + 0.4), 0.05, Math.sin(a) * (R + 0.4)], [0, rand(0, 6), 0], [rand(0.5, 0.95), rand(0.35, 0.6), rand(0.5, 0.85)]); }
+    mk(RG.build(), rockMat2, { parent: g, outline: 0.04 });
+    const padGeo = new THREE.CircleGeometry(0.6, 16, 0.3, Math.PI * 2 - 0.6).rotateX(-Math.PI / 2), padMat = toon(0x6fae5a, { side: THREE.DoubleSide, rim: 0.1 }), LG = new Geo();
+    for (let i = 0; i < 11; i++) { const a = rand(0, 6.28), r = rand(0.8, R - 1.2), s = rand(0.8, 1.4), x = Math.cos(a) * r, z = Math.sin(a) * r;
+      mk(padGeo, padMat, { parent: g, pos: [x, 0.03, z], rot: [0, rand(0, 6), 0], scale: s, outline: 0, shadow: false });
+      if (i % 3 === 0) { const pk = pick([0xf6a9c0, 0xffffff, 0xf9c9da]);                                                                                // a lotus sitting on the pad
+        for (const [n, pr, tilt, yy] of [[8, 0.2, 0.45, 0.1], [6, 0.11, 0.9, 0.16]]) flowerHeadParts(LG, new THREE.Matrix4().compose(new V3(x, 0.04 + yy, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0)), new V3(1.5, 1.5, 1.5 + tilt)), pk, 0xffd34d, n, pr, 0.17, 0.09, 0.05, 0.07); } }
+    for (let i = 0; i < 16; i++) { const a = rand(0, 6.28), r = R + rand(-0.5, 0.3), h = rand(1.0, 1.7), x = Math.cos(a) * r, z = Math.sin(a) * r;                 // reeds and cat-tails round the rim
+      LG.add(new THREE.CylinderGeometry(0.02, 0.03, h, 5), 0x6aa250, [x, h / 2, z], [rand(-0.08, 0.08), 0, rand(-0.08, 0.08)]); if (i % 2) LG.add(new THREE.CylinderGeometry(0.06, 0.06, 0.3, 7), 0x8a5a3c, [x, h - 0.1, z]); }
+    mk(LG.build(), toon(0xffffff, { vc: true, soft: true }), { parent: g, outline: 0.012, shadow: false });
+    const ws = solid(L.x, L.z, R - 0.3, wy + 0.3); ws.water = true; ws.nocam = true;
+    const bx = L.x + (R + 3.2) * 0.75, bz = L.z - (R + 3.2) * 0.66, by = terrain(bx, bz), byaw = Math.atan2(L.x - bx, L.z - bz), b = new THREE.Group(); b.position.set(bx, by, bz); b.rotation.y = byaw; scene.add(b);
+    mk(new THREE.BoxGeometry(2.4, 0.14, 0.7), woodMat, { parent: b, pos: [0, 0.55, 0], outline: 0.02 }); mk(new THREE.BoxGeometry(2.4, 0.6, 0.12), woodMat, { parent: b, pos: [0, 0.95, -0.34], outline: 0.02 });
+    for (const sd of [-1, 1]) mk(new THREE.BoxGeometry(0.14, 0.55, 0.6), 0x8a5a3c, { parent: b, pos: [sd * 1.05, 0.27, 0], outline: 0.015 });
+    solid(bx, bz, 0.9, by + 0.62).nocam = true; avoid.push({ x: bx, z: bz, r: 1.8 });
+    for (const dx of [-0.6, 0.6]) seats.push({ p: new V3(bx + Math.cos(byaw) * dx, by + 0.62, bz - Math.sin(byaw) * dx), yaw: byaw, zone: 'world', floor: by, label: '벤치에 앉기', say: ['연꽃이 피었네', '물이 잔잔해~', '개구리 소리가 들려', '여기 조용하고 좋다'] }); }
+  // --- the campsite (south-east): a tent, a fire that never goes out, three logs to sit on
+  { const C = SPOTS.camp, y = terrain(C.x, C.z), g = new THREE.Group(); g.position.set(C.x, y, C.z); scene.add(g);
+    const tent = new THREE.Group(); tent.position.set(-3.6, 0, -2.6); tent.rotation.y = 0.95; g.add(tent);
+    mk(new THREE.ConeGeometry(2.5, 2.7, 4), toon(0xf2a65a, { soft: true }), { parent: tent, pos: [0, 1.35, 0], rot: [0, Math.PI / 4, 0], outline: 0.05 });
+    { const door = new THREE.Shape(); door.moveTo(-0.62, 0); door.lineTo(0.62, 0); door.lineTo(0, 1.7); door.closePath();
+      const dm = new THREE.Mesh(new THREE.ShapeGeometry(door), basic(0x4b3a35)); dm.position.set(0, 0.02, 1.2); dm.rotation.x = -0.58; tent.add(dm); }
+    mk(new THREE.CylinderGeometry(0.03, 0.03, 0.9, 6), 0x8a5a3c, { parent: tent, pos: [0, 3.1, 0], outline: 0.01 });
+    mk(new THREE.ConeGeometry(0.2, 0.5, 3), 0xec6a58, { parent: tent, pos: [0.24, 3.36, 0], rot: [0, 0, -Math.PI / 2], outline: 0.012 });
+    const FG = new Geo(); for (let i = 0; i < 9; i++) { const a = i / 9 * 6.283; FG.add(rocky(8), rockCol, [Math.cos(a) * 0.85, 0.1, Math.sin(a) * 0.85], [0, rand(0, 6), 0], [0.3, 0.22, 0.26]); }
+    mk(FG.build(), rockMat2, { parent: g, outline: 0.025 });
+    for (const r of [0.5, -0.6, 1.7]) mk(new THREE.CylinderGeometry(0.11, 0.11, 1.15, 8), 0x7a5238, { parent: g, pos: [0, 0.2, 0], rot: [0, r, Math.PI / 2 - 0.12], outline: 0.015 });
+    const fire = new THREE.Group(); fire.position.set(0, 0.22, 0); g.add(fire); fires.push(fire);
+    for (const [c, s, o] of [[0xff8a3c, 0.8, 0.85], [0xffc94a, 0.5, 0.9], [0xfff1b0, 0.28, 0.95]]) { const f = new THREE.Mesh(new THREE.ConeGeometry(0.42 * s, 1.2 * s, 10), new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: o, depthWrite: false })); f.position.y = 0.55 * s; fire.add(f); }
+    { const fg = new THREE.Sprite(glowMat.clone()); fg.material.color.set(0xffa04a); fg.scale.setScalar(3.8); fg.position.y = 0.5; fire.add(fg); }
+    lampLights.push({ p: new V3(C.x, y + 1.0, C.z), r: 11, kind: 'fire' });
+    solid(C.x, C.z, 1.05, y + 0.9).nocam = true; solid(C.x - 3.6, C.z - 2.6, 1.9, y + 2.6);
+    for (const a of [0.5, 2.3, 4.3]) {                                                            // logs facing the fire
+      const lx = Math.sin(a) * 3.0, lz = Math.cos(a) * 3.0, yaw = a + Math.PI;
+      mk(new THREE.CylinderGeometry(0.36, 0.36, 2.0, 12), toon(0xa9774f, { map: TEX.bark }), { parent: g, pos: [lx, 0.34, lz], rot: [0, a, Math.PI / 2], outline: 0.03 });
+      solid(C.x + lx, C.z + lz, 0.7, y + 0.62).nocam = true;
+      seats.push({ p: new V3(C.x + lx, y + 0.7, C.z + lz), yaw, zone: 'world', floor: terrain(C.x + lx * 1.45, C.z + lz * 1.45), label: '통나무에 앉기', say: ['불멍 좋다~', '타닥타닥…', '마시멜로 굽고 싶다', '따뜻해~'] });
+    } }
+  // --- the edge of the world: two ragged rows of big pines all the way round (one mesh, so they cost next to nothing), parted only where the sea is
+  { const TG = new Geo(), dk = col(0x4a7d55), md = col(0x6a9a6c), lt = col(0x9cc890), fc = (c, px, py, pz, nx, ny) => { mixC(c, dk, md, ny * 0.8 + 0.45); if (ny > 0.4) c.lerp(lt, (ny - 0.4) * 0.8); };
+    for (let i = 0; i < 190; i++) {
+      const a = i / 190 * Math.PI * 2 + rand(-0.012, 0.012), r = RING + (i % 2 ? rand(6.5, 9) : rand(11.5, 15)), x = Math.cos(a) * r, z = Math.sin(a) * r;
+      if (seaward(x, z) > -26 || Math.min(forestSDF(x, z), cabinSDF(x, z), hillSDF(x, z), beachSDF(x, z)) < 5) continue;
+      const s = rand(2.0, 2.9), y = terrain(x, z) - 0.3;
+      TG.add(new THREE.CylinderGeometry(0.3 * s, 0.5 * s, 2.6 * s, 7), 0x8a6a4e, [x, y + 1.3 * s, z]);
+      for (let k = 0; k < 4; k++) TG.add(new THREE.ConeGeometry((2.5 - k * 0.48) * s, 2.4 * s, 9), fc, [x, y + (2.9 + k * 1.3) * s, z], [0, rand(0, 6), 0]);
+      if (i % 2) solid(x, z, 1.1 * s, y + 9 * s);
+    }
+    const m = mk(TG.build(), toon(0xffffff, { vc: true }), { outline: 0.1 }); m.userData.keep = true; scene.add(m); }
+}
+
 /* ---------------- Mongle beach: dunes, sand and sea, a pier out to a lighthouse on its islet ---------------- */
 const beach = { sea: null, seaU: null, beams: null, glow: null, top: null, boat: null, crown: [] };
 const LH = { x: ISLE.x, z: ISLE.z, y0: ISLE.y, gy: ISLE.y + 17.2, r: 4.4, ux: 0, uz: 0 };   // gy: the gallery floor; (ux, uz): from the tower toward the pier
@@ -5125,7 +5216,7 @@ function buildMapBg() {
   const lg = lo.getContext('2d'), img = lg.createImageData(gw, gh);
   for (let j = 0; j < gh; j++) for (let i = 0; i < gw; i++) {
     const x = MAP.x1 - (i + 0.5) * S, z = MAP.z1 - (j + 0.5) * S, k = (j * gw + i) * 4;
-    const inside = Math.min(Math.hypot(x, z) - 60, forestSDF(x, z) + 6, cabinSDF(x, z) + 6, beachSDF(x, z) + 6, hillSDF(x, z) + 6) <= 0, sea = seaward(x, z);
+    const inside = Math.min(Math.hypot(x, z) - RING, forestSDF(x, z) + 6, cabinSDF(x, z) + 6, beachSDF(x, z) + 6, hillSDF(x, z) + 6) <= 0, sea = seaward(x, z);
     const cc = sea > 0 ? (Math.hypot(x - ISLE.x, z - ISLE.z) < ISLE.r - 2 ? [214, 226, 190] : sea < 2.5 ? [222, 242, 250] : [143, 211, 242])
       : sea > -30 ? (inside ? [249, 236, 200] : [226, 219, 178]) : !inside ? [191, 219, 158] : forestK(x, z) > 0.5 ? [158, 205, 126] : [229, 243, 199];
     img.data[k] = cc[0]; img.data[k + 1] = cc[1]; img.data[k + 2] = cc[2]; img.data[k + 3] = 255;
@@ -5659,13 +5750,13 @@ const FOG_M = new THREE.Color(0xe2f1f8), FOG_F = new THREE.Color(0xcfe4d0);
 const ZONE_SUB = { '몽글 마을': '몽글몽글 포근한 들판', '숲 오솔길': '나무 사이로 햇살이 드는 길', '이끼 빈터': '폭신한 이끼가 깔린 쉼터', '옹달샘': '오리 가족이 사는 연못',
   '할아버지 나무': '숲에서 가장 오래된 나무', '숲속 오두막': '나무꾼 아저씨네 숲', '무지개 폭포': '물안개에 무지개가 뜨는 곳', '폭포 위 쉼터': '바람이 시원한 절벽 위 풀밭',
   '할아버지 나무 안': '동물 친구들의 보금자리', '나무 꼭대기 테라스': '마을이 한눈에 보이는 곳', '나무꾼 오두막 안': '벽난로가 따뜻한 산장',
-  '몽글 해변': '파도가 찰랑이는 모래사장', '등대 부두': '바다 위를 걷는 나무 길', '등대 섬': '빨간 줄무늬 등대가 서 있는 작은 섬', '등대 전망대': '바다와 마을이 한눈에 보이는 곳', '반딧불 동굴': '폭포 뒤에 숨은 반짝이는 동굴', '별빛 언덕': '별이 가장 가까운 언덕', '별빛 천문대': '망원경으로 밤하늘을 보는 곳' };
+  '몽글 해변': '파도가 찰랑이는 모래사장', '등대 부두': '바다 위를 걷는 나무 길', '등대 섬': '빨간 줄무늬 등대가 서 있는 작은 섬', '등대 전망대': '바다와 마을이 한눈에 보이는 곳', '반딧불 동굴': '폭포 뒤에 숨은 반짝이는 동굴', '너른 들판': '어디로든 이어지는 풀밭', '꽃동산': '꽃나무 아래 돗자리 한 장', '연잎 연못': '연꽃이 떠 있는 조용한 못', '모닥불 야영지': '타닥타닥 불가의 통나무 의자', '별빛 언덕': '별이 가장 가까운 언덕', '별빛 천문대': '망원경으로 밤하늘을 보는 곳' };
 function zoneBanner(name) {
   const el = $('zoneTitle'); $('zoneName').textContent = name; $('zoneSub').textContent = ZONE_SUB[name] || '';
   el.classList.remove('show'); void el.offsetWidth; el.classList.add('show');
 }
 function zoneOf(x, z) {
-  if (z < -100) { if (Math.hypot(x - ISLE.x, z - ISLE.z) < ISLE.r) return '등대 섬'; if (seaward(x, z) > 2 && pierDist(x, z) < 2) return '등대 부두'; if (sandK(x, z) > 0.5 && beachSDF(x, z) < 8) return '몽글 해변'; }
+  if (z < -100) { if (Math.hypot(x - ISLE.x, z - ISLE.z) < ISLE.r) return '등대 섬'; if (seaward(x, z) > 2 && pierDist(x, z) < 2) return '등대 부두'; if (sandK(x, z) > 0.5) return '몽글 해변'; }
   if (x > 96 && hillSDF(x, z) < 4) return Math.hypot(x - HILL.px, z - HILL.pz) < 15.5 ? '별빛 천문대' : '별빛 언덕';
   if (inPlat(x, z, 1)) return '폭포 위 쉼터';
   if (Math.hypot(x - FALLS.x, z - FALLS.pz) < 17) return '무지개 폭포';
@@ -5674,6 +5765,10 @@ function zoneOf(x, z) {
   if (Math.hypot(x - BIGTREE.x, z - BIGTREE.z) < 14) return '할아버지 나무';
   if (cabinSDF(x, z) < 0 && Math.hypot(x, z) > 84) return '숲속 오두막';
   if (forestK(x, z) > 0.5) return '숲 오솔길';
+  if (Math.hypot(x - SPOTS.orchard.x, z - SPOTS.orchard.z) < 14) return '꽃동산';
+  if (Math.hypot(x - SPOTS.lily.x, z - SPOTS.lily.z) < 13) return '연잎 연못';
+  if (Math.hypot(x - SPOTS.camp.x, z - SPOTS.camp.z) < 11) return '모닥불 야영지';
+  if (Math.hypot(x, z) > 98) return '너른 들판';
   return '몽글 마을';
 }
 function frame() {
@@ -5929,7 +6024,7 @@ if (renderer.capabilities.isWebGL2) {
     const plat = inPlat(x, z, 0), inF = forestSDF(x, z) < 3 || cabinSDF(x, z) < 3 || beachSDF(x, z) < 3 || hillSDF(x, z) < 3;
     let ok;
     if (inPlat(x, z, 1.6)) ok = plat && inPlat(x, z, -1.6) && falls.grassOK(x, z);
-    else ok = (Math.hypot(x, z) < 100 || inF) && seaward(x, z) < -37 && free(x, z, -0.7) && !inCabinRect(x, z, 1.2) && Object.values(TRAILS).every(t => t.every(q => (q[0] - x) ** 2 + (q[1] - z) ** 2 > 2.0));
+    else ok = (Math.hypot(x, z) < RING + 3 || inF) && seaward(x, z) < -37 && free(x, z, -0.7) && !inCabinRect(x, z, 1.2) && Object.values(TRAILS).every(t => t.every(q => (q[0] - x) ** 2 + (q[1] - z) ** 2 > 2.0));
     raw[j * FW + i] = ok ? 1 : 0;
     data[k + 1] = Math.round(clamp(forestK(x, z), 0, 1) * 255); data[k + 2] = plat ? 255 : 0; data[k + 3] = 255;
   }
@@ -5949,7 +6044,7 @@ if (renderer.capabilities.isWebGL2) {
       float rbox(vec2 p, vec2 c, vec2 b, float r){ vec2 q = abs(p - c) - b + r; return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r; }
       float terrainH(vec2 p){
         float h = 0.55 * sin(p.x * 0.07) * cos(p.y * 0.05) + 0.9 * sin(p.x * 0.023 + 1.3) * sin(p.y * 0.019 + 0.4);
-        float d = max(0.0, min(length(p) - 60.0, min(rbox(p, vec2(${FOREST.cx.toFixed(2)}, ${FOREST.cz.toFixed(2)}), vec2(${FOREST.bx.toFixed(2)}, ${FOREST.bz.toFixed(2)}), ${FOREST.r.toFixed(2)}), min(rbox(p, vec2(${WOODS.cx.toFixed(2)}, ${WOODS.cz.toFixed(2)}), vec2(${WOODS.bx.toFixed(2)}, ${WOODS.bz.toFixed(2)}), ${WOODS.r.toFixed(2)}), min(rbox(p, vec2(${BEACH.cx.toFixed(2)}, ${BEACH.cz.toFixed(2)}), vec2(${BEACH.bx.toFixed(2)}, ${BEACH.bz.toFixed(2)}), ${BEACH.r.toFixed(2)}), rbox(p, vec2(${HILL.cx.toFixed(2)}, ${HILL.cz.toFixed(2)}), vec2(${HILL.bx.toFixed(2)}, ${HILL.bz.toFixed(2)}), ${HILL.r.toFixed(2)})))) + 6.0));   // (grass stops short of the dunes, so the beach's slope is not needed here)
+        float d = max(0.0, min(length(p) - ${RING.toFixed(1)}, min(rbox(p, vec2(${FOREST.cx.toFixed(2)}, ${FOREST.cz.toFixed(2)}), vec2(${FOREST.bx.toFixed(2)}, ${FOREST.bz.toFixed(2)}), ${FOREST.r.toFixed(2)}), min(rbox(p, vec2(${WOODS.cx.toFixed(2)}, ${WOODS.cz.toFixed(2)}), vec2(${WOODS.bx.toFixed(2)}, ${WOODS.bz.toFixed(2)}), ${WOODS.r.toFixed(2)}), min(rbox(p, vec2(${BEACH.cx.toFixed(2)}, ${BEACH.cz.toFixed(2)}), vec2(${BEACH.bx.toFixed(2)}, ${BEACH.bz.toFixed(2)}), ${BEACH.r.toFixed(2)}), rbox(p, vec2(${HILL.cx.toFixed(2)}, ${HILL.cz.toFixed(2)}), vec2(${HILL.bx.toFixed(2)}, ${HILL.bz.toFixed(2)}), ${HILL.r.toFixed(2)})))) + 6.0));   // (grass stops short of the dunes, so the beach's slope is not needed here)
         if (d > 0.0) h += 14.0 * (1.0 - exp(-d * d * 0.0065 / 14.0)) + 9.0 * smoothstep(25.0, 90.0, d) * (0.5 + 0.5 * sin(p.x * 0.021 + 1.7) * cos(p.y * 0.017 - 0.6));
         if (p.x > 100.0) h += ${HILL.H.toFixed(2)} * (1.0 - smoothstep(${HILL.r0.toFixed(1)}, ${HILL.r1.toFixed(1)}, length(p - vec2(${HILL.px.toFixed(1)}, ${HILL.pz.toFixed(1)}))));   // starlight hill
         return h; }
