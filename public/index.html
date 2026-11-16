@@ -129,6 +129,7 @@ button{font:inherit;color:inherit}
 #prompt kbd{font-family:var(--display);font-size:15px;border:1.5px solid var(--ink);border-bottom-width:3px;border-radius:6px;padding:0 6px;background:var(--butter)}
 .touch #prompt kbd{display:none}
 @keyframes promptBob{50%{transform:translateX(-50%) translateY(-4px)}}
+#scope{position:fixed;inset:0;z-index:4;pointer-events:none;background:radial-gradient(circle at 50% 50%,transparent 41vmin,rgba(75,58,53,.9) 41.6vmin,#1a1626 43.5vmin)}
 #iris{position:fixed;inset:0;z-index:15;pointer-events:none;--r:120;background:radial-gradient(circle at 50% 55%,transparent calc(var(--r) * 1vmax),#2a1c14 calc(var(--r) * 1vmax + 2px))}
 @media (prefers-reduced-motion:reduce){#prompt{animation:none}}
 
@@ -142,7 +143,7 @@ button{font:inherit;color:inherit}
 .touch #gfx{display:none}
 
 /* map */
-#map{position:absolute;right:calc(14px + env(safe-area-inset-right,0px));top:calc(72px + env(safe-area-inset-top,0px));padding:6px 8px 8px;width:min(236px,46vw);pointer-events:none}
+#map{position:absolute;right:calc(14px + env(safe-area-inset-right,0px));top:calc(72px + env(safe-area-inset-top,0px));padding:6px 8px 8px;width:min(300px,50vw);pointer-events:none}
 .maphead{display:flex;justify-content:space-between;align-items:baseline;gap:6px;font-family:var(--display);font-size:15px;padding:0 2px 4px}
 .maphead span{font-family:var(--body);font-size:12px;opacity:.85}
 .maphead b{font-family:var(--display);font-weight:400;font-size:14px;color:#c98a00}
@@ -263,6 +264,7 @@ button{font:inherit;color:inherit}
   <button class="btn snd" id="bSfx" aria-pressed="true" title="효과음·목소리 켜기/끄기"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 8h3l4-3.5v11L6 12H3z" fill="currentColor"/><path d="M13 7.5a3.5 3.5 0 0 1 0 5M15.5 5a7 7 0 0 1 0 10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>효과음</button>
 </div>
 <div id="iris" hidden></div>
+<div id="scope" hidden></div>
 <div id="loading">마을을 짓는 중…</div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -810,9 +812,16 @@ function pierDist(x, z) {
   const ex = PIER.bx - PIER.ax, ez = PIER.bz - PIER.az, t = clamp(((x - PIER.ax) * ex + (z - PIER.az) * ez) / (ex * ex + ez * ez), 0, 1);
   return Math.hypot(x - PIER.ax - ex * t, z - PIER.az - ez * t);
 }
+// starlight hill east of the meadow: one broad grassy hill, level on top, where the observatory stands
+const HILL = { cx: 146, cz: 4, bx: 56, bz: 52, r: 18, px: 156, pz: 4, H: 12.5, r0: 13, r1: 47, obs: { x: 161.5, z: 3 }, scope: { x: 149.5, z: -3.5 }, mat: { x: 153, z: 12.5 } };
+function hillSDF(x, z) {
+  const qx = Math.abs(x - HILL.cx) - HILL.bx + HILL.r, qz = Math.abs(z - HILL.cz) - HILL.bz + HILL.r;
+  return Math.hypot(Math.max(qx, 0), Math.max(qz, 0)) + Math.min(Math.max(qx, qz), 0) - HILL.r;
+}
+const hillUp = (x, z) => HILL.H * smooth(HILL.r1, HILL.r0, Math.hypot(x - HILL.px, z - HILL.pz));
 // you can walk anywhere up to the wall of trees that rings each area (no invisible walls inside open-looking ground);
 // at the beach you can wade in up to your knees
-const walkable = (x, z) => Math.hypot(x, z) < 86 || forestSDF(x, z) < 6 || cabinSDF(x, z) < 6 || (beachSDF(x, z) < 6 && terrain(x, z) > SEA_Y - 0.55);
+const walkable = (x, z) => Math.hypot(x, z) < 86 || forestSDF(x, z) < 6 || cabinSDF(x, z) < 6 || hillSDF(x, z) < 6 || (beachSDF(x, z) < 6 && terrain(x, z) > SEA_Y - 0.55);
 const forestK = (x, z) => Math.max(smooth(2, -10, forestSDF(x, z)), smooth(2, -10, cabinSDF(x, z))) * smooth(74, 88, Math.hypot(x, z));
 function terrain(x, z) {
   const r = Math.hypot(x, z);
@@ -821,9 +830,10 @@ function terrain(x, z) {
   // toward the sea the land gives way to a long, even slope of sand that carries on under the water
   const s = seaward(x, z);
   if (s > -36) h += ((s < 0 ? SEA_Y - s * 0.06 : Math.max(SEA_Y - s * 0.13, -7.5)) - h) * smooth(-36, -20, s);
-  const d = Math.max(0, Math.min(r - 60, forestSDF(x, z) + 6, cabinSDF(x, z) + 6, beachSDF(x, z) + 6));
+  const d = Math.max(0, Math.min(r - 60, forestSDF(x, z) + 6, cabinSDF(x, z) + 6, beachSDF(x, z) + 6, hillSDF(x, z) + 6));
   if (d > 0 && s < 30) h += (14 * (1 - Math.exp(-d * d * 0.0065 / 14)) + 9 * smooth(25, 90, d) * (0.5 + 0.5 * Math.sin(x * 0.021 + 1.7) * Math.cos(z * 0.017 - 0.6))) * (1 - smooth(-12, 30, s));   // the hills run down into the sea as headlands
   if (s > 0) h = Math.max(h, isleH(x, z));
+  if (x > 100) h += hillUp(x, z);
   return h;
 }
 const decalMat = toon(0xffffff, { map: TEX.dirt });
@@ -879,6 +889,7 @@ const TRAILS = {
   cabin: [[-4, -6], [-16, -12], [-30, -10], [-46, -12], [-62, -16], [-80, -18], [-98, -20], [-116, -20], [-126, -20], [-133, -20]],
   falls: [[-139, -33], [-134, -45], [-127, -56], [-120, -62], [-116.5, -65]],   // lodge yard → over the creek → foot of the stone stairs
   beach: [[0, -69], [2, -80], [7, -92], [9, -104], [6, -114], [4, -121]],        // out of the gate and down the lawn to the dunes
+  hill: [[11, 3], [26, 5], [43, 1], [60, 4], [78, 2], [95, 5], [110, 9], [122, 5], [132, -2], [140, 0], [145, 3]],   // east across the meadow and up the winding lane to the hilltop
 };
 const trailMat = toon(0xf0e2c4, { map: TEX.dirt });
 trailMat.polygonOffset = true; trailMat.polygonOffsetFactor = -2; trailMat.polygonOffsetUnits = -4;
@@ -896,6 +907,7 @@ disc(6, 128, 4.3, trailEdge, 0.035); disc(6, 128, 4.0, trailMat, 0.06);
 const solids = [];
 function solid(x, z, r, top, bottom = -99) { const s = { x, z, r, top, bottom }; solids.push(s); return s; }
 const avoid = [];
+avoid.push({ x: HILL.obs.x, z: HILL.obs.z, r: 6.2 }, { x: HILL.obs.x - 6, z: HILL.obs.z, r: 2.2 }, { x: HILL.scope.x, z: HILL.scope.z, r: 3.6 }, { x: HILL.mat.x, z: HILL.mat.z, r: 2.7 });   // what stands on starlight hill: keep grass and flowers off it
 const free = (x, z, pad = 0) => avoid.every(a => Math.hypot(a.x - x, a.z - z) > a.r + pad) && pathDist(x, z) > 3 + pad;
 // forest landmarks
 const GLADE = { x: -44, z: 170 }, POND = { x: 52, z: 177, r: 7 }, BIGTREE = { x: 0, z: 192 }, FORK = { x: 6, z: 128 };
@@ -1216,10 +1228,10 @@ function roundTree(x, z, s, kind) {
 for (let i = 0; i < 64; i++) {
   const a = i / 64 * Math.PI * 2 + rand(-0.03, 0.03), r = rand(80, 110);
   const x = Math.cos(a) * r, z = Math.sin(a) * r;
-  if (Math.hypot(x, z + 66) < 14 || forestSDF(x, z) < 4 || cabinSDF(x, z) < 4 || beachSDF(x, z) < 4 || pathDist(x, z) < 5) continue;   // fills the gaps between areas
+  if (Math.hypot(x, z + 66) < 14 || forestSDF(x, z) < 4 || cabinSDF(x, z) < 4 || beachSDF(x, z) < 4 || hillSDF(x, z) < 4 || pathDist(x, z) < 5) continue;   // fills the gaps between areas
   i % 3 ? pine(x, z, rand(1.1, 1.7)) : roundTree(x, z, rand(1.1, 1.6), pick(['green', 'green', 'blossom', 'fruit']));
 }
-for (let i = 0; i < 22; i++) { const a = rand(0, 6.28), r = rand(116, 145), x = Math.cos(a) * r, z = Math.sin(a) * r; if (forestSDF(x, z) > 8 && cabinSDF(x, z) > 8 && beachSDF(x, z) > 8 && seaward(x, z) < -30) pine(x, z, rand(1.6, 2.3)); }
+for (let i = 0; i < 22; i++) { const a = rand(0, 6.28), r = rand(116, 145), x = Math.cos(a) * r, z = Math.sin(a) * r; if (forestSDF(x, z) > 8 && cabinSDF(x, z) > 8 && beachSDF(x, z) > 8 && hillSDF(x, z) > 8 && seaward(x, z) < -30) pine(x, z, rand(1.6, 2.3)); }
 // a few trees inside the meadow for shade
 [[-58, -30], [60, 32], [-40, 52], [58, -46]].forEach(([x, z], i) => { roundTree(x, z, 1.25, i % 2 ? 'blossom' : 'fruit'); avoid.push({ x, z, r: 4 }); });
 
@@ -1248,7 +1260,7 @@ for (let i = 0; i < 22; i++) { const a = rand(0, 6.28), r = rand(116, 145), x = 
 for (let i = 0; i < 16; i++) {
   const a = i / 16 * Math.PI * 2 + rand(-0.1, 0.1), r = rand(200, 235), H0 = rand(30, 52);
   // the whole base has to stay outside the woods you can walk in, not just the peak: shrink a mountain that would reach in
-  const room = Math.min(forestSDF(Math.cos(a) * r, Math.sin(a) * r), cabinSDF(Math.cos(a) * r, Math.sin(a) * r), beachSDF(Math.cos(a) * r, Math.sin(a) * r), -seaward(Math.cos(a) * r, Math.sin(a) * r) - 30);   // and none standing in the sea
+  const room = Math.min(forestSDF(Math.cos(a) * r, Math.sin(a) * r), cabinSDF(Math.cos(a) * r, Math.sin(a) * r), beachSDF(Math.cos(a) * r, Math.sin(a) * r), hillSDF(Math.cos(a) * r, Math.sin(a) * r), -seaward(Math.cos(a) * r, Math.sin(a) * r) - 30);   // and none standing in the sea
   const R = Math.min(rand(32, 56), (room - 10) / 1.15); if (R < 18) continue;
   const H = H0 * Math.min(1, R / 32);
   const g = new THREE.ConeGeometry(R, H, 28, 8), p = g.attributes.position;
@@ -1260,7 +1272,7 @@ for (let i = 0; i < 16; i++) {
 }
 for (let i = 0; i < 20; i++) {
   const a = i / 20 * Math.PI * 2 + rand(-0.1, 0.1), r = rand(152, 172);
-  const room = Math.min(forestSDF(Math.cos(a) * r, Math.sin(a) * r), cabinSDF(Math.cos(a) * r, Math.sin(a) * r), beachSDF(Math.cos(a) * r, Math.sin(a) * r), -seaward(Math.cos(a) * r, Math.sin(a) * r) - 24);
+  const room = Math.min(forestSDF(Math.cos(a) * r, Math.sin(a) * r), cabinSDF(Math.cos(a) * r, Math.sin(a) * r), beachSDF(Math.cos(a) * r, Math.sin(a) * r), hillSDF(Math.cos(a) * r, Math.sin(a) * r), -seaward(Math.cos(a) * r, Math.sin(a) * r) - 24);
   const s = Math.min(rand(18, 28), (room - 6) / 1.85); if (s < 9) continue;   // the long side reaches about 1.8 s
   const G = new Geo().add(lumpy(1, 20, 14, 0.15, 1.5), (c, px, py, pz, nx, ny) => mixC(c, col(0x86b394), col(0xc4dfb8), ny * 0.6 + 0.3));
   const m = new THREE.Mesh(G.build(), toon(0xffffff, { vc: true }));
@@ -1855,7 +1867,7 @@ const grassChunks = [];
   const M4 = new THREE.Matrix4(), Q = new THREE.Quaternion(), S = new V3(), P = new V3(), E = new THREE.Euler(), C = new THREE.Color();
   let n = 0, guard = 0;
   while (n < N && guard++ < N * 8) {
-    const x = rand(-206, 96), z = rand(-126, 212), inF = forestSDF(x, z) < 3 || cabinSDF(x, z) < 3 || beachSDF(x, z) < 3;
+    const x = rand(-206, 204), z = rand(-126, 212), inF = forestSDF(x, z) < 3 || cabinSDF(x, z) < 3 || beachSDF(x, z) < 3 || hillSDF(x, z) < 3;
     if ((Math.hypot(x, z) > 96 && !inF) || seaward(x, z) > -37 || !free(x, z, -0.6) || inPlat(x, z, 1)) continue;
     const fk = forestK(x, z), dens = fbm(x * 0.05, 3, z * 0.05);
     if (Math.random() > (0.55 + dens * 0.8) * (1 - fk * 0.3)) continue;
@@ -2008,7 +2020,7 @@ function tickBlooms(dt) {
       if (di < ISLE.r + 4) { mixC(tc2, isleRock, isleGrass, smooth(ISLE.r - 4.5, ISLE.r - 7.5, di + fbm(x * 0.3, 2, z * 0.3) * 2)); t.lerp(tc2, smooth(ISLE.r + 4, ISLE.r, di)); }
     }
     let ao = 1;
-    if (Math.hypot(x, z) < 125 || forestSDF(x, z) < 12 || cabinSDF(x, z) < 12) for (const s of big) { const d = Math.hypot(x - s.x, z - s.z) / (s.r + 1.8); if (d < 1) ao = Math.min(ao, 0.74 + 0.26 * d * d); }
+    if (Math.hypot(x, z) < 125 || forestSDF(x, z) < 12 || cabinSDF(x, z) < 12 || hillSDF(x, z) < 12) for (const s of big) { const d = Math.hypot(x - s.x, z - s.z) / (s.r + 1.8); if (d < 1) ao = Math.min(ao, 0.74 + 0.26 * d * d); }
     t.multiplyScalar(ao); t.toArray(cols, i * 3);
   }
   G.setAttribute('color', new THREE.BufferAttribute(cols, 3));
@@ -3913,6 +3925,247 @@ function tickCave(dt, T, S) {
   if ((cave.drip -= dt) <= 0) { cave.drip = rand(1.4, 5); Snd.drip(rand(0.4, 1), rand(-0.8, 0.8)); }
 }
 
+/* ---------------- starlight hill: a lane up a grassy hill east of the village, an observatory on top, a telescope anyone may use, a blanket to lie on under the stars ---------------- */
+const hill = { dome: null, domeYaw: 0, win: new THREE.MeshBasicMaterial({ color: 0xcfeefc }), tube: null, planet: null, found: false, mole: null, was: null, deep: null, deepK: 0, fade: [], starU: null, lines: null, cons: [], nCons: 0 };
+const PLANET_DIR = new V3(0.55, 0.57, -0.61).normalize();   // where the ringed star hangs: the south-eastern sky, a little over half way up
+const HILL_ROCK = { x: 121, z: 21, top: 0 }, HILL_STAR = { x: HILL.obs.x + 6.1, z: HILL.obs.z + 0.8 };
+const MOLE_DAY = ['낮에는 별이 숨어 있단다. 밤에 다시 오렴', '채널마다 시간이 다르단다. 밤인 채널을 찾아가 보렴', '돗자리에 누우면 하늘이 한가득이야', '안경을 써도 낮엔 눈이 부시구나…', '망원경은 누구나 들여다봐도 된단다'];
+const MOLE_NIGHT = ['망원경으로 동남쪽 하늘을 보렴. 고리 달린 별이 있단다', '하늘에는 몽글 마을 별자리가 여덟 개 숨어 있단다', '별자리를 망원경 한가운데에 맞추면 이름이 떠오르지', '별똥별이 쏟아지는 날엔 여기가 명당이지', '오늘 밤은 별이 참 많구나', '돗자리에 누워서 별을 세어 보렴', '저 별들 중 하나에서 누가 놀러 올지도 모르지'];
+function makeMole() {
+  const g = new THREE.Group(), body = new THREE.Group(); g.add(body);
+  const fur = 0x7b6a66, pale = 0xead8c9, pink = 0xf6b7c4, gold = 0xf3c64a;
+  const blob = mk(SPH, soft(fur), { parent: body, pos: [0, 0.7, 0], scale: [0.66, 0.72, 0.62], outline: 0.035 });
+  mk(SPH_MED, soft(pale), { parent: body, pos: [0, 0.5, 0.36], scale: [0.4, 0.4, 0.28], outline: 0 });
+  animalFace(blob, { eyes: false, eyeY: 0.08, mouth: true });
+  mk(SPH_MED, soft(pale), { parent: body, pos: [0, 0.9, 0.55], scale: [0.25, 0.19, 0.24], outline: 0.02 });                       // a long soft snout
+  mk(SPH_LO, soft(0xf29db0), { parent: body, pos: [0, 0.94, 0.79], scale: [0.11, 0.09, 0.08], outline: 0.012 });
+  for (const s of [-1, 1]) {
+    const e = new THREE.Group(); e.position.set(s * 0.25, 1.13, 0.5); e.rotation.y = s * 0.3; body.add(e);                          // big round glasses
+    mk(new THREE.TorusGeometry(0.175, 0.028, 6, 22), soft(gold), { parent: e, outline: 0.012, shadow: false });
+    const lens = new THREE.Mesh(new THREE.CircleGeometry(0.165, 18), basic(0xe4f5ff)); lens.position.z = -0.012; e.add(lens);
+    const pu = new THREE.Mesh(SPH_LO, basic(0x2b2220)); pu.scale.set(0.04, 0.05, 0.02); pu.position.z = 0.004; e.add(pu);
+    mk(SPH_LO, soft(pink), { parent: body, pos: [s * 0.66, 0.6, 0.22], scale: [0.2, 0.25, 0.12], rot: [0, 0, s * 0.4], outline: 0.025 });   // digging hands
+    mk(SPH_LO, soft(pink), { parent: g, pos: [s * 0.3, 0.08, 0.22], scale: [0.2, 0.1, 0.26], outline: 0.025 });
+  }
+  mk(new THREE.BoxGeometry(0.16, 0.03, 0.03), soft(gold), { parent: body, pos: [0, 1.13, 0.6], outline: 0, shadow: false });
+  mk(new THREE.TorusGeometry(0.4, 0.085, 8, 20), soft(0xfff3d6), { parent: body, pos: [0, 1.33, -0.02], rot: [Math.PI / 2 - 0.15, 0, 0], outline: 0.02 });   // a nightcap with a star on its tip
+  mk(new THREE.ConeGeometry(0.4, 0.8, 14), soft(0x3f4f9a), { parent: body, pos: [0, 1.7, -0.08], rot: [-0.22, 0, 0.1], outline: 0.03 });
+  mk(STAR_GEO, gloss(0xffe27a, { emissive: 0x4a3a00, shin: 70, spec: 0xffffff, rim: 0.25 }), { parent: body, pos: [-0.04, 2.14, -0.2], scale: 0.1, outline: 0.012 });
+  return { g, body, h: 2.3 };
+}
+{
+  const P = { x: HILL.px, z: HILL.pz }, O = HILL.obs, SC = HILL.scope, BL = HILL.mat;
+  const dH = new V3(PLANET_DIR.x, 0, PLANET_DIR.z).normalize(), skyYaw = Math.atan2(dH.x, dH.z);
+  // --- the observatory: a round white house under a blue dome, whose slit and big telescope turn slowly across the sky
+  { const y = terrain(O.x, O.z) - 0.45, g = new THREE.Group(); g.position.set(O.x, y, O.z); g.userData.keep = true; scene.add(g);
+    mk(new THREE.CylinderGeometry(4.9, 5.15, 1.3, 36), toon(0xcfc7b8, { map: TEX.stone }), { parent: g, pos: [0, 0.65, 0], outline: 0.05 });
+    mk(new THREE.CylinderGeometry(4.3, 4.3, 4.4, 36), 0xfff7ec, { parent: g, pos: [0, 3.5, 0], outline: 0.05 });
+    mk(new THREE.CylinderGeometry(4.55, 4.55, 0.4, 36), 0x6f8fc0, { parent: g, pos: [0, 5.9, 0], outline: 0.04 });
+    const dome = hill.dome = new THREE.Group(); dome.position.y = 6.1; dome.rotation.y = hill.domeYaw = skyYaw; g.add(dome);
+    mk(new THREE.SphereGeometry(4.5, 36, 14, 0, Math.PI * 2, 0, Math.PI / 2), toon(0x9dbbe6, { rim: 0.2 }), { parent: dome, outline: 0.05 });
+    const slit = new THREE.Mesh(new THREE.SphereGeometry(4.56, 8, 14, Math.PI / 2 - 0.17, 0.34, 0.1, 1.3), basic(0x1b2040)); dome.add(slit);
+    { const el = 0.62, T = new THREE.Group(); T.position.set(0, 0.6, 1.2); T.rotation.x = Math.PI / 2 - el; dome.add(T);   // the great telescope, looking out of the slit
+      mk(new THREE.CylinderGeometry(0.62, 0.55, 5.0, 18), 0xfff7ec, { parent: T, pos: [0, 2.5, 0], outline: 0.035 });
+      for (const [yy, c] of [[1.2, 0x6f8fc0], [4.2, 0x6f8fc0], [5.0, 0xf3c64a]]) mk(new THREE.CylinderGeometry(0.67, 0.67, 0.22, 18), c, { parent: T, pos: [0, yy, 0], outline: 0.02 });
+      const lens = new THREE.Mesh(new THREE.CircleGeometry(0.56, 18), basic(0x2a3a6a)); lens.rotation.x = -Math.PI / 2; lens.position.y = 5.115; T.add(lens); }
+    mk(new THREE.CylinderGeometry(0.05, 0.05, 0.7, 6), 0xf3c64a, { parent: dome, pos: [0, 4.8, 0], outline: 0.012 });
+    mk(STAR_GEO, gloss(0xffe27a, { emissive: 0x4a3a00, shin: 70, spec: 0xffffff, rim: 0.25 }), { parent: dome, pos: [0, 5.45, -0.07], scale: 0.3, outline: 0.03 });
+    // the door faces west, down the lane; round windows glow after dark
+    { const d = new THREE.Group(); d.position.set(-4.28, 1.3, 0); d.rotation.y = -Math.PI / 2; g.add(d);
+      mk(new THREE.ExtrudeGeometry(archShape(1.0, 1.75), { depth: 0.25, bevelEnabled: false }), 0x6b4a36, { parent: d, outline: 0.04, shadow: false });
+      mk(new THREE.ExtrudeGeometry(archShape(0.82, 1.65), { depth: 0.25, bevelEnabled: true, bevelSize: 0.04, bevelThickness: 0.04, bevelSegments: 2 }), toon(0x5f86c9, { soft: true }), { parent: d, pos: [0, 0.05, 0.06], outline: 0.02, shadow: false });
+      mk(STAR_GEO, gloss(0xffe27a, { emissive: 0x4a3a00, shin: 70, spec: 0xffffff, rim: 0.25 }), { parent: d, pos: [0, 1.75, 0.34], scale: 0.2, outline: 0.02, shadow: false });
+      mk(SPH_LO, gloss(0xf3c64a, { shin: 100, spec: 0xffffff }), { parent: d, pos: [0.52, 1.0, 0.4], scale: 0.08, outline: 0.012, shadow: false });
+      mk(new THREE.BoxGeometry(2.8, 0.5, 1.5), toon(0xcfc7b8, { map: TEX.stone }), { parent: d, pos: [0, -0.25, 0.9], outline: 0.03 });
+      mk(new THREE.BoxGeometry(3.4, 0.5, 1.2), toon(0xcfc7b8, { map: TEX.stone }), { parent: d, pos: [0, -0.7, 1.9], outline: 0.03 }); }
+    for (const a of [0.95, 2.2, -0.95, -2.2, Math.PI]) {
+      const w = new THREE.Group(); w.position.set(Math.sin(a - Math.PI / 2) * 4.32, 3.9, Math.cos(a - Math.PI / 2) * 4.32); w.rotation.y = a - Math.PI / 2; g.add(w);
+      mk(new THREE.TorusGeometry(0.62, 0.11, 8, 24), 0x6f8fc0, { parent: w, pos: [0, 0, 0.04], outline: 0.025, shadow: false });
+      const gl = new THREE.Mesh(new THREE.CircleGeometry(0.6, 22), hill.win); gl.position.z = 0.03; w.add(gl);
+      for (const r of [0, Math.PI / 2]) mk(new THREE.BoxGeometry(1.2, 0.06, 0.05), 0x6f8fc0, { parent: w, pos: [0, 0, 0.06], rot: [0, 0, r], outline: 0, shadow: false });
+    }
+    for (const sd of [-1, 1]) lantern(O.x - 4.7, y + 3.3, O.z + sd * 1.7, 0);
+    solid(O.x, O.z, 5.0, y + 11); solid(O.x - 5.6, O.z, 1.5, y + 1.3).up = 1.0; solid(O.x - 6.4, O.z, 1.5, y + 0.85).up = 1.0; }
+  // --- the little telescope outside: sit on the stool and look through it
+  { const y = terrain(SC.x, SC.z), g = new THREE.Group(); g.position.set(SC.x, y, SC.z); g.rotation.y = skyYaw; scene.add(g);
+    const PV = new THREE.Mesh(new THREE.CylinderGeometry(3.1, 3.2, 0.5, 28), toon(0xd8d0c0, { map: TEX.stone })); PV.position.y = -0.14; PV.receiveShadow = true; g.add(PV);   // a round of paving
+    const TG = new Geo(), V = (x, yy, z) => new V3(x, yy, z);
+    for (let i = 0; i < 3; i++) { const a = i * 2.094 + 0.5; beam(TG, V(Math.sin(a) * 0.75, 0.1, Math.cos(a) * 0.75), V(0, 1.42, 0), 0.07, 0x8a5a3c, { round: true }); }
+    TG.add(new THREE.CylinderGeometry(0.12, 0.12, 0.2, 10), 0x6b4a36, [0, 1.48, 0]);
+    mk(TG.build(), toon(0xffffff, { vc: true, soft: true }), { parent: g, outline: 0.02 });
+    const tube = hill.tube = new THREE.Group(); tube.position.set(0, 1.62, 0); tube.rotation.x = Math.PI / 2 - 0.5; g.add(tube);
+    mk(new THREE.CylinderGeometry(0.2, 0.16, 2.1, 14), 0xfff7ec, { parent: tube, pos: [0, 0.25, 0], outline: 0.025 });
+    for (const [yy, r, c] of [[1.3, 0.225, 0xf3c64a], [-0.2, 0.19, 0x6f8fc0], [-0.86, 0.12, 0x4b3a35]]) mk(new THREE.CylinderGeometry(r, r, 0.14, 14), c, { parent: tube, pos: [0, yy, 0], outline: 0.015 });
+    const st = { x: SC.x - dH.x * 1.25, z: SC.z - dH.z * 1.25 };
+    mk(new THREE.CylinderGeometry(0.36, 0.3, 0.5, 14), woodMat, { parent: g, pos: [0, 0.36, -1.25], outline: 0.025 });
+    solid(SC.x, SC.z, 0.45, y + 1.7).nocam = true; solid(st.x, st.z, 0.4, y + 0.6).nocam = true;
+    seats.push({ p: new V3(st.x, y + 0.62, st.z), yaw: skyYaw, zone: 'world', floor: terrain(st.x - dH.x * 1.3, st.z - dH.z * 1.3), fp: true, up: true, zoom: 16, pitch: -0.5, eye: 0.95, label: '망원경 들여다보기',
+      tip: IS_TOUCH ? '화면을 끌어서 하늘을 살펴보세요 · 밤에는 별자리가 보여요' : '드래그해서 하늘을 살펴보세요 · 밤에는 별자리가 보여요 · F를 누르면 일어나요' });
+    hill.mole = addResident(makeMole, '별지기 두두', 'mole', MOLE_DAY, new V3(SC.x + dH.z * 2.3 - dH.x * 0.4, y, SC.z - dH.x * 2.3 - dH.z * 0.4), 1.0, false, skyYaw + Math.PI * 0.8);
+    hill.mole.update = (r) => {   // what he talks about follows the sky (and the news from the square)
+      const night = skyU.night.value > 0.5;
+      const all = hill.nCons === hill.cons.length, key = (night ? 'n' : 'd') + (hill.found ? 'f' : '') + (all ? 'a' : '') + (UFO.state === 'crashed' ? 'u' : '');
+      if (key !== hill.was) { hill.was = key; r.lines = (night ? MOLE_NIGHT : MOLE_DAY).concat(hill.found ? ['고리 달린 별 몽글성을 찾았구나! 대단하구나'] : [], all ? ['별자리를 여덟 개 다 찾다니, 너도 이제 별지기란다!'] : [], UFO.state === 'crashed' ? ['광장에 떨어진 우주선 말이지? 내가 망원경으로 다 봤단다!'] : []); }
+    };
+    solid(hill.mole.pos.x, hill.mole.pos.z, 0.6, y + 1.5).nocam = true; }
+  // --- a picnic blanket to lie back on, and a bench that looks out over the village
+  { const y = terrain(BL.x, BL.z), g = new THREE.Group(); g.position.set(BL.x, y, BL.z); g.rotation.y = 0.5; scene.add(g);
+    const bl = new THREE.Mesh(new THREE.BoxGeometry(3.6, 0.08, 2.8), toon(0xffffff, { map: gingham(0x6f97d6, [5, 4]) })); bl.position.y = 0.06; bl.receiveShadow = true; g.add(bl);
+    for (const sx of [-0.85, 0.85]) {
+      mk(SPH_LO, soft(0xfff3d6), { parent: g, pos: [sx, 0.2, -0.95], scale: [0.5, 0.14, 0.3], outline: 0.02 });
+      const c = Math.cos(0.5), s = Math.sin(0.5), wx2 = BL.x + sx * c - 0.25 * s, wz2 = BL.z - sx * s - 0.25 * c;
+      seats.push({ p: new V3(wx2, y + 0.12, wz2), yaw: 0.5, zone: 'world', floor: y, fp: true, up: true, pitch: -0.95, eye: 0.55, label: '돗자리에 누워 하늘 보기',
+        tip: IS_TOUCH ? '화면을 끌어서 하늘을 둘러보세요' : '드래그해서 하늘을 둘러보세요 · F를 누르면 일어나요' });
+    }
+    const bx = P.x - 9.2, bz = P.z + 7.2, by = terrain(bx, bz), byaw = Math.atan2(-bx, -bz), b = new THREE.Group(); b.position.set(bx, by, bz); b.rotation.y = byaw; scene.add(b);
+    mk(new THREE.BoxGeometry(2.4, 0.14, 0.7), woodMat, { parent: b, pos: [0, 0.55, 0], outline: 0.02 });
+    mk(new THREE.BoxGeometry(2.4, 0.6, 0.12), woodMat, { parent: b, pos: [0, 0.95, -0.34], outline: 0.02 });
+    for (const sd of [-1, 1]) mk(new THREE.BoxGeometry(0.14, 0.55, 0.6), 0x8a5a3c, { parent: b, pos: [sd * 1.05, 0.27, 0], outline: 0.015 });
+    solid(bx, bz, 0.9, by + 0.62).nocam = true; avoid.push({ x: bx, z: bz, r: 1.8 });
+    for (const dx of [-0.6, 0.6]) seats.push({ p: new V3(bx + Math.cos(byaw) * dx, by + 0.62, bz - Math.sin(byaw) * dx), yaw: byaw, zone: 'world', floor: by, label: '벤치에 앉기', say: ['마을이 다 보여!', '바람이 시원해~', '저기 등대도 보인다!', '별이 뜨면 또 와야지'] }); }
+  // --- lanterns round the top, signposts, a lookout rock half way up, pines on the slopes and round the foot of the hill
+  for (const [dx, dz] of [[-11.5, -2.5], [-2, -11.5], [3, 11.5], [-8.5, 9.8]]) { const x = P.x + dx, z = P.z + dz; standLantern(new V3(x, terrain(x, z), z)); solid(x, z, 0.3, terrain(x, z) + 2.6); avoid.push({ x, z, r: 0.8 }); }
+  signpost(15, 7, [{ text: '별빛 언덕', to: [60, 4] }]);
+  signpost(141, 7.5, [{ text: '별빛 천문대', to: [O.x, O.z] }, { text: '몽글 마을', to: [95, 5] }]);
+  rockAt(HILL_ROCK.x, HILL_ROCK.z, 1.7, true); HILL_ROCK.top = terrain(HILL_ROCK.x, HILL_ROCK.z) + 1.7 * 0.75;
+  rockAt(HILL_ROCK.x + 2.4, HILL_ROCK.z - 1.1, 0.8, true);
+  for (let i = 0, n = 0; i < 9 && n < 400; n++) {
+    const a = rand(0, 6.28), r = rand(22, 43), x = P.x + Math.cos(a) * r, z = P.z + Math.sin(a) * r;
+    if (pathDist(x, z) < 7 || !free(x, z, 2) || hillSDF(x, z) > 0 || (x < P.x - 4 && Math.abs(z - P.z) < 26)) continue;   // none on the west face: that is the view over the village
+    const s = rand(1.0, 1.5); pine(x, z, s); solid(x, z, 0.8 * s, terrain(x, z) + 8 * s); avoid.push({ x, z, r: 2 }); i++;
+  }
+  for (let i = 0; i < 46; i++) {
+    const a = i / 46 * Math.PI * 2 + rand(-0.04, 0.04), R = 40 + rand(0, 60); let x = HILL.cx, z = HILL.cz;
+    for (let t = 20; t < 110; t += 1.5) { x = HILL.cx + Math.cos(a) * t; z = HILL.cz + Math.sin(a) * t; if (hillSDF(x, z) > 7 + (i % 3) * 3.5) break; }
+    if (Math.hypot(x, z) < 106 || pathDist(x, z) < 6) continue;
+    i % 4 ? pine(x, z, rand(1.3, 1.9)) : roundTree(x, z, rand(1.2, 1.6), pick(['green', 'green', 'blossom']));
+  }
+  // --- the ringed star: a small bright dot to the naked eye, a little planet through the telescope
+  { const c = document.createElement('canvas'); c.width = c.height = 128; const x = c.getContext('2d');
+    const ring = (front) => { x.save(); x.translate(64, 64); x.rotate(-0.42); x.beginPath(); x.ellipse(0, 0, 56, 15, 0, front ? 0 : Math.PI, front ? Math.PI : Math.PI * 2); x.lineWidth = 9; x.strokeStyle = '#fff1c2'; x.stroke(); x.lineWidth = 3; x.strokeStyle = '#f0c987'; x.stroke(); x.restore(); };
+    ring(false);
+    const gr = x.createRadialGradient(54, 52, 4, 64, 64, 34); gr.addColorStop(0, '#fff0d0'); gr.addColorStop(0.6, '#ffc78f'); gr.addColorStop(1, '#f29d7c');
+    x.fillStyle = gr; x.beginPath(); x.arc(64, 64, 32, 0, 7); x.fill();
+    x.save(); x.beginPath(); x.arc(64, 64, 32, 0, 7); x.clip(); x.globalAlpha = 0.35; x.fillStyle = '#fff6e4'; x.fillRect(20, 50, 90, 6); x.fillStyle = '#e88f77'; x.fillRect(20, 70, 90, 7); x.restore();
+    ring(true);
+    hill.planet = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false, fog: false, opacity: 0 }));
+    hill.planet.position.copy(PLANET_DIR).multiplyScalar(372); hill.planet.scale.setScalar(13); hill.planet.renderOrder = 3; sky.add(hill.planet); }
+  // --- the deep sky: only the telescope shows it (and, faintly, lying on the blanket). Crowds of stars, drifts of coloured nebula,
+  // a couple of far galaxies, and eight constellations of Mongle village to hunt for
+  { const R = 365, D = hill.deep = new THREE.Group(); D.visible = false; sky.add(D);
+    const dirOf = (azDeg, elDeg) => { const a = azDeg * Math.PI / 180, e = elDeg * Math.PI / 180; return new V3(Math.sin(a) * Math.cos(e), Math.sin(e), Math.cos(a) * Math.cos(e)); };
+    const cv = (w, h, draw) => { const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h); return new THREE.CanvasTexture(c); };
+    // nebula puffs: a few soft blobs melted together, tinted by the sprite's colour
+    const nebTex = [0, 1, 2].map(() => cv(256, 256, (x) => {
+      for (let i = 0; i < 9; i++) { const px = 128 + rand(-62, 62), py = 128 + rand(-62, 62), r = rand(34, 66), g = x.createRadialGradient(px, py, 0, px, py, r);
+        g.addColorStop(0, `rgba(255,255,255,${rand(0.16, 0.34)})`); g.addColorStop(1, 'rgba(255,255,255,0)'); x.fillStyle = g; x.fillRect(0, 0, 256, 256); } }));
+    const puff = (d, c, sc, o, rot = rand(0, 6)) => { const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: pick(nebTex), color: c, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false, opacity: 0, rotation: rot }));
+      s.position.copy(d).multiplyScalar(R + 3); s.scale.setScalar(sc); D.add(s); hill.fade.push({ m: s.material, o }); return s; };
+    // the Milky Way: a broad band right across the sky, where most of the faint stars and the pale glow gather
+    const bandN = new V3(0.62, 0.36, 0.7).normalize(), bU = new V3().crossVectors(bandN, new V3(0, 1, 0)).normalize(), bV = new V3().crossVectors(bandN, bU).normalize();
+    const onBand = (t, off = 0) => new V3().addScaledVector(bU, Math.cos(t)).addScaledVector(bV, Math.sin(t)).addScaledVector(bandN, off).normalize();
+    for (let i = 0; i < 30; i++) { const d = onBand(i / 30 * 6.283 + rand(-0.08, 0.08), rand(-0.07, 0.07)); if (d.y < -0.05) continue;
+      puff(d, pick([0xbfd4ff, 0xd9c8ff, 0xa9e6ff, 0xffd6ec]), rand(70, 120), rand(0.3, 0.46)); }
+    for (let i = 0; i < 46; i++) { const d = new V3(rand(-1, 1), rand(0.05, 1), rand(-1, 1)).normalize(); puff(d, pick([0x7f8cff, 0xb48cff, 0xff8fd0, 0x6fd6ff, 0x7fffd8, 0xffb38f]), rand(60, 130), rand(0.3, 0.5)); }   // and drifts of colour everywhere else
+    const CONS = [   // name, where (azimuth from north toward east, height in degrees), star points, lines between them
+      ['별사탕자리', 162, 54, [[0, 4.4], [1.1, 1.4], [4.2, 1.4], [1.7, -0.6], [2.6, -3.6], [0, -1.8], [-2.6, -3.6], [-1.7, -0.6], [-4.2, 1.4], [-1.1, 1.4]], 'loop'],
+      ['토끼자리', 104, 47, [[-2.4, -3], [2.4, -3], [3.2, 0], [1.5, 1.8], [-1.5, 1.8], [-3.2, 0], [-2.6, 5.2], [2.6, 5.2]], [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 0], [4, 6], [3, 7]]],
+      ['푸딩자리', 62, 30, [[-3.6, -3], [3.6, -3], [2.3, 1.8], [-2.3, 1.8], [0, 1.8], [0.9, 4.2], [-4.6, -3], [4.6, -3]], [[0, 1], [1, 2], [2, 4], [4, 3], [3, 0], [4, 5], [6, 0], [1, 7]]],
+      ['고양이자리', 18, 56, [[-2.8, -3], [2.8, -3], [3.6, 0.4], [2.8, 4], [1.1, 1.9], [-1.1, 1.9], [-2.8, 4], [-3.6, 0.4]], 'loop'],
+      ['곰돌이자리', -42, 36, [[-1.7, -3.6], [1.7, -3.6], [3.3, -0.8], [2.2, 1.9], [-2.2, 1.9], [-3.3, -0.8], [3.5, 3.7], [-3.5, 3.7], [1.2, 2.9], [-1.2, 2.9]], [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 0], [3, 6], [6, 8], [4, 7], [7, 9]]],
+      ['등대자리', -92, 50, [[-1.6, -4.6], [1.6, -4.6], [1, 1.6], [-1, 1.6], [0, 3.6], [4.4, 4.8], [-4.4, 4.8]], [[0, 1], [1, 2], [2, 3], [3, 0], [2, 4], [3, 4], [4, 5], [4, 6]]],
+      ['버섯자리', -142, 31, [[-4.4, 0], [-3.1, 2.7], [0, 4.1], [3.1, 2.7], [4.4, 0], [1.1, 0], [-1.1, 0], [-1.4, -4.2], [1.4, -4.2]], [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 0], [6, 7], [7, 8], [8, 5]]],
+      ['사자자리', -168, 63, [[-5, -1.6], [-2.2, -2.6], [1.8, -2], [4, -0.2], [3.2, 2.6], [1.2, 4.2], [-0.6, 3.2], [0.4, 1.4], [-2, 0.2]], [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 7], [7, 2], [1, 8], [8, 0]]],
+    ];
+    // stars: scattered all over, thick along the band; a few are big and coloured
+    { const N = IS_TOUCH ? 9000 : 24000, P = [], C = [], SZ = [], PH = [], cols = [[1, 1, 1], [0.8, 0.88, 1], [1, 0.95, 0.78], [1, 0.82, 0.88], [0.78, 1, 0.95]];
+      for (let i = 0; i < N; i++) {
+        let d; if (i % 5 < 2) { d = onBand(rand(0, 6.283), (Math.random() + Math.random() + Math.random() - 1.5) * 0.24); } else d = new V3(rand(-1, 1), rand(-0.05, 1), rand(-1, 1)).normalize();
+        if (d.y < -0.06) { i--; continue; }
+        const big = Math.random(); P.push(d.x * R, d.y * R, d.z * R); const c = big > 0.8 ? pick(cols) : cols[0]; C.push(c[0], c[1], c[2]);
+        SZ.push(big > 0.992 ? rand(10, 14) : big > 0.96 ? rand(6, 9) : big > 0.8 ? rand(3.6, 5.6) : rand(1.7, 3.3)); PH.push(rand(0, 60));
+      }
+      const G = new THREE.BufferGeometry(); G.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); G.setAttribute('aCol', new THREE.Float32BufferAttribute(C, 3));
+      G.setAttribute('aSize', new THREE.Float32BufferAttribute(SZ, 1)); G.setAttribute('aPh', new THREE.Float32BufferAttribute(PH, 1));
+      hill.starU = { uTime: U.uTime, uK: { value: 0 }, uPx: { value: 1 } };
+      const pts = new THREE.Points(G, new THREE.ShaderMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, uniforms: hill.starU,
+        vertexShader: `attribute float aSize, aPh; attribute vec3 aCol; uniform float uTime, uPx; varying vec3 vCol; varying float vA;
+          void main(){ gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            float tw = 0.72 + 0.28 * sin(uTime * (1.0 + fract(aPh) * 2.6) + aPh * 5.0);
+            vCol = aCol; vA = tw * min(1.0, 0.35 + aSize * 0.2); gl_PointSize = max(1.5, aSize * uPx * (0.85 + 0.15 * tw)); }`,
+        fragmentShader: `uniform float uK; varying vec3 vCol; varying float vA;
+          void main(){ float d = length(gl_PointCoord - 0.5) * 2.0, a = smoothstep(1.0, 0.0, d);
+            gl_FragColor = vec4(mix(vCol, vec3(1.0), smoothstep(0.5, 0.0, d)), (a * a * 0.8 + smoothstep(0.32, 0.0, d)) * vA * uK); }` }));
+      pts.frustumCulled = false; pts.renderOrder = 1; D.add(pts); }
+    // coloured nebulae behind some of the constellations and beside the ringed star, and two little spiral galaxies
+    for (const [az, el, c, sc] of [[150, 44, 0xff8fd0, 120], [162, 50, 0x8f9bff, 100], [128, 30, 0x6fe6ff, 90], [100, 50, 0xb48cff, 110], [20, 52, 0x6fd6ff, 120], [28, 62, 0xff9ac8, 80],
+      [-95, 46, 0x7f9bff, 120], [-88, 56, 0xff9fd8, 80], [-160, 60, 0x9d8cff, 120], [-140, 34, 0x7fffd8, 90], [-40, 38, 0xffb38f, 100], [62, 28, 0xffd98f, 90], [-10, 28, 0x9f8cff, 100], [-70, 24, 0x6fe6ff, 90]])
+      for (let k = 0; k < 2; k++) puff(dirOf(az + rand(-5, 5), el + rand(-4, 4)), c, sc * rand(0.7, 1.1), 0.75);
+    { const gal = cv(128, 128, (x) => { x.translate(64, 64);
+        for (let i = 0; i < 900; i++) { const arm = i % 2, t = Math.pow(Math.random(), 0.7) * 5.2, r = 4 + t * 10.5, a = t * 1.15 + arm * Math.PI + rand(-0.3, 0.3); x.fillStyle = `rgba(255,255,255,${0.5 * (1 - t / 5.4)})`; x.beginPath(); x.arc(Math.cos(a) * r, Math.sin(a) * r * 0.55, rand(0.5, 1.6), 0, 7); x.fill(); }
+        const g = x.createRadialGradient(0, 0, 0, 0, 0, 20); g.addColorStop(0, 'rgba(255,250,230,1)'); g.addColorStop(1, 'rgba(255,250,230,0)'); x.fillStyle = g; x.fillRect(-64, -64, 128, 128); });
+      for (const [az, el, c, sc, rot] of [[-12, 42, 0xdfe6ff, 30, 0.5], [78, 60, 0xffe6f2, 22, -0.8]]) { const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: gal, color: c, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false, opacity: 0, rotation: rot }));
+        s.position.copy(dirOf(az, el)).multiplyScalar(R); s.scale.setScalar(sc); D.add(s); hill.fade.push({ m: s.material, o: 0.9 }); } }
+    // the constellations: bright sparkling stars joined by thin lines; a name appears under each one once you have found it
+    const spark = cv(64, 64, (x) => { const g = x.createRadialGradient(32, 32, 0, 32, 32, 30); g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.16, 'rgba(255,255,255,.75)'); g.addColorStop(0.45, 'rgba(255,255,255,.14)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+      x.fillStyle = g; x.fillRect(0, 0, 64, 64); x.strokeStyle = 'rgba(255,255,255,.85)'; x.lineCap = 'round';
+      for (const [w, l] of [[2.4, 30], [1.2, 16]]) { x.lineWidth = w; const k = w > 2 ? 0 : Math.PI / 4; for (let i = 0; i < 2; i++) { const a = k + i * Math.PI / 2; x.beginPath(); x.moveTo(32 - Math.cos(a) * l, 32 - Math.sin(a) * l); x.lineTo(32 + Math.cos(a) * l, 32 + Math.sin(a) * l); x.stroke(); } } });
+    const LV = [], deg = Math.PI / 180;
+    hill.cons = CONS.map(([name, az, el, pts, edges]) => {
+      const c = dirOf(az, el), right = new V3().crossVectors(new V3(0, 1, 0), c).normalize(), up = new V3().crossVectors(c, right).normalize();
+      const at = (u, v) => new V3().copy(c).addScaledVector(right, -Math.tan(u * 0.8 * deg)).addScaledVector(up, Math.tan(v * 0.8 * deg)).normalize().multiplyScalar(R - 2);
+      const W = pts.map(q => at(q[0], q[1]));
+      const E = edges === 'loop' ? W.map((_, i) => [i, (i + 1) % W.length]) : edges;
+      for (const [a, b] of E) { const pa = W[a].clone().lerp(W[b], 0.12), pb = W[b].clone().lerp(W[a], 0.12); LV.push(pa.x, pa.y, pa.z, pb.x, pb.y, pb.z); }   // the lines stop short of the stars
+      const tint = pick([0xfff3c4, 0xd6e6ff, 0xffe0f0]);
+      W.forEach((w, i) => { const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: spark, color: tint, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false, opacity: 0, rotation: rand(0, 0.5) }));
+        s.position.copy(w); s.scale.setScalar(i % 3 ? 4.6 : 6.4); s.renderOrder = 2; D.add(s); hill.fade.push({ m: s.material, o: 1, tw: rand(0, 6) }); });
+      const lab = new THREE.Sprite(new THREE.SpriteMaterial({ map: cv(384, 96, (x) => { x.font = '52px Jua, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
+        x.shadowColor = 'rgba(140,190,255,.95)'; x.shadowBlur = 14; x.fillStyle = '#ffffff'; x.fillText(name, 192, 50); x.fillText(name, 192, 50); }), transparent: true, depthWrite: false, fog: false, opacity: 0 }));
+      lab.position.copy(at(0, -6.6)); lab.scale.set(20, 5, 1); lab.renderOrder = 2; D.add(lab);
+      return { name, dir: c, lab: lab.material, found: false, pop: 0 };
+    });
+    const LG = new THREE.BufferGeometry(); LG.setAttribute('position', new THREE.Float32BufferAttribute(LV, 3));
+    hill.lines = new THREE.LineBasicMaterial({ color: 0xcfe0ff, transparent: true, depthWrite: false, fog: false, opacity: 0 });
+    const ln = new THREE.LineSegments(LG, hill.lines); ln.frustumCulled = false; ln.renderOrder = 1; D.add(ln); }
+}
+const WIN_DAY = new THREE.Color(0xcfeefc), WIN_NIGHT = new THREE.Color(0xffe39a), _fwd = new V3();
+function tickHill(dt, T, S) {
+  hill.win.color.copy(WIN_DAY).lerp(WIN_NIGHT, smooth(0.25, 0.7, S.night));
+  hill.dome.rotation.y = hill.domeYaw + 0.3 * Math.sin(T * 0.06);
+  hill.planet.material.opacity = smooth(0.35, 0.8, S.night) * (1 - wx.bad) * (1 - shower.k * 0.5);
+  const seat = player && mode === 'play' ? player.sitting : null, scope = !!(seat && seat.zoom), lying = !!(seat && seat.up && !seat.zoom);
+  if ($('scope').hidden === scope) $('scope').hidden = !scope;
+  hill.tube.visible = !scope;
+  // the deep sky opens up in the eyepiece on a clear night (lying on the blanket you can just make out where the constellations are)
+  const clear = smooth(0.35, 0.8, S.night) * (1 - wx.bad);
+  hill.deepK += ((scope ? 1 : lying ? 0.4 : 0) * clear - hill.deepK) * Math.min(1, dt * (scope || lying ? 1.6 : 6));
+  const dk = hill.deepK, on = dk > 0.01;
+  if (hill.deep.visible !== on) hill.deep.visible = on;
+  clouds.visible = !(scope && wx.bad < 0.3); motes.pts.visible = LEVELS[level].fx && !scope;   // nothing drifts across the eyepiece
+  if (on) {
+    hill.starU.uK.value = dk; hill.starU.uPx.value = renderer.domElement.height / 680 * (scope ? 1 : 0.6);
+    hill.lines.opacity = 0.5 * dk * (scope ? 1 : 0.7);
+    for (const f of hill.fade) f.m.opacity = f.o * dk * (scope ? 1 : 0.45) * (f.tw != null ? 0.8 + 0.2 * Math.sin(T * 2.2 + f.tw) : 1);
+    camera.getWorldDirection(_fwd);
+    for (const c of hill.cons) {
+      if (scope && !c.found && dk > 0.7 && _fwd.dot(c.dir) > 0.9989) {   // bring one to the middle of the eyepiece to find it
+        c.found = true; c.pop = 1; hill.nCons++;
+        const all = hill.nCons === hill.cons.length; all ? Snd.fanfare() : Snd.star(false);
+        toast(all ? '「' + c.name + '」까지, 별자리 여덟 개를 모두 찾았어요!' : '「' + c.name + '」를 찾았어요! (' + hill.nCons + ' / ' + hill.cons.length + ')', all ? 5000 : 3200);
+      }
+      c.pop = Math.max(0, c.pop - dt * 0.6); c.lab.opacity = c.found ? dk * (scope ? 0.95 : 0.6) : 0;
+    }
+  }
+  if (scope && !hill.found && hill.planet.material.opacity > 0.5) {   // centre the ringed star in the eyepiece to find it
+    camera.getWorldDirection(_fwd);
+    if (_fwd.dot(PLANET_DIR) > 0.9992) {
+      hill.found = true; Snd.fanfare(); toast('고리 달린 별 「몽글성」을 찾았어요!', 4500);
+      setTimeout(() => player && player.talk('우와, 고리가 있어!', 2.5), 900);
+    }
+  }
+}
+
 /* ---------------- Mongle beach: dunes, sand and sea, a pier out to a lighthouse on its islet ---------------- */
 const beach = { sea: null, seaU: null, beams: null, glow: null, top: null, boat: null, crown: [] };
 const LH = { x: ISLE.x, z: ISLE.z, y0: ISLE.y, gy: ISLE.y + 17.2, r: 4.4, ux: 0, uz: 0 };   // gy: the gallery floor; (ux, uz): from the tower toward the pier
@@ -4171,7 +4424,7 @@ const lampFoot = new THREE.CylinderGeometry(0.2, 0.3, 0.24, 12);
 const lampCage = (() => { const G = new Geo(); for (let i = 0; i < 4; i++) { const a = i * Math.PI / 2 + 0.785; G.add(new THREE.CylinderGeometry(0.014, 0.014, 0.62, 5), 0xffffff, [Math.cos(a) * 0.235, 0.02, Math.sin(a) * 0.235]); } return G.build(); })();
 {
   let side = 1, n = 0;
-  for (let i = 3; i < PATH_SAMPLES.length - 2 && n < 54; i += 7) {
+  for (let i = 3; i < PATH_SAMPLES.length - 2 && n < 70; i += 7) {
     const p = PATH_SAMPLES[i], q = PATH_SAMPLES[i + 1], dl = Math.hypot(q.x - p.x, q.z - p.z);
     if (dl < 0.2 || dl > 4) continue;                                  // skip joins between separate trails
     side = -side;
@@ -4494,6 +4747,7 @@ const Snd = (() => {
     mouse:    { base: 1000, type: 'square', fm: 1.65, syl: 0.06, vib: 9, depth: 0.04 },
     chick:    { base: 1250, type: 'triangle', fm: 1.7, syl: 0.07, vib: 12, depth: 0.06 },
     fox:      { base: 720, type: 'triangle', fm: 1.5, syl: 0.075, vib: 9, depth: 0.05 },   // bright and quick
+    mole:     { base: 400, type: 'triangle', fm: 1.15, syl: 0.13, vib: 4, depth: 0.03 },   // soft and low, an old stargazer
     duck:     { base: 520, type: 'sawtooth', fm: 1.6, syl: 0.09, vib: 7, depth: 0.04 },   // a little nasal, quack-ish
     turtle:   { base: 330, type: 'triangle', fm: 1.05, syl: 0.17, vib: 3, depth: 0.02 },  // slow and gentle
     bat:      { base: 1120, type: 'triangle', fm: 1.8, syl: 0.06, vib: 15, depth: 0.07 },   // tiny and squeaky
@@ -4817,7 +5071,7 @@ function tickParts(dt) {
 }
 
 /* ---------------- collectible stars ---------------- */
-// the stars are spread over the areas: the village (7), the north forest (6), the lodge woods with the falls (7), the cave behind the falls (2) and the beach (3)
+// the stars are spread over the areas: the village (7), the north forest (6), the lodge woods with the falls (7), the cave behind the falls (2), starlight hill (2) and the beach (3)
 const STAIR_MID = (() => { const gA = terrain(STAIR.x, STAIR.zA), n = 40, k = 20; return { z: STAIR.zA - (k + 0.5) * (STAIR.zA - STAIR.zB) / n, y: gA + (k + 1) * (falls.top - gA) / n }; })();
 const STAR_SPOTS = [
   // village
@@ -4830,6 +5084,8 @@ const STAR_SPOTS = [
   [STAIR.x, STAIR_MID.z, null, STAIR_MID.y + 1.3], [falls.spring.x + 6.5, falls.spring.z + 1, null, falls.top + 1.3], [falls.deck.x, falls.deck.z, null, falls.top + 1.6],
   // the firefly cave: on the island in the glowing pond, and up on the crystal ledge (the springy mushroom gets you there)
   [CAVE.x + CAVE.pond.x, CAVE.z + CAVE.pond.z, null, CAVE.y + 1.6], [CAVE.x + CAVE.ledge.x, CAVE.z + CAVE.ledge.z, null, CAVE.ledge.top + 1.4],
+  // starlight hill: on the lookout rock half way up, and behind the observatory
+  [HILL_ROCK.x, HILL_ROCK.z, null, HILL_ROCK.top + 1.4], [HILL_STAR.x, HILL_STAR.z],
   // the beach: on the sandcastle, out along the pier, and up on the lighthouse gallery
   [SANDCASTLE.x, SANDCASTLE.z, null, terrain(SANDCASTLE.x, SANDCASTLE.z) + 3.6], [PIER.ax + (PIER.bx - PIER.ax) * 0.8, PIER.az + (PIER.bz - PIER.az) * 0.8, null, PIER.y + 1.3], [LH_STAR.x, LH_STAR.z, null, LH_STAR.y]];
 const stars = STAR_SPOTS.map((s, i) => {
@@ -4846,7 +5102,7 @@ const stars = STAR_SPOTS.map((s, i) => {
 const STAR_TERRACE = STAR_SPOTS.findIndex(q => q[0] === TERRACE_STAR.x && q[1] === TERRACE_STAR.z);
 const STAR_LH = STAR_SPOTS.findIndex(q => q[0] === LH_STAR.x && q[1] === LH_STAR.z);
 $('tot').textContent = stars.length;
-$('starHint').textContent = '마을·숲·오두막·폭포·동굴·해변 곳곳에 숨은 별사탕 ' + stars.length + '개를 모아 보세요 · 지도에 위치가 나와요';
+$('starHint').textContent = '마을·숲·오두막·폭포·동굴·언덕·해변 곳곳에 숨은 별사탕 ' + stars.length + '개를 모아 보세요 · 지도에 위치가 나와요';
 let got = 0, shoutTip = false;
 function onShowerEnd() {   // after a shower, tell someone who has every star that they can call another
   if (mode === 'play' && got === stars.length && !shoutTip) { shoutTip = true; toast('채팅으로 "별똥별이다!"라고 외치면 유성우를 또 볼 수 있어요', 5000); }
@@ -4854,7 +5110,7 @@ function onShowerEnd() {   // after a shower, tell someone who has every star th
 
 /* ---------------- map: a little paper map of the whole village, with the star candies still to find ---------------- */
 // seen from above, screen right is -x and screen up is +z (north, toward the forest)
-const MAP = { x0: -205, x1: 88, z0: -204, z1: 222, open: true, t: 1, bg: null, w: 0, h: 0, dpr: 1 };
+const MAP = { x0: -205, x1: 208, z0: -204, z1: 222, open: true, t: 1, bg: null, w: 0, h: 0, dpr: 1 };
 try { if (localStorage.getItem('mongle-map') === '0') MAP.open = false; } catch (e) {}
 const mapXY = (x, z) => [(MAP.x1 - x) / (MAP.x1 - MAP.x0) * MAP.w, (MAP.z1 - z) / (MAP.z1 - MAP.z0) * MAP.h];
 const mapPos = (x, z) => x > 1000 ? (z > 200 ? [FALLS.x, FALLS.pz - 10] : [BIGTREE.x, BIGTREE.z]) : [x, z];   // inside grandpa tree shows at the tree, inside the cave just behind the falls
@@ -4869,7 +5125,7 @@ function buildMapBg() {
   const lg = lo.getContext('2d'), img = lg.createImageData(gw, gh);
   for (let j = 0; j < gh; j++) for (let i = 0; i < gw; i++) {
     const x = MAP.x1 - (i + 0.5) * S, z = MAP.z1 - (j + 0.5) * S, k = (j * gw + i) * 4;
-    const inside = Math.min(Math.hypot(x, z) - 60, forestSDF(x, z) + 6, cabinSDF(x, z) + 6, beachSDF(x, z) + 6) <= 0, sea = seaward(x, z);
+    const inside = Math.min(Math.hypot(x, z) - 60, forestSDF(x, z) + 6, cabinSDF(x, z) + 6, beachSDF(x, z) + 6, hillSDF(x, z) + 6) <= 0, sea = seaward(x, z);
     const cc = sea > 0 ? (Math.hypot(x - ISLE.x, z - ISLE.z) < ISLE.r - 2 ? [214, 226, 190] : sea < 2.5 ? [222, 242, 250] : [143, 211, 242])
       : sea > -30 ? (inside ? [249, 236, 200] : [226, 219, 178]) : !inside ? [191, 219, 158] : forestK(x, z) > 0.5 ? [158, 205, 126] : [229, 243, 199];
     img.data[k] = cc[0]; img.data[k + 1] = cc[1]; img.data[k + 2] = cc[2]; img.data[k + 3] = 255;
@@ -4880,6 +5136,7 @@ function buildMapBg() {
   // the plateau over the falls, with its stairs
   { const [a, b] = P(PLAT.x1 + 0.6, PLAT.z1 + 1), [c2, d] = P(PLAT.x0 - 0.6, PLAT.z0 - 1); g.beginPath(); g.roundRect ? g.roundRect(a, b, c2 - a, d - b, 4) : g.rect(a, b, c2 - a, d - b); g.fillStyle = '#d3eab2'; g.fill(); g.lineWidth = 2; g.strokeStyle = '#a89f8f'; g.stroke(); }
   line([[STAIR.x, STAIR.zA], [STAIR.x, STAIR.zB]], 2.5, '#b9b0a2');
+  disc(HILL.px, HILL.pz, 40, '#dcefb4'); disc(HILL.px, HILL.pz, 27, '#e6f4c0'); disc(HILL.px, HILL.pz, 14, '#eff8cf', '#b7c98e');   // starlight hill, ringed like a contour map
   // paths: outline first, then the sandy middle
   const paths = [PATH_SAMPLES.map(q => [q.x, q.z]), ...Object.values(TRAILS)];
   for (const pts of paths) line(pts, 4.2, '#c9b78f');
@@ -4897,11 +5154,13 @@ function buildMapBg() {
   { const [a, b] = P(PUD.x, PUD.z); g.beginPath(); g.ellipse(a, b, 5.2, 4.4, 0, 0, 7); g.fillStyle = '#c8873f'; g.fill(); g.lineWidth = 1.2; g.strokeStyle = ink; g.stroke(); g.beginPath(); g.ellipse(a, b - 1.2, 3.2, 2, 0, 0, 7); g.fillStyle = '#7a4a26'; g.fill(); }
   { const [a, b] = P(0, -66); g.beginPath(); g.arc(a, b + 1, 3.4, Math.PI, 0); g.lineWidth = 2; g.strokeStyle = '#ef8fa6'; g.stroke(); }
   { const [a, b] = P(BIGTREE.x, BIGTREE.z); g.beginPath(); g.arc(a, b, 6.5, 0, 7); g.fillStyle = '#5f9e4b'; g.fill(); g.lineWidth = 1.3; g.strokeStyle = ink; g.stroke(); g.fillStyle = '#8a5a3c'; g.fillRect(a - 1.3, b + 1, 2.6, 4); }
+  { const [a, b] = P(HILL.obs.x, HILL.obs.z); g.fillStyle = '#fff7ec'; g.fillRect(a - 4, b - 1, 8, 5); g.lineWidth = 1.2; g.strokeStyle = ink; g.strokeRect(a - 4, b - 1, 8, 5);
+    g.beginPath(); g.arc(a, b - 1, 4.6, Math.PI, 0); g.closePath(); g.fillStyle = '#9dbbe6'; g.fill(); g.stroke(); }   // the observatory
   { const [a, b] = P(CAB.x, CAB.z); g.fillStyle = '#c98a55'; g.fillRect(a - 5, b - 2, 10, 7); g.strokeStyle = ink; g.lineWidth = 1.2; g.strokeRect(a - 5, b - 2, 10, 7);
     g.beginPath(); g.moveTo(a - 6.5, b - 2); g.lineTo(a, b - 7.5); g.lineTo(a + 6.5, b - 2); g.closePath(); g.fillStyle = '#d9654b'; g.fill(); g.stroke(); }
   // a few names, with a paper halo so they read over anything
   g.font = '11px Jua, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineJoin = 'round';
-  for (const [t, x, z] of [['몽글 마을', 4, 16], ['숲', 22, 112], ['할아버지 나무', BIGTREE.x, BIGTREE.z + 12], ['오두막', CAB.x, CAB.z + 13], ['폭포', FALLS.x - 13, FALLS.pz + 6], ['쉼터', (PLAT.x0 + PLAT.x1) / 2 + 12, (PLAT.z0 + PLAT.z1) / 2], ['해변', -8, -140], ['등대', ISLE.x - 14, ISLE.z - 6]]) {
+  for (const [t, x, z] of [['별빛 언덕', HILL.px - 4, HILL.pz + 24], ['몽글 마을', 4, 16], ['숲', 22, 112], ['할아버지 나무', BIGTREE.x, BIGTREE.z + 12], ['오두막', CAB.x, CAB.z + 13], ['폭포', FALLS.x - 13, FALLS.pz + 6], ['쉼터', (PLAT.x0 + PLAT.x1) / 2 + 12, (PLAT.z0 + PLAT.z1) / 2], ['해변', -8, -140], ['등대', ISLE.x - 14, ISLE.z - 6]]) {
     const [a, b] = P(x, z); g.lineWidth = 3; g.strokeStyle = 'rgba(255,250,241,.95)'; g.strokeText(t, a, b); g.fillStyle = ink; g.fillText(t, a, b);
   }
   MAP.bg = bg;
@@ -5301,7 +5560,8 @@ let drag = null;
 canvas.addEventListener('pointerdown', e => { drag = { id: e.pointerId, x: e.clientX, y: e.clientY }; canvas.setPointerCapture(e.pointerId); });
 canvas.addEventListener('pointermove', e => {
   if (!drag || drag.id !== e.pointerId) return;
-  camYaw -= (e.clientX - drag.x) * 0.006; camPitch = clamp(camPitch + (e.clientY - drag.y) * 0.004, -0.75, 1.25); // below zero: look up at the sky
+  const seat = player && player.sitting, zk = seat && seat.zoom ? seat.zoom / 50 : 1;   // through the telescope the view moves as slowly as it is magnified
+  camYaw -= (e.clientX - drag.x) * 0.006 * zk; camPitch = clamp(camPitch + (e.clientY - drag.y) * 0.004 * zk, seat && seat.up ? -1.4 : -0.75, 1.25); // below zero: look up at the sky
   drag.x = e.clientX; drag.y = e.clientY;
 });
 const endDrag = e => { if (drag && drag.id === e.pointerId) drag = null; };
@@ -5360,9 +5620,9 @@ function seatTaken(s) { for (const r of Net.remotes.values()) if (r.sit && Math.
 function sitDown(s) {
   if (seatTaken(s)) return;
   player.sitting = s; player.pos.copy(s.p); player.vy = 0; player.ground = true; player.speed = 0;
-  player.yaw = s.yaw; camYaw = s.yaw + Math.PI; camPitch = s.fp ? 0.04 : 0.16; promptKey = null;
+  player.yaw = s.yaw; camYaw = s.yaw + Math.PI; camPitch = s.fp ? (s.pitch != null ? s.pitch : 0.04) : 0.16; promptKey = null;
   Snd.pop();
-  if (s.fp) toast(IS_TOUCH ? '화면을 끌어서 둘러보세요' : '드래그해서 둘러보세요 · F를 누르면 일어나요', 2800);
+  if (s.fp) toast(s.tip || (IS_TOUCH ? '화면을 끌어서 둘러보세요' : '드래그해서 둘러보세요 · F를 누르면 일어나요'), 2800);
   else setTimeout(() => player && player.sitting === s && player.talk(pick(s.say || ['폭신해~', '밖이 다 보여!', '여기 좋다~']), 2), 300);
 }
 function standUp() {
@@ -5399,13 +5659,14 @@ const FOG_M = new THREE.Color(0xe2f1f8), FOG_F = new THREE.Color(0xcfe4d0);
 const ZONE_SUB = { '몽글 마을': '몽글몽글 포근한 들판', '숲 오솔길': '나무 사이로 햇살이 드는 길', '이끼 빈터': '폭신한 이끼가 깔린 쉼터', '옹달샘': '오리 가족이 사는 연못',
   '할아버지 나무': '숲에서 가장 오래된 나무', '숲속 오두막': '나무꾼 아저씨네 숲', '무지개 폭포': '물안개에 무지개가 뜨는 곳', '폭포 위 쉼터': '바람이 시원한 절벽 위 풀밭',
   '할아버지 나무 안': '동물 친구들의 보금자리', '나무 꼭대기 테라스': '마을이 한눈에 보이는 곳', '나무꾼 오두막 안': '벽난로가 따뜻한 산장',
-  '몽글 해변': '파도가 찰랑이는 모래사장', '등대 부두': '바다 위를 걷는 나무 길', '등대 섬': '빨간 줄무늬 등대가 서 있는 작은 섬', '등대 전망대': '바다와 마을이 한눈에 보이는 곳', '반딧불 동굴': '폭포 뒤에 숨은 반짝이는 동굴' };
+  '몽글 해변': '파도가 찰랑이는 모래사장', '등대 부두': '바다 위를 걷는 나무 길', '등대 섬': '빨간 줄무늬 등대가 서 있는 작은 섬', '등대 전망대': '바다와 마을이 한눈에 보이는 곳', '반딧불 동굴': '폭포 뒤에 숨은 반짝이는 동굴', '별빛 언덕': '별이 가장 가까운 언덕', '별빛 천문대': '망원경으로 밤하늘을 보는 곳' };
 function zoneBanner(name) {
   const el = $('zoneTitle'); $('zoneName').textContent = name; $('zoneSub').textContent = ZONE_SUB[name] || '';
   el.classList.remove('show'); void el.offsetWidth; el.classList.add('show');
 }
 function zoneOf(x, z) {
   if (z < -100) { if (Math.hypot(x - ISLE.x, z - ISLE.z) < ISLE.r) return '등대 섬'; if (seaward(x, z) > 2 && pierDist(x, z) < 2) return '등대 부두'; if (sandK(x, z) > 0.5 && beachSDF(x, z) < 8) return '몽글 해변'; }
+  if (x > 96 && hillSDF(x, z) < 4) return Math.hypot(x - HILL.px, z - HILL.pz) < 15.5 ? '별빛 천문대' : '별빛 언덕';
   if (inPlat(x, z, 1)) return '폭포 위 쉼터';
   if (Math.hypot(x - FALLS.x, z - FALLS.pz) < 17) return '무지개 폭포';
   if (Math.hypot(x - GLADE.x, z - GLADE.z) < 13) return '이끼 빈터';
@@ -5469,8 +5730,8 @@ function frame() {
     const fpSeat = player.sitting && player.sitting.fp ? player.sitting : null;
     player.obj.visible = player.blobShadow.visible = !fpSeat;
     if (fpSeat) { // sitting on the cabin sofa: look through your own eyes, drag to look round the room and out of the window
-      const yaw = camYaw + Math.PI, p = clamp(camPitch, -0.5, 0.7);
-      FP_EYE.copy(fpSeat.p); FP_EYE.y += 1.15;
+      const yaw = camYaw + Math.PI, p = clamp(camPitch, fpSeat.up ? -1.4 : -0.5, 0.7);   // at the telescope and on the blanket you can look straight up
+      FP_EYE.copy(fpSeat.p); FP_EYE.y += fpSeat.eye || 1.15;
       camera.position.lerp(FP_EYE, camSnap ? 1 : 1 - Math.exp(-dt * 7)); camSnap = false;
       camera.lookAt(camera.position.x + Math.sin(yaw) * Math.cos(p), camera.position.y - Math.sin(p), camera.position.z + Math.cos(yaw) * Math.cos(p));
     } else {
@@ -5597,6 +5858,7 @@ function frame() {
   tickSmoke(dt);
   tickFalls(dt, S);
   tickBeach(dt, T, S);
+  tickHill(dt, T, S);
   // indoors the light turns warm and soft, like lamplight inside a tree
   indoorAmb += ((player && player.zone === 'tower' ? 1 : player && player.zone === 'cabin' ? 0.35 : 0) - indoorAmb) * Math.min(1, dt * 3);
   const outHemi = S.hi - 0.1 * forestAmb * (1 - S.night);
@@ -5619,7 +5881,7 @@ function frame() {
   const focus = player ? player.pos : camTarget.set(0, 0, 0);
   const tx = (2 * SH) / shadowSize, fx = Math.round(focus.x / tx) * tx, fz = Math.round(focus.z / tx) * tx;
   sun.position.set(fx + lightDir.x * 66, focus.y + lightDir.y * 66, fz + lightDir.z * 66); sun.target.position.set(fx, focus.y, fz);
-  { const ft = 50 + (mode === 'play' && player && !(player.sitting && player.sitting.fp) ? clamp((player.speed - 6.5) / 5, 0, 1) * 5 : 0);
+  { const ft = mode === 'play' && player && player.sitting && player.sitting.zoom ? player.sitting.zoom : 50 + (mode === 'play' && player && !(player.sitting && player.sitting.fp) ? clamp((player.speed - 6.5) / 5, 0, 1) * 5 : 0);
     if (Math.abs(ft - fovNow) > 0.02) { fovNow += (ft - fovNow) * Math.min(1, dt * 3.5); camera.fov = fovNow; camera.updateProjectionMatrix(); } }
   cull(focus);
   if (Meadow.mesh) {
@@ -5632,7 +5894,7 @@ function frame() {
   // keep the player in focus; looking up at the sky or out from the treetop lets the distance stay sharper
   { const fd = player ? camera.position.distanceTo(tmpV.copy(player.pos).add(UP1)) : camera.position.distanceTo(MAP_MID) * 0.8;
     Post.focus += (clamp(fd, 4, 70) - Post.focus) * Math.min(1, dt * 4);
-    const k = mode !== 'play' ? 0.7 : (player.zone === 'terrace' || player.zone === 'lighthouse' ? 0.35 : 1) * (1 - 0.7 * smooth(0, -0.35, camPitch));
+    const k = mode !== 'play' ? 0.7 : player.sitting && player.sitting.up ? 0 : (player.zone === 'terrace' || player.zone === 'lighthouse' ? 0.35 : 1) * (1 - 0.7 * smooth(0, -0.35, camPitch));
     Post.dofK += (k - Post.dofK) * Math.min(1, dt * 3); }
   Post.render();
   requestAnimationFrame(frame);
@@ -5661,10 +5923,10 @@ if (renderer.capabilities.isWebGL2) {
   for (let i = 0; i < MAXN; i++) { inst[i * 4] = Math.random(); inst[i * 4 + 1] = Math.random(); inst[i * 4 + 2] = rand(0, 6.283); inst[i * 4 + 3] = Math.random(); }
   IG.setAttribute('aInst', new THREE.InstancedBufferAttribute(inst, 4)); IG.instanceCount = MAXN; Meadow.max = MAXN;
   // the mask: r = how tall grass may grow here, g = how deep in the woods, b = up on the plateau above the falls
-  const FR = { x0: -214, z0: -130, w: 320, h: 352 }, FW = 400, FH = 440, raw = new Float32Array(FW * FH), data = new Uint8Array(FW * FH * 4);
+  const FR = { x0: -214, z0: -130, w: 424, h: 352 }, FW = 530, FH = 440, raw = new Float32Array(FW * FH), data = new Uint8Array(FW * FH * 4);
   for (let j = 0; j < FH; j++) for (let i = 0; i < FW; i++) {
     const x = FR.x0 + (i + 0.5) / FW * FR.w, z = FR.z0 + (j + 0.5) / FH * FR.h, k = (j * FW + i) * 4;
-    const plat = inPlat(x, z, 0), inF = forestSDF(x, z) < 3 || cabinSDF(x, z) < 3 || beachSDF(x, z) < 3;
+    const plat = inPlat(x, z, 0), inF = forestSDF(x, z) < 3 || cabinSDF(x, z) < 3 || beachSDF(x, z) < 3 || hillSDF(x, z) < 3;
     let ok;
     if (inPlat(x, z, 1.6)) ok = plat && inPlat(x, z, -1.6) && falls.grassOK(x, z);
     else ok = (Math.hypot(x, z) < 100 || inF) && seaward(x, z) < -37 && free(x, z, -0.7) && !inCabinRect(x, z, 1.2) && Object.values(TRAILS).every(t => t.every(q => (q[0] - x) ** 2 + (q[1] - z) ** 2 > 2.0));
@@ -5808,7 +6070,7 @@ function tickWeather(dt, T) {
   Snd.setRain(wx.rain * (!player ? 0.5 : player.zone === 'tower' ? 0.18 : player.zone === 'cave' ? 0.06 : player.zone === 'cabin' ? 0.5 : 1));
 }
 /* what everyone says about it: a creature's own line if it has one, else a general one; indoor folk only hear it through the walls */
-const WX_OUT = new Set(['mongsil', 'tosil', 'haneul', 'leo', 'fox', 'duck', 'post', 'turtle', 'woodcutter', 'crab', 'gull']);
+const WX_OUT = new Set(['mongsil', 'tosil', 'haneul', 'leo', 'fox', 'duck', 'post', 'turtle', 'woodcutter', 'crab', 'gull', 'mole']);
 const WX_LINES = {
   rain: { any: ['비 온다~ 우산 있어?', '빗소리 좋다~', '물웅덩이 조심해!'], in: ['밖에 비가 오나 봐요', '빗소리 들으며 차 한 잔 어때요?', '비 오는 날엔 나무 안이 제일 아늑해요'],
     mongsil: ['비 오는 날엔 따뜻한 코코아지~', '모자가 다 젖겠어…', '토독토독, 빗소리 듣기 좋다'], tosil: ['물웅덩이에서 폴짝폴짝!', '귀에 빗방울이 톡톡 떨어져!', '비 와도 점프는 못 참지!'],
