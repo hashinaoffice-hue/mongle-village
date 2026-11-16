@@ -506,6 +506,7 @@ const U = {
   // the 8 lamps nearest the player: xyz + reach, and how bright each is right now
   uLamps: { value: Array.from({ length: 8 }, () => new THREE.Vector4(0, -999, 0, 1)) }, uLampI: { value: new Array(8).fill(0) },
   uWx: { value: new V3() },   // x: how much snow has settled (0..1), y: how hard it is raining
+  uLampTint: { value: new V3(1.0, 0.8, 0.52) },   // lamplight is warm; in the firefly cave the glow turns sea-green
 };
 const GLSL_CLOUD = `
 float cloudShade(vec2 p){
@@ -523,7 +524,7 @@ function patch(mat, o = {}) {
   mat.customProgramCacheKey = () => key;
   mat.onBeforeCompile = sh => {
     sh.uniforms.uTime = U.uTime; sh.uniforms.uPlayer = U.uPlayer; sh.uniforms.uDay = U.uDay;
-    sh.uniforms.uLamps = U.uLamps; sh.uniforms.uLampI = U.uLampI; sh.uniforms.uNight = U.uNight; sh.uniforms.uWx = U.uWx;
+    sh.uniforms.uLamps = U.uLamps; sh.uniforms.uLampI = U.uLampI; sh.uniforms.uNight = U.uNight; sh.uniforms.uWx = U.uWx; sh.uniforms.uLampTint = U.uLampTint;
     let v = sh.vertexShader;
     if (ol) v = v.replace('#include <begin_vertex>', `vec3 transformed = position + normal * ${ol.toFixed(4)};`);
     v = v.replace('#include <project_vertex>', `
@@ -560,12 +561,12 @@ function patch(mat, o = {}) {
       ${lamp ? `{ // warm pools of light from the nearest lamps, lanterns and fires
         vec3 ls = vec3(0.0);
         for (int i = 0; i < 8; i++) { float dd = length(uLamps[i].xyz - vWPos); float fo = max(0.0, 1.0 - dd / uLamps[i].w); ls += fo * fo * uLampI[i]; }
-        gl_FragColor.rgb += diffuseColor.rgb * vec3(1.0, 0.8, 0.52) * min(ls, 1.25) * 0.6; }` : ''}
+        gl_FragColor.rgb += diffuseColor.rgb * uLampTint * min(ls, 1.25) * 0.6; }` : ''}
       ${lift ? `{ // living things keep their colour in the shade: never darker than a cool, soft version of themselves
         gl_FragColor.rgb = max(gl_FragColor.rgb, diffuseColor.rgb * mix(vec3(0.79, 0.81, 0.91), vec3(0.36, 0.41, 0.62), uNight) * ${lk});
         gl_FragColor.rgb += diffuseColor.rgb * vec3(0.55, 0.6, 0.8) * uNight * 0.2 * ${lk}; }` : ''}
       #include <tonemapping_fragment>`);
-    sh.fragmentShader = 'uniform float uTime;\nuniform float uDay;\nuniform float uNight;\nuniform vec4 uLamps[8];\nuniform float uLampI[8];\nuniform vec3 uWx;\nvarying vec3 vWPos;\n' + (cloud ? GLSL_CLOUD : '') + '\n' + f;
+    sh.fragmentShader = 'uniform float uTime;\nuniform float uDay;\nuniform float uNight;\nuniform vec4 uLamps[8];\nuniform float uLampI[8];\nuniform vec3 uWx;\nuniform vec3 uLampTint;\nvarying vec3 vWPos;\n' + (cloud ? GLSL_CLOUD : '') + '\n' + f;
   };
   return mat;
 }
@@ -2238,7 +2239,33 @@ function buildChar(d) {
 // The inside is its own space far east of the map; doors move you there through a closing iris.
 const INT = { x: 1400, y: 0, z: 0, R: 12, H: 50 };
 const inTower = (x, z) => Math.abs(x - INT.x) < 40 && Math.abs(z - INT.z) < 40;
-const baseY = (x, z) => inTower(x, z) ? INT.y : inCabinRect(x, z, -0.32) ? CAB.fy : terrain(x, z);
+// The firefly cave behind the waterfall is another space out there, well south of the tree's inside.
+// Its floor plan is a few rounded rooms melted together: the tunnel in from the falls, the big cavern, the pond room, and a passage west to the crystal nook.
+const CAVE = { x: 1400, y: 0, z: 400, wy: -0.14, pond: { x: 14, z: -13, r: 6.6 }, door: { x: 0, z: 30 }, ledge: { x: -35.2, z: -17.2, top: 3.3 }, pad: { x: -31.4, z: -14.6, top: 0.85 } };
+const inCave = (x, z) => Math.abs(x - CAVE.x) < 60 && Math.abs(z - CAVE.z) < 60;
+const caveSDF = (() => {
+  const seg = (px, pz, ax, az, bx, bz, r) => { const ex = bx - ax, ez = bz - az, t = clamp(((px - ax) * ex + (pz - az) * ez) / (ex * ex + ez * ez), 0, 1); return Math.hypot(px - ax - ex * t, pz - az - ez * t) - r; };
+  const smin = (a, b, k) => { const h = clamp(0.5 + 0.5 * (b - a) / k, 0, 1); return b + (a - b) * h - k * h * (1 - h); };
+  return (x, z) => {   // metres to the cave wall: negative inside
+    const px = x - CAVE.x, pz = z - CAVE.z;
+    let d = Math.hypot(px, pz) - 15;
+    d = smin(d, seg(px, pz, 0, 31, 0, 13, 3.6), 2.5);
+    d = smin(d, Math.hypot(px - 15, pz + 13) - 10, 3);
+    d = smin(d, seg(px, pz, -12, -4, -27, -12, 3.6), 2.5);
+    d = smin(d, Math.hypot(px + 31, pz + 14) - 7.5, 2.5);
+    return d + noise3(px * 0.21, 5, pz * 0.21) * 0.7;
+  };
+})();
+function caveFloor(x, z) {   // nearly level, dipping into the pond (knee deep) with a little island in the middle
+  const r = Math.hypot(x - CAVE.x - CAVE.pond.x, z - CAVE.z - CAVE.pond.z);
+  return CAVE.y + noise3(x * 0.17, 3, z * 0.17) * 0.09 - 0.56 * smooth(CAVE.pond.r + 0.5, CAVE.pond.r - 1.8, r) * smooth(1.5, 3.0, r) + 0.2 * smooth(2.4, 1.0, r);
+}
+const caveWall = (x, z) => 7.5 * Math.pow(smooth(-0.7, 3.0, caveSDF(x, z)), 1.2);   // how far the floor has climbed into wall here
+function caveCeil(x, z) {    // high over the middle of each room, coming down to meet the walls
+  const d = caveSDF(x, z);
+  return CAVE.y + (5.6 + 7 * smooth(-1, -8, d) + noise3(x * 0.13, 9, z * 0.13) * 1.0) * Math.pow(smooth(3.4, -1.6, d), 0.7);
+}
+const baseY = (x, z) => inTower(x, z) ? INT.y : inCave(x, z) ? caveFloor(x, z) : inCabinRect(x, z, -0.32) ? CAB.fy : terrain(x, z);
 const BT_Y = terrain(BIGTREE.x, BIGTREE.z) - 0.3;                 // grandpa tree base height outside
 const TER = { x: BIGTREE.x, z: BIGTREE.z, y: BT_Y + 27.2, r: 7.6 }; // treetop terrace (deck top), above the real canopy
 const TER_HUT = (() => { const x = -4.0, z = 2.6, l = Math.hypot(x, z); return { x, z, dx: -x / l, dz: -z / l }; })(); // hut spot on the deck + direction to the deck centre
@@ -3371,11 +3398,11 @@ function makeWoodcutter() {
   );
 }
 /* ---------------- the waterfall area: cliff, pool and creek below, a plateau with a spring above, stone stairs between ---------------- */
-const falls = { mist: [], rainbow: null, base: new V3(), t: 0, top: 0, spring: null, deck: null };
+const falls = { mist: [], rainbow: null, base: new V3(), t: 0, top: 0, wy: 0, cz: 0, mat: null, spring: null, deck: null };
 {
   const { x: fx, pz, pr } = FALLS;
   let wy = -1e9; for (let a = 0; a < 6.3; a += 0.3) for (const rr of [0, pr * 0.5, pr, pr + 1]) wy = Math.max(wy, terrain(fx + Math.cos(a) * rr, pz + Math.sin(a) * rr)); wy += 0.05;
-  const cz = pz - pr - 2.5, H = 22, TOP = wy + H; falls.top = TOP;
+  const cz = pz - pr - 2.5, H = 22, TOP = wy + H; falls.top = TOP; falls.wy = wy; falls.cz = cz;
   const deck = { x: fx + 9, z: PLAT.z1 + 1.6 };
   // --- rock walls that hold up the plateau: the curved front cliff (a notch for the water), the sides and the back.
   // the top row sits a little lower so it reads as a mossy rim, with gaps where the deck and the stairs come in
@@ -3383,8 +3410,10 @@ const falls = { mist: [], rainbow: null, base: new V3(), t: 0, top: 0, spring: n
   const rowY = row => wy + row * 6.2 + 2.5 - (row === 3 ? 2.2 : 0);
   for (let i = -8; i <= 8; i++) for (let row = 0; row < 4; row++) {
     if (row === 3 && (i === 0 || i === 2 || i === 3)) continue;
-    const bx = fx + i * 3.6 + rand(-0.6, 0.6), bz = cz - 2 + Math.pow(Math.abs(i), 1.2) * 0.25 + rand(-0.5, 0.5) - row * 0.6;
-    boulder(bx, rowY(row) - (row === 2 && Math.abs(i) < 2 ? 1.0 : 0), bz, rand(3.0, 4.2) * (row === 3 ? 0.8 : 1));
+    if (row === 0 && i === 0) continue;                                   // the mouth of the firefly cave, hidden behind the falling water
+    const jamb = row === 0 && Math.abs(i) === 1;                          // the two boulders either side of it stand back to leave the way in
+    const bx = jamb ? fx + i * 5.1 : fx + i * 3.6 + rand(-0.6, 0.6), bz = cz - 2 + Math.pow(Math.abs(i), 1.2) * 0.25 + rand(-0.5, 0.5) - row * 0.6;
+    boulder(bx, rowY(row) - (row === 2 && Math.abs(i) < 2 ? 1.0 : 0), bz, jamb ? 3.1 : rand(3.0, 4.2) * (row === 3 ? 0.8 : 1));
     if (row === 0 && i !== 0) solid(bx, bz, 2.6, TOP);
   }
   const stairTopZ = STAIR.zB - 2;
@@ -3586,6 +3615,7 @@ const falls = { mist: [], rainbow: null, base: new V3(), t: 0, top: 0, spring: n
         vec3 c = mix(vec3(0.55, 0.78, 0.93), vec3(1.0), clamp(streak * 0.85 + foam, 0.0, 1.0)) * mix(vec3(0.32, 0.38, 0.55), vec3(1.0), uDay);
         gl_FragColor = vec4(c, edge * clamp(0.5 + 0.5 * streak + foam, 0.0, 1.0) * 0.92); }`
   });
+  falls.mat = fallMat;
   // the stream ends at the lip; from there the water keeps its forward speed while it drops, so it arcs out (z grows with the square root of the drop)
   const LIP = PLAT.z1 + 0.8, Y0 = TOP + 0.09, DROP = Y0 - (wy - 0.6), OUT = 0.55, RUN = 2.2;
   const fallFoot = LIP + OUT * Math.sqrt(DROP);   // where it lands in the pool
@@ -3636,7 +3666,9 @@ const falls = { mist: [], rainbow: null, base: new V3(), t: 0, top: 0, spring: n
 }
 function tickFalls(dt, S) {
   const d = player ? player.pos.distanceTo(falls.base) : 999;
-  Snd.setFalls(player ? Math.pow(clamp(1 - d / 85, 0, 1), 2) * (player.zone === 'cabin' ? 0.5 : player.zone === 'world' ? 1 : 0) : 0);
+  // in the cave you still hear it, muffled, from the tunnel that leads back out under it
+  Snd.setFalls(!player ? 0 : player.zone === 'cave' ? 0.5 * Math.pow(clamp(1 - Math.hypot(player.pos.x - CAVE.x - CAVE.door.x, player.pos.z - CAVE.z - CAVE.door.z) / 48, 0, 1), 1.6)
+    : Math.pow(clamp(1 - d / 85, 0, 1), 2) * (player.zone === 'cabin' ? 0.5 : player.zone === 'world' ? 1 : 0));
   if (d > 170) return;
   falls.rainbow.material.opacity = 0.2 * (1 - S.night) * S.shaft * (1 - wx.bad);
   for (const m of falls.mist) {
@@ -3657,6 +3689,228 @@ function tickSmoke(dt) {
     p.age += dt; p.s.position.addScaledVector(p.v, dt);
     const k = p.age / 5; p.s.scale.setScalar(0.8 + k * 3.2); p.s.material.opacity = 0.5 * Math.sin(Math.PI * Math.min(1, k * 1.2)) * (1 - k);
   }
+}
+
+/* ---------------- the firefly cave: through the waterfall into a cavern of glowing mushrooms, a shallow pond, glow-worms overhead and a crystal nook ---------------- */
+const cave = { amb: 0, was: false, pts: null, U: { uTime: { value: 0 }, uScale: { value: 600 } }, dayU: { value: 1 }, glows: [], capMat: new THREE.MeshBasicMaterial({ vertexColors: true }), veilBack: null, pad: null, padT: 9, drip: 2, tip: false };
+const CAVE_FOG = new THREE.Color(0x10162e), CAVE_SKY = new THREE.Color(0x9fc4ff), CAVE_GND = new THREE.Color(0x3fa392), CAVE_SUN = new THREE.Color(0xa9d8ff), CAVE_TINT = new V3(0.42, 1.0, 0.86);
+function makeBat() {   // hangs by its toes, so everything is built the right way up and then turned over
+  const g = new THREE.Group(), body = new THREE.Group(); body.position.y = 3.7; body.rotation.z = Math.PI; g.add(body);
+  const fur = 0x8473b8, wing = 0x5d4f8f;
+  const blob = mk(SPH, soft(fur), { parent: body, pos: [0, 0.72, 0], scale: [0.5, 0.56, 0.48], outline: 0.035 });
+  mk(SPH_MED, soft(0xd9cff2), { parent: body, pos: [0, 0.6, 0.3], scale: [0.3, 0.33, 0.2], outline: 0 });
+  for (const s of [-1, 1]) {
+    const e = mk(new THREE.ConeGeometry(0.19, 0.46, 10), soft(fur), { parent: body, pos: [s * 0.3, 1.3, 0], rot: [0, 0, -s * 0.3], outline: 0.025 });
+    mk(new THREE.ConeGeometry(0.1, 0.28, 8), soft(0xf6b7c4), { parent: e, pos: [0, -0.04, 0.07], outline: 0 });
+    mk(SPH_MED, soft(wing), { parent: body, pos: [s * 0.5, 0.62, -0.03], scale: [0.14, 0.52, 0.36], rot: [0, 0, s * 0.14], outline: 0.025 });   // folded wings
+    mk(SPH_LO, soft(wing), { parent: body, pos: [s * 0.15, 0.1, 0], scale: [0.08, 0.14, 0.09], outline: 0.015 });                            // toes round the rock
+  }
+  const put = animalFace(blob, { eyeY: 0.12, eyeX: 0.34 });
+  for (const s of [-1, 1]) { const f = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.1, 6), basic(0xffffff)); f.rotation.x = Math.PI; put(s * 0.08, -0.14, 0.02, f); }   // two tiny fangs
+  return { g, body, h: 3.0 };
+}
+{
+  const cx = CAVE.x, cz = CAVE.z, PD = CAVE.pond;
+  const g = new THREE.Group(); g.position.set(cx, CAVE.y, cz); scene.add(g);
+  const sdf = (x, z) => caveSDF(cx + x, cz + z), floorAt = (x, z) => caveFloor(cx + x, cz + z) - CAVE.y, ceilAt = (x, z) => caveCeil(cx + x, cz + z) - CAVE.y;
+  // --- the rock itself: a floor that climbs into walls and a roof that comes down to meet them, so the room is sealed with no seams
+  const X0 = -45, X1 = 31, Z0 = -29, Z1 = 38;
+  const wallUp = (x, z) => caveWall(cx + x, cz + z);
+  const shell = roof => {
+    const G = new THREE.PlaneGeometry(X1 - X0, Z1 - Z0, 138, 122); G.rotateX(roof ? Math.PI / 2 : -Math.PI / 2); G.translate((X0 + X1) / 2, 0, (Z0 + Z1) / 2);
+    const p = G.attributes.position, C = new Float32Array(p.count * 3), c = new THREE.Color();
+    const fA = col(0x5a6798), fB = col(0x7482b8), wC = col(0x4c4b84), moss = col(0x55bfa6), wet = col(0x86ead6), rA = col(0x35375f), rB = col(0x50548c);
+    for (let i = 0; i < p.count; i++) {
+      const x = p.getX(i), z = p.getZ(i), n = clamp(0.5 + fbm(x * 0.09, 4, z * 0.09) * 0.9, 0, 1);
+      if (roof) { p.setY(i, ceilAt(x, z) + noise3(x * 0.6, 1, z * 0.6) * 0.25); mixC(c, rA, rB, n); }
+      else {
+        const up = wallUp(x, z), y = floorAt(x, z) + up + (up > 0.2 ? noise3(x * 0.5, 6, z * 0.5) * 0.35 : 0), r = Math.hypot(x - PD.x, z - PD.z);
+        p.setY(i, y); mixC(c, fA, fB, n).lerp(wC, smooth(0.2, 3, up));
+        c.lerp(moss, Math.max(0.6 * smooth(PD.r + 5, PD.r + 0.5, r), 0.45 * smooth(0.25, 0.5, noise3(x * 0.28, 1, z * 0.28)) * (1 - smooth(0.2, 2, up))));   // moss by the water and in patches
+        if (y < CAVE.wy) c.lerp(wet, 0.6);
+      }
+      c.toArray(C, i * 3);
+    }
+    G.setAttribute('color', new THREE.BufferAttribute(C, 3)); G.computeVertexNormals();
+    const m = new THREE.Mesh(G, toon(0xffffff, { vc: true, soft: true })); m.receiveShadow = !roof; g.add(m);
+  };
+  shell(false); shell(true);
+  const caveRock = (c, px, py, pz, nx, ny) => {
+    mixC(c, col(0x4d4e86), col(0x8188c2), ny * 0.5 + 0.5); c.multiplyScalar(0.92 + 0.1 * Math.sin(py * 2.1 + px * 0.4));
+    if (ny > 0.5 && noise3(px * 2.5, py * 2.5, pz * 2.5) > 0.05) c.lerp(col(0x58c4aa), clamp((ny - 0.5) * 2.4, 0, 0.7));
+  };
+  const keep = [];                                             // spots other things must leave clear: [x, z, r]
+  const clear = (x, z, m = 0) => keep.every(q => Math.hypot(q[0] - x, q[1] - z) > q[2] + m);
+  // --- everything that glows goes into one mesh (caps and crystals), the pale stems into another
+  const CAPS = [0x6ff2df, 0x8fe9ff, 0xc3a6ff, 0xff9fdc, 0xc8f77a], WHITE = col(0xffffff);
+  const capGeo = new THREE.SphereGeometry(1, 14, 7, 0, Math.PI * 2, 0, Math.PI * 0.56), gillGeo = new THREE.CircleGeometry(0.98, 14);
+  const glowSprite = (parent, x, y, z, c, sc, o = 0.5) => {
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX.mote, color: c, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: o }));
+    s.position.set(x, y, z); s.scale.setScalar(sc); parent.add(s); cave.glows.push({ s, ph: rand(0, 6), o }); return s;
+  };
+  const kit = (parent, yAt, ox, oz) => {                       // ox, oz: where the parent sits in the world (for lights and colliders)
+    const GL = new Geo(), SM = new Geo();
+    const cap = (G, x, y, z, r, flat, c) => {
+      const cc = col(c);
+      G.add(capGeo, (k, px, py, pz, nx, ny) => { k.copy(cc).multiplyScalar(0.74 + 0.26 * clamp(ny, 0, 1)); }, [x, y, z], [0, rand(0, 6), 0], [r, r * flat, r]);
+      G.add(gillGeo, (k) => { k.copy(cc).lerp(WHITE, 0.45); }, [x, y - 0.187 * r * flat, z], [Math.PI / 2, 0, 0], r);
+    };
+    const shroom = (x, z, s, c) => {
+      const y = yAt(x, z) - 0.05, h = s * rand(0.85, 1.3), r = s * rand(0.5, 0.7);
+      SM.add(new THREE.CylinderGeometry(s * 0.09, s * 0.15, h, 7), 0xe9f1ff, [x, y + h / 2, z]);
+      cap(GL, x, y + h - r * 0.1, z, r, 0.72, c);
+    };
+    const cluster = (x, z, n, s, c, lit = true) => {
+      for (let i = 0; i < n; i++) { const a = i / n * 6.28 + rand(-0.4, 0.4), rr = i ? rand(0.55, 1.0) * s : 0; shroom(x + Math.cos(a) * rr, z + Math.sin(a) * rr, s * (i ? rand(0.4, 0.72) : 1), i % 3 === 2 ? pick(CAPS) : c); }
+      const y0 = yAt(x, z); glowSprite(parent, x, y0 + s * 1.1, z, c, s * 4.4, lit ? 0.5 : 0.3); keep.push([x, z, s + 0.8]);
+      if (lit) { lampLights.push({ p: new V3(ox + x, CAVE.y + y0 + s * 1.2 + 0.4, oz + z), r: 6.5 + s * 2.2, kind: 'cave' }); solid(ox + x, oz + z, 0.3 * s, CAVE.y + y0 + s).nocam = true; }
+    };
+    const crystal = (x, z, s, c, n = 5, y = yAt(x, z) - 0.1) => {
+      const cc = col(c), fn = (k, px, py, pz, nx, ny, nz) => { k.copy(cc).lerp(WHITE, clamp(0.14 + 0.4 * nx + 0.26 * ny + 0.2 * nz, 0, 0.78)); };
+      for (let i = 0; i < n; i++) {
+        const h = s * (i ? rand(0.7, 1.5) : 2.2), r = h * rand(0.13, 0.17), a = rand(0, 6.28), t = i ? rand(0.3, 0.75) : rand(0, 0.12);
+        const base = new THREE.Matrix4().compose(new V3(x + Math.sin(a) * t * s * 0.45, y, z - Math.cos(a) * t * s * 0.45), new THREE.Quaternion().setFromAxisAngle(new V3(Math.cos(a), 0, Math.sin(a)), -t), new V3(1, 1, 1));
+        GL.addM(new THREE.CylinderGeometry(r, r * 0.8, h * 0.75, 6), fn, base.clone().multiply(new THREE.Matrix4().makeTranslation(0, h * 0.375, 0)));
+        GL.addM(new THREE.ConeGeometry(r, h * 0.25, 6), fn, base.clone().multiply(new THREE.Matrix4().makeTranslation(0, h * 0.875, 0)));
+      }
+      glowSprite(parent, x, y + s * 1.2, z, c, s * 4.6, 0.42); keep.push([x, z, s * 0.9 + 0.6]);
+    };
+    const done = () => { mk(GL.build(), cave.capMat, { parent, outline: 0.03, shadow: false }); if (SM.parts.length) mk(SM.build(), toon(0xffffff, { vc: true, soft: true }), { parent, outline: 0.025 }); };
+    return { cap, shroom, cluster, crystal, done };
+  };
+  const K = kit(g, floorAt, cx, cz);
+  // --- the way back out: daylight through the falling water at the end of the tunnel
+  { const D = CAVE.door, vz = D.z + 1.9;
+    cave.veilBack = new THREE.MeshBasicMaterial({ color: 0xcfeeff, fog: false });
+    const back = new THREE.Mesh(new THREE.PlaneGeometry(10, 10), cave.veilBack); back.position.set(D.x, 4.2, vz + 0.2); back.rotation.y = Math.PI; g.add(back);
+    const wm = falls.mat.clone(); wm.uniforms = { uTime: U.uTime, uDay: cave.dayU, uSpeed: { value: 1.1 } };
+    const sheet = new THREE.Mesh(new THREE.PlaneGeometry(9, 10), wm); sheet.position.set(D.x, 4.2, vz); sheet.rotation.y = Math.PI; sheet.renderOrder = 2; g.add(sheet);
+    cave.spill = glowSprite(g, D.x, 1.6, D.z - 0.5, 0xcfeaff, 11, 0.55);
+    keep.push([D.x, D.z - 3, 5]); }
+  // --- the big cavern, the tunnel, the pond room, the passage west
+  keep.push([PD.x, PD.z, PD.r + 1.2], [CAVE.pad.x, CAVE.pad.z, 2.4], [CAVE.ledge.x, CAVE.ledge.z, 3.2]);
+  K.cluster(-9, -9, 5, 1.5, 0x6ff2df); K.cluster(9.5, 7.5, 4, 1.3, 0xc3a6ff); K.cluster(-11.5, 4, 4, 1.1, 0x8fe9ff); K.cluster(6.5, 12, 3, 0.9, 0xc8f77a);
+  K.cluster(-2.4, 22, 3, 0.7, 0x6ff2df); K.cluster(2.5, 17.5, 3, 0.7, 0x8fe9ff);
+  K.cluster(22.6, -15, 4, 2.6, 0x6ff2df); K.cluster(17, -21.6, 4, 1.2, 0xc3a6ff); K.cluster(21.6, -7.4, 3, 1.0, 0xff9fdc);
+  K.cluster(-19.5, -5.2, 3, 0.8, 0xc8f77a); K.cluster(-33.4, -8.6, 3, 0.8, 0x8fe9ff);
+  K.shroom(PD.x + 1.0, PD.z - 0.9, 0.5, 0xff9fdc); K.shroom(PD.x - 1.1, PD.z + 0.5, 0.38, 0xc8f77a); K.crystal(PD.x - 0.3, PD.z - 1.3, 0.38, 0x9fd8ff, 3);
+  lampLights.push({ p: new V3(cx + PD.x, CAVE.y + 1.6, cz + PD.z), r: 11, kind: 'cave' });
+  // the pond: shallow, lit from below
+  { const wg = new THREE.CircleGeometry(PD.r + 1.2, 48); wg.rotateX(-Math.PI / 2);
+    const wm = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, uniforms: { uTime: U.uTime, uR: { value: PD.r + 1.2 } },
+      vertexShader: 'varying vec2 vP; void main(){ vP = position.xz; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+      fragmentShader: `uniform float uTime, uR; varying vec2 vP;
+        void main(){ float w = sin(vP.x * 1.7 + uTime * 0.9) * sin(vP.y * 1.9 - uTime * 0.7) + 0.5 * sin((vP.x + vP.y) * 3.1 + uTime * 1.6) + 0.35 * sin(length(vP) * 4.0 - uTime * 1.3);
+          vec3 c = mix(vec3(0.15, 0.58, 0.64), vec3(0.66, 1.0, 0.93), smoothstep(0.1, 1.4, w) * 0.6 + 0.12);
+          gl_FragColor = vec4(c, 0.66 * smoothstep(1.0, 0.9, length(vP) / uR)); }` });
+    const w = new THREE.Mesh(wg, wm); w.position.set(PD.x, CAVE.wy, PD.z); w.renderOrder = 1; g.add(w); }
+  // a flat rock to sit on and watch the water
+  const PR = new Geo();
+  { const sx = 4.6, sz = -6.2, yaw = Math.atan2(PD.x - sx, PD.z - sz), y = floorAt(sx, sz);
+    PR.add(rocky(12), caveRock, [sx, y + 0.12, sz], [0, -yaw, 0], [1.75, 0.55, 1.1]); keep.push([sx, sz, 2.4]);
+    solid(cx + sx, cz + sz, 1.2, CAVE.y + y + 0.55).nocam = true;
+    for (const k of [-0.6, 0.6]) seats.push({ p: new V3(cx + sx + Math.cos(yaw) * k, CAVE.y + y + 0.58, cz + sz - Math.sin(yaw) * k), yaw, zone: 'cave', floor: CAVE.y + y, label: '바위에 앉기', say: ['연못이 반짝반짝해', '반딧불이다~', '물소리가 울려…', '여기 비밀 기지 하자!'] }); }
+  // --- the crystal nook at the end of the west passage: a ledge with a star on it, and the springy mushroom that gets you up there
+  { const L = CAVE.ledge, P = CAVE.pad, py = floorAt(P.x, P.z);
+    PR.add(rocky(14), caveRock, [L.x, 1.25, L.z], [0, rand(0, 6), 0], [2.6, 2.0, 2.4]); PR.add(rocky(12), caveRock, [L.x + 0.1, L.top - 0.5, L.z], [0, rand(0, 6), 0], [2.35, 0.62, 2.2]);
+    PR.add(rocky(10), caveRock, [L.x + 2.3, 0.5, L.z + 1.6], [0, rand(0, 6), 0], [1.1, 0.9, 1.0]);
+    solid(cx + L.x, cz + L.z, 2.15, L.top).nocam = true;
+    K.crystal(L.x - 1.25, L.z - 0.7, 0.95, 0x9fd8ff, 6, L.top - 0.15); K.crystal(L.x - 0.5, L.z + 1.45, 0.6, 0xc3a6ff, 4, L.top - 0.15);
+    for (const [x, z, s, c] of [[-37.0, -11.0, 1.0, 0xc3a6ff], [-33.2, -20.4, 0.9, 0x8ff5e0], [-26.6, -18.9, 1.1, 0x9fd8ff], [-28.4, -8.5, 0.8, 0xffb3e6], [-38.0, -14.3, 0.7, 0x8ff5e0]]) {
+      K.crystal(x, z, s, c); solid(cx + x, cz + z, 0.55 * s + 0.15, floorAt(x, z) + 1.3 * s).nocam = true; }
+    lampLights.push({ p: new V3(cx + L.x, L.top + 1.6, cz + L.z), r: 10, kind: 'cave' }, { p: new V3(cx - 27.5, 1.6, cz - 17), r: 9, kind: 'cave' }, { p: new V3(cx - 35, 1.6, cz - 10), r: 8, kind: 'cave' });
+    // the pad: a squat pink mushroom with a wide soft cap
+    const pad = cave.pad = new THREE.Group(); pad.position.set(P.x, py, P.z); g.add(pad);
+    mk(new THREE.CylinderGeometry(0.5, 0.62, 0.4, 12), toon(0xf3ecff, { soft: true }), { parent: pad, pos: [0, 0.2, 0], outline: 0.03 });
+    const PG = new Geo(), pk = kit(pad, () => 0, 0, 0); pk.cap(PG, 0, 0.27, 0, 1.5, 0.39, 0xff9fdc);
+    for (let i = 0; i < 7; i++) { const a = i / 7 * 6.28 + 0.4, rr = i ? rand(0.6, 1.1) : 0; PG.add(SPH_LO, 0xfff2fb, [Math.cos(a) * rr, 0.27 + 0.585 * Math.sqrt(Math.max(0, 1 - rr * rr / 2.25)) - 0.01, Math.sin(a) * rr], [0, 0, 0], [0.2, 0.05, 0.2]); }
+    mk(PG.build(), cave.capMat, { parent: pad, outline: 0.03, shadow: false });
+    glowSprite(g, P.x, py + 1.3, P.z, 0xff9fdc, 5.5, 0.45); lampLights.push({ p: new V3(cx + P.x, py + 1.6, cz + P.z), r: 8, kind: 'cave' });
+    const so = solid(cx + P.x, cz + P.z, 1.35, CAVE.y + py + P.top); so.up = 1.4; so.bounce = 13.5; so.nocam = true; }
+  // --- boulders along the foot of the walls, teeth hanging from the roof and standing on the floor
+  { const RK = new Geo(), put = [];
+    for (let n = 0; n < 4000 && put.length < 150; n++) {
+      const x = rand(X0 + 3, X1 - 3), z = rand(Z0 + 3, Z1 - 3), d = sdf(x, z);
+      if (d < 1.0 || d > 2.2 || (Math.abs(x - CAVE.door.x) < 4.5 && z > CAVE.door.z - 1.5) || put.some(q => (q[0] - x) ** 2 + (q[1] - z) ** 2 < 5.3)) continue;
+      const s = rand(1.2, 2.1); put.push([x, z]);
+      RK.add(rocky(10), caveRock, [x, floorAt(x, z) + wallUp(x, z) * 0.3 + s * 0.25, z], [0, rand(0, 6), 0], [s, s * rand(0.9, 1.5), s]);
+    }
+    mk(RK.build(), rockMat2, { parent: g, outline: 0.06 }); }
+  { const bat = { x: -6.5, z: 9 }; keep.push([bat.x, bat.z, 2.6]);
+    const top = ceilAt(bat.x, bat.z) + 0.4, h = top - 3.62;
+    PR.add(new THREE.ConeGeometry(0.85, h, 9), caveRock, [bat.x, top - h / 2, bat.z], [Math.PI, 0, 0]);
+    PR.add(rocky(10), caveRock, [bat.x, 3.72, bat.z], [0, 0, 0], [0.34, 0.16, 0.34]);
+    addResident(makeBat, '꼬마 박쥐 초롱', 'bat', ['찌익! 여기까지 찾아왔구나!', '폭신한 분홍 버섯을 밟으면 높이 튀어 올라!', '수정 방은 서쪽 굴 끝에 있어', '연못은 얕아서 걸어 들어가도 돼', '내가 보기엔 네가 거꾸로야, 찌익', '천장의 반딧불, 꼭 별 같지?', '폭포 뒤 동굴은 우리끼리 비밀이야!'],
+      new V3(cx + bat.x, CAVE.y + floorAt(bat.x, bat.z), cz + bat.z), 1, false, Math.atan2(CAVE.door.x - bat.x, CAVE.door.z - bat.z));
+    for (let n = 0, k = 0; n < 1500 && k < 64; n++) {            // stalactites, never low enough to bump a head
+      const x = rand(X0, X1), z = rand(Z0, Z1); if (sdf(x, z) > -0.8 || Math.hypot(x - bat.x, z - bat.z) < 2.5) continue;
+      const t = ceilAt(x, z), hh = Math.min(rand(1.0, 3.8), t - 4.9); if (hh < 0.7) continue;
+      PR.add(new THREE.ConeGeometry(hh * rand(0.13, 0.2), hh, 7), caveRock, [x, t + 0.35 - hh / 2, z], [Math.PI, rand(0, 6), 0]); k++;
+    }
+    for (let n = 0, k = 0; n < 1500 && k < 15; n++) {            // stalagmites, near the walls and clear of everything else
+      const x = rand(X0, X1), z = rand(Z0, Z1), d = sdf(x, z); if (d > -1.3 || d < -2.8 || !clear(x, z, 1.2)) continue;
+      const hh = rand(0.8, 2.3), r = hh * 0.22, y = floorAt(x, z);
+      PR.add(new THREE.ConeGeometry(r, hh, 7), caveRock, [x, y + hh / 2 - 0.1, z], [0, rand(0, 6), 0]); solid(cx + x, cz + z, r * 0.7 + 0.1, CAVE.y + y + hh * 0.75).nocam = true; keep.push([x, z, 1.5]); k++;
+    }
+    mk(PR.build(), rockMat2, { parent: g, outline: 0.05 }); }
+  K.done();
+  // --- fireflies drifting about (thickest over the pond) and glow-worms in patches across the roof, like a sky of their own
+  { const P = [], PH = [], AM = [], CO = [], SZ = [];
+    const add = (x, y, z, amp, c, s) => { P.push(x, y, z); PH.push(rand(0, 40)); AM.push(amp); CO.push(c[0], c[1], c[2]); SZ.push(s); };
+    for (let n = 0, k = 0; n < 6000 && k < (IS_TOUCH ? 90 : 160); n++) {
+      const pond = k % 4 === 0, x = pond ? PD.x + rand(-7, 7) : rand(X0, X1), z = pond ? PD.z + rand(-7, 7) : rand(Z0, Z1); if (sdf(x, z) > -2) continue;
+      add(x, rand(0.7, Math.min(5.5, ceilAt(x, z) - 1.5)), z, rand(0.7, 1.7), Math.random() < 0.7 ? [0.86, 1.0, 0.45] : [0.55, 1.0, 0.8], rand(0.3, 0.42)); k++;
+    }
+    for (let n = 0, k = 0; n < 9000 && k < (IS_TOUCH ? 260 : 460); n++) {
+      const x = rand(X0, X1), z = rand(Z0, Z1); if (sdf(x, z) > -0.4 || noise3(x * 0.24, 2, z * 0.24) < -0.05) continue;
+      add(x, ceilAt(x, z) - 0.22, z, 0, Math.random() < 0.75 ? [0.5, 0.95, 1.0] : [0.72, 0.8, 1.0], rand(0.16, 0.3)); k++;
+    }
+    const G = new THREE.BufferGeometry();
+    G.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); G.setAttribute('aPh', new THREE.Float32BufferAttribute(PH, 1)); G.setAttribute('aAmp', new THREE.Float32BufferAttribute(AM, 1));
+    G.setAttribute('aCol', new THREE.Float32BufferAttribute(CO, 3)); G.setAttribute('aSize', new THREE.Float32BufferAttribute(SZ, 1));
+    cave.pts = new THREE.Points(G, new THREE.ShaderMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, uniforms: cave.U,
+      vertexShader: `attribute float aPh, aAmp, aSize; attribute vec3 aCol; uniform float uTime, uScale; varying vec3 vCol; varying float vA;
+        void main(){ vec3 p = position; float t = uTime * 0.33 + aPh;
+          p += vec3(sin(t * 1.3 + aPh * 3.1) + 0.5 * sin(t * 2.9), 0.6 * sin(t * 1.7 + aPh * 1.7), cos(t * 1.1 + aPh * 2.3) + 0.5 * cos(t * 2.3)) * aAmp;
+          vec4 mv = modelViewMatrix * vec4(p, 1.0); gl_Position = projectionMatrix * mv;
+          float tw = 0.55 + 0.45 * sin(uTime * (1.1 + fract(aPh) * 2.2) + aPh * 7.0);
+          vA = tw; vCol = aCol; gl_PointSize = aSize * (0.75 + 0.25 * tw) * uScale / -mv.z; }`,
+      fragmentShader: `varying vec3 vCol; varying float vA;
+        void main(){ float d = length(gl_PointCoord - 0.5) * 2.0, a = smoothstep(1.0, 0.0, d);
+          gl_FragColor = vec4(vCol * (0.75 + 0.7 * smoothstep(0.45, 0.0, d)), (a * a + 0.6 * smoothstep(0.3, 0.0, d)) * vA); }` }));
+    cave.pts.frustumCulled = false; cave.pts.visible = false; g.add(cave.pts); }
+  // --- outside: the dark mouth in the cliff behind the falling water, a glow from within, and a few stray mushrooms that give it away
+  { const fx = FALLS.x, wy = falls.wy, mz = falls.cz, mg = new THREE.Group(); mg.position.set(fx, wy, mz); scene.add(mg);
+    const dark = new THREE.Mesh(new THREE.PlaneGeometry(9, 7.4), new THREE.MeshBasicMaterial({ color: 0x131a33 })); dark.position.set(0, 3.4, -2.6); mg.add(dark);
+    glowSprite(mg, 0, 1.5, -1.9, 0x6ff2df, 6.5, 0.6);
+    const MK = kit(mg, (x, z) => terrain(fx + x, mz + z) - wy, fx, mz);
+    MK.cluster(-2.3, -0.9, 3, 0.6, 0x6ff2df, false); MK.cluster(2.4, -1.1, 3, 0.55, 0x8fe9ff, false); MK.cluster(7.3, 3.6, 2, 0.42, 0xc3a6ff, false); MK.cluster(-7.5, 3.9, 2, 0.4, 0x6ff2df, false);
+    MK.done();
+    const inside = new V3(cx + CAVE.door.x, CAVE.y, cz + CAVE.door.z - 7), outside = new V3(fx, 0, mz + 1.75); outside.y = terrain(outside.x, outside.z);
+    portals.push(
+      { zone: 'world', at: new V3(fx, wy, mz + 1.3), r: 1.9, label: '폭포 뒤 동굴에 들어가기', wet: true, to: { p: inside, yaw: Math.PI, cam: 0, zone: 'cave' } },
+      { zone: 'cave', at: new V3(cx + CAVE.door.x, CAVE.y, cz + CAVE.door.z - 0.6), r: 2.4, label: '폭포 밖으로 나가기', wet: true, to: { p: outside, yaw: 0, cam: 0, zone: 'world' } }); }
+}
+function tickCave(dt, T, S) {
+  const inside = !!player && player.zone === 'cave';
+  if (inside !== cave.was) { cave.was = inside; cave.amb = inside ? 1 : 0; }   // you only ever arrive through the iris, so the light can change in one go
+  for (const q of cave.glows) q.s.material.opacity = q.o * (0.8 + 0.2 * Math.sin(T * 1.3 + q.ph));
+  cave.pts.visible = inside;
+  if (!inside) return;
+  cave.U.uTime.value = T; cave.U.uScale.value = renderer.domElement.height * 1.07;
+  cave.capMat.color.setScalar(0.92 + 0.08 * Math.sin(T * 1.1));
+  cave.dayU.value = 1 - S.night; cave.veilBack.color.copy(S.hor).lerp(S.zen, 0.3); cave.spill.material.opacity *= 0.25 + 0.75 * (1 - S.night);
+  { const pm = motes.pts.material; pm.color.copy(MOTE_NIGHT); pm.size = 0.42; pm.opacity = 0.9 * (0.8 + 0.2 * Math.sin(T * 2.3)); }   // the dust that follows you is fireflies in here
+  // the springy mushroom: step on it and it throws you up; the cap squashes and wobbles back
+  const so = player.supSolid;
+  if (so && so.bounce && player.ground && !player.sitting && player.pos.y > so.top - 0.12) {
+    player.vy = so.bounce; player.ground = false; player.squash = -0.8; cave.padT = 0; Snd.wobble(0.9);
+    emit(sparkTex, tmpV.copy(player.pos), 6, { size: 0.36, spread: 2.4, up: 2, life: 0.7, g: 7 });
+    if (!cave.tip) { cave.tip = true; toast('폭신 버섯! 밟으면 높이 튀어 올라요', 2800); }
+  }
+  cave.padT += dt; { const k = Math.exp(-cave.padT * 4.5) * Math.cos(cave.padT * 21); cave.pad.scale.set(1 + 0.16 * k, 1 - 0.42 * k, 1 + 0.16 * k); }
+  if (player.vy > 0 && player.pos.y + 2.2 > caveCeil(player.pos.x, player.pos.z)) player.vy = 0;   // the roof is solid
+  if ((cave.drip -= dt) <= 0) { cave.drip = rand(1.4, 5); Snd.drip(rand(0.4, 1), rand(-0.8, 0.8)); }
 }
 
 /* ---------------- Mongle beach: dunes, sand and sea, a pier out to a lighthouse on its islet ---------------- */
@@ -3963,6 +4217,7 @@ function updateLamps(f, night, T) {
     const l = n.l; v.set(l.p.x, l.p.y, l.p.z, l.r);
     U.uLampI.value[i] = l.kind === 'out' ? smooth(0.15, 0.75, night) * 1.05
       : l.kind === 'fire' ? (0.55 + 0.45 * night) * (0.85 + 0.15 * Math.sin(T * 9 + i))
+      : l.kind === 'cave' ? 0.92 + 0.12 * Math.sin(T * 1.7 + l.p.x)
       : 0.4 + 0.45 * night;
   }
 }
@@ -4241,6 +4496,7 @@ const Snd = (() => {
     fox:      { base: 720, type: 'triangle', fm: 1.5, syl: 0.075, vib: 9, depth: 0.05 },   // bright and quick
     duck:     { base: 520, type: 'sawtooth', fm: 1.6, syl: 0.09, vib: 7, depth: 0.04 },   // a little nasal, quack-ish
     turtle:   { base: 330, type: 'triangle', fm: 1.05, syl: 0.17, vib: 3, depth: 0.02 },  // slow and gentle
+    bat:      { base: 1120, type: 'triangle', fm: 1.8, syl: 0.06, vib: 15, depth: 0.07 },   // tiny and squeaky
     alien:    { base: 900, type: 'square', fm: 1.9, syl: 0.08, vib: 22, depth: 0.12 },     // warbly beeps
     woodcutter: { base: 205, type: 'sawtooth', fm: 0.95, syl: 0.13, vib: 3, depth: 0.02 }, // deep, slow and warm
     crab:     { base: 380, type: 'square', fm: 1.2, syl: 0.1, vib: 6, depth: 0.03 },       // clicky and gruff
@@ -4320,6 +4576,11 @@ const Snd = (() => {
     }
     fallsGain.gain.setTargetAtTime(k * 0.24, ctx.currentTime, 0.4);
   }
+  function drip(k = 1, pan = 0) {   // a drop falling into still water somewhere in the cave, and its echo
+    if (!on()) return; const t = ctx.currentTime, f = rand(1250, 1900);
+    tone({ t, f, f2: f * 0.55, glide: 0.05, d: 0.09, v: 0.05 * k, pan }); tone({ t: t + 0.21, f: f * 0.99, f2: f * 0.55, glide: 0.05, d: 0.08, v: 0.017 * k, pan: -pan });
+    tone({ t: t + 0.43, f: f * 0.98, f2: f * 0.55, glide: 0.05, d: 0.08, v: 0.006 * k, pan });
+  }
   function door() { // wooden creak, then a soft thud as it closes behind you
     if (!on()) return; const t = ctx.currentTime;
     tone({ f: 190, f2: 120, glide: 0.45, d: 0.5, v: 0.045, type: 'sawtooth', lp: 900 });
@@ -4330,7 +4591,7 @@ const Snd = (() => {
     tone({ f: 180, f2: 70, glide: 0.08, d: 0.12, v: 0.22 * k, pan }); hiss({ ft: 'bandpass', f: 1200, q: 2, d: 0.08, v: 0.12 * k, pan });
     tone({ t: t + 0.13, f: 520, f2: 380, glide: 0.05, d: 0.08, v: 0.06 * k, type: 'triangle', pan }); tone({ t: t + 0.2, f: 430, f2: 300, glide: 0.05, d: 0.08, v: 0.05 * k, type: 'triangle', pan });
   }
-  return { init, pop, step, jump, land, wobble, bloom, splash, door, chop, setFalls, setForest, setSea, star, fanfare, twinkle, boom, splish, snowStep, setRain, thunder, chime, speak, setMusic, setSfx, st };
+  return { init, pop, step, jump, land, wobble, bloom, splash, door, drip, chop, setFalls, setForest, setSea, star, fanfare, twinkle, boom, splish, snowStep, setRain, thunder, chime, speak, setMusic, setSfx, st };
 })();
 const tmpE = new V3();
 // loudness (0..1) and stereo pan of a sound at `pos`, heard from the player
@@ -4373,6 +4634,7 @@ class Critter {
       : this.zone === 'terrace' ? Math.hypot(x - TER.x, z - TER.z) < TER.r - 0.9
       : this.zone === 'cabin' ? inCabinRect(x, z, -1.15)
       : this.zone === 'lighthouse' ? Math.hypot(x - LH.x, z - LH.z) < LH.r - 0.6
+      : this.zone === 'cave' ? caveSDF(x, z) < -0.95 && z < CAVE.z + CAVE.door.z + 1.2
       : (walkable(x, z) || (this.pos.y > SEA_Y + 0.6 && pierDist(x, z) < PIER.hw - 0.2)) && !inCabinRect(x, z, 0.85);   // outside, the cabin's log walls are solid; the pier carries you over deep water
     if (!ok(nx, nz)) {
       if (ok(nx, this.pos.z)) nz = this.pos.z;
@@ -4390,7 +4652,7 @@ class Critter {
         this.pos.y = s;
         if (this.vy < -6) {
           this.squash = Math.min(1, -this.vy / 16);
-          const [k, p] = ear(this.pos), wet = this.zone === 'world' ? onStream(this.pos.x, this.pos.y, this.pos.z) : null;
+          const [k, p] = ear(this.pos), wet = this.zone === 'world' || this.pos.x > 1000 ? onStream(this.pos.x, this.pos.y, this.pos.z) : null;
           if (wet != null) {   // a jump into the brook: one big splash
             emit(dropTex, tmpD.set(this.pos.x, wet + 0.2, this.pos.z), 14, { size: 0.24, spread: 3.4, up: 3.2, life: 0.65, g: 11 }); ripple(this.pos.x, wet, this.pos.z, 1.9); ripple(this.pos.x, wet, this.pos.z, 1.1);
             Snd.splish(true, k * 1.4, p);
@@ -4435,7 +4697,7 @@ class Critter {
     }
     { const sg = sn >= 0;                                                    // each stride: a footstep for you, a puff of dust for anyone running
       if (sg !== this.lastSg && this.ground && this.speed > 0.6) {
-        const fast = this.speed > this.d.speed * 1.15, wet = this.zone === 'world' ? onStream(this.pos.x, this.pos.y, this.pos.z) : null;
+        const fast = this.speed > this.d.speed * 1.15, wet = this.zone === 'world' || this.pos.x > 1000 ? onStream(this.pos.x, this.pos.y, this.pos.z) : null;
         const snowy = wet == null && wx.snow > 0.45 && this.pos.x < 1000 && this.zone !== 'cabin';
         if (this === player) wet != null ? Snd.splish(fast) : snowy ? Snd.snowStep(fast) : Snd.step(this.speed > this.d.speed * 1.2);
         else if (wet != null) { const [k, p] = ear(this.pos); Snd.splish(fast, k * 0.7, p); }
@@ -4539,6 +4801,7 @@ const dropTex = spriteTex(x => { x.fillStyle = 'rgba(232,248,255,0.95)'; x.strok
 const snowTex = spriteTex(x => { x.fillStyle = 'rgba(255,255,255,0.95)'; x.strokeStyle = 'rgba(150,170,200,.5)'; x.lineWidth = 3; x.beginPath(); x.arc(32, 32, 22, 0, 7); x.fill(); x.stroke(); });
 // is this spot in one of the brooks (and not up on a bridge over it)? returns the water's height, or null
 function onStream(x, y, z) {
+  if (x > 1000) return z > 200 && y < CAVE.wy - 0.02 && Math.hypot(x - CAVE.x - CAVE.pond.x, z - CAVE.z - CAVE.pond.z) < CAVE.pond.r + 0.5 ? CAVE.wy : null;   // wading in the cave pond
   if (z < -140 && y < SEA_Y + 0.1 && seaward(x, z) > 0) return SEA_Y;   // wading in the sea
   if (!falls.streams) return null;
   for (const st of falls.streams) { const sy = st.y(x, z); if (Math.abs(y - sy) > 0.25) continue; const w2 = st.w * st.w * 0.85; for (const q of st.pts) if ((q.x - x) * (q.x - x) + (q.z - z) * (q.z - z) < w2) return sy; }
@@ -4554,7 +4817,7 @@ function tickParts(dt) {
 }
 
 /* ---------------- collectible stars ---------------- */
-// the stars are spread over the four areas: the village (7), the north forest (6), the lodge woods with the falls (7) and the beach (3)
+// the stars are spread over the areas: the village (7), the north forest (6), the lodge woods with the falls (7), the cave behind the falls (2) and the beach (3)
 const STAIR_MID = (() => { const gA = terrain(STAIR.x, STAIR.zA), n = 40, k = 20; return { z: STAIR.zA - (k + 0.5) * (STAIR.zA - STAIR.zB) / n, y: gA + (k + 1) * (falls.top - gA) / n }; })();
 const STAR_SPOTS = [
   // village
@@ -4565,6 +4828,8 @@ const STAR_SPOTS = [
   // the trail west, the lodge (yard and inside), the falls pool, halfway up the stairs, and two up on the plateau
   [-72, -24], [CAB.x + CAB.hw + 7, CAB.z - 9], [CAB.x - 3, CAB.z - 2, null, CAB.fy + 1.3], [FALLS.x + FALLS.pr + 3.5, FALLS.pz + 2],
   [STAIR.x, STAIR_MID.z, null, STAIR_MID.y + 1.3], [falls.spring.x + 6.5, falls.spring.z + 1, null, falls.top + 1.3], [falls.deck.x, falls.deck.z, null, falls.top + 1.6],
+  // the firefly cave: on the island in the glowing pond, and up on the crystal ledge (the springy mushroom gets you there)
+  [CAVE.x + CAVE.pond.x, CAVE.z + CAVE.pond.z, null, CAVE.y + 1.6], [CAVE.x + CAVE.ledge.x, CAVE.z + CAVE.ledge.z, null, CAVE.ledge.top + 1.4],
   // the beach: on the sandcastle, out along the pier, and up on the lighthouse gallery
   [SANDCASTLE.x, SANDCASTLE.z, null, terrain(SANDCASTLE.x, SANDCASTLE.z) + 3.6], [PIER.ax + (PIER.bx - PIER.ax) * 0.8, PIER.az + (PIER.bz - PIER.az) * 0.8, null, PIER.y + 1.3], [LH_STAR.x, LH_STAR.z, null, LH_STAR.y]];
 const stars = STAR_SPOTS.map((s, i) => {
@@ -4581,7 +4846,7 @@ const stars = STAR_SPOTS.map((s, i) => {
 const STAR_TERRACE = STAR_SPOTS.findIndex(q => q[0] === TERRACE_STAR.x && q[1] === TERRACE_STAR.z);
 const STAR_LH = STAR_SPOTS.findIndex(q => q[0] === LH_STAR.x && q[1] === LH_STAR.z);
 $('tot').textContent = stars.length;
-$('starHint').textContent = '마을·숲·오두막·폭포·해변 곳곳에 숨은 별사탕 ' + stars.length + '개를 모아 보세요 · 지도에 위치가 나와요';
+$('starHint').textContent = '마을·숲·오두막·폭포·동굴·해변 곳곳에 숨은 별사탕 ' + stars.length + '개를 모아 보세요 · 지도에 위치가 나와요';
 let got = 0, shoutTip = false;
 function onShowerEnd() {   // after a shower, tell someone who has every star that they can call another
   if (mode === 'play' && got === stars.length && !shoutTip) { shoutTip = true; toast('채팅으로 "별똥별이다!"라고 외치면 유성우를 또 볼 수 있어요', 5000); }
@@ -4592,7 +4857,7 @@ function onShowerEnd() {   // after a shower, tell someone who has every star th
 const MAP = { x0: -205, x1: 88, z0: -204, z1: 222, open: true, t: 1, bg: null, w: 0, h: 0, dpr: 1 };
 try { if (localStorage.getItem('mongle-map') === '0') MAP.open = false; } catch (e) {}
 const mapXY = (x, z) => [(MAP.x1 - x) / (MAP.x1 - MAP.x0) * MAP.w, (MAP.z1 - z) / (MAP.z1 - MAP.z0) * MAP.h];
-const mapPos = (x, z) => x > 1000 ? [BIGTREE.x, BIGTREE.z] : [x, z];   // inside grandpa tree shows at the tree
+const mapPos = (x, z) => x > 1000 ? (z > 200 ? [FALLS.x, FALLS.pz - 10] : [BIGTREE.x, BIGTREE.z]) : [x, z];   // inside grandpa tree shows at the tree, inside the cave just behind the falls
 function buildMapBg() {
   const c = $('mapC'), dpr = Math.min(2, devicePixelRatio || 1), w = c.clientWidth || 196, h = Math.round(w * (MAP.z1 - MAP.z0) / (MAP.x1 - MAP.x0));
   c.style.height = h + 'px'; c.width = Math.round(w * dpr); c.height = Math.round(h * dpr);
@@ -4653,7 +4918,7 @@ function drawMap(T) {
   stars.forEach((s, i) => {
     if (s.got) return; left++;
     let [x, z] = mapPos(s.m.position.x, s.m.position.z);
-    if (s.m.position.x > 1000) x += 5; else if (s === stars[STAR_TERRACE]) x -= 5; else if (s === stars[STAR_LH]) x -= 7;   // inside the tree / up on its terrace: either side of it
+    if (s.m.position.z > 200 && s.m.position.x > 1000) x += s.m.position.x > CAVE.x ? -4 : 4; else if (s.m.position.x > 1000) x += 5; else if (s === stars[STAR_TERRACE]) x -= 5; else if (s === stars[STAR_LH]) x -= 7;   // inside the tree / up on its terrace: either side of it
     const [a, b] = mapXY(x, z); mapStar(g, a, b, (s.gold ? 6 : 4.4) * (1 + 0.12 * Math.sin(T * 4 + i)), s.gold ? '#ffb21e' : '#ffe066');
   });
   $('mapLeft').textContent = left;
@@ -5002,8 +5267,8 @@ function greet() {
   emit(heartTex, player.pos.clone().add(new V3(0, 2.4, 0)), 4, { size: 0.5, spread: 1, up: 1.5, life: 1.2, g: -0.5 });
   player.talk(PHRASES[0], 1.6);
   netSend({ t: 'e', k: 0 });
-  if (player.zone === 'tower') residents.forEach((r, i) => {
-    if (Math.hypot(r.pos.x - player.pos.x, r.pos.z - player.pos.z) < 5 && Math.abs(r.pos.y - player.pos.y) < 3) setTimeout(() => { residentTalk(r, r.voice === 'chick' ? '삐약삐약!' : '반가워요!'); r.cool = 6; }, 600 + i * 120);
+  if (player.zone === 'tower' || player.zone === 'cave') residents.forEach((r, i) => {
+    if (Math.hypot(r.pos.x - player.pos.x, r.pos.z - player.pos.z) < 5 && Math.abs(r.pos.y - player.pos.y) < 3) setTimeout(() => { residentTalk(r, r.voice === 'chick' ? '삐약삐약!' : r.voice === 'bat' ? '찌익! 반가워!' : '반가워요!'); r.cool = 6; }, 600 + i * 120);
   });
   let delay = 650;
   const me = player;
@@ -5120,7 +5385,7 @@ function usePortal(p) {
   if (!p || portalBusy || !player) return;
   portalBusy = true; promptPortal = null; promptKey = null; $('prompt').hidden = true;
   for (const k in keys) keys[k] = false;
-  Snd.door();
+  p.wet ? Snd.splish(true, 1.3) : Snd.door();
   iris(true, 0.55, () => {
     player.pos.copy(p.to.p); player.vy = 0; player.ground = true; player.speed = 0; player.zone = p.to.zone;
     player.yaw = p.to.yaw; player.obj.rotation.y = p.to.yaw; player.obj.position.copy(player.pos);
@@ -5134,7 +5399,7 @@ const FOG_M = new THREE.Color(0xe2f1f8), FOG_F = new THREE.Color(0xcfe4d0);
 const ZONE_SUB = { '몽글 마을': '몽글몽글 포근한 들판', '숲 오솔길': '나무 사이로 햇살이 드는 길', '이끼 빈터': '폭신한 이끼가 깔린 쉼터', '옹달샘': '오리 가족이 사는 연못',
   '할아버지 나무': '숲에서 가장 오래된 나무', '숲속 오두막': '나무꾼 아저씨네 숲', '무지개 폭포': '물안개에 무지개가 뜨는 곳', '폭포 위 쉼터': '바람이 시원한 절벽 위 풀밭',
   '할아버지 나무 안': '동물 친구들의 보금자리', '나무 꼭대기 테라스': '마을이 한눈에 보이는 곳', '나무꾼 오두막 안': '벽난로가 따뜻한 산장',
-  '몽글 해변': '파도가 찰랑이는 모래사장', '등대 부두': '바다 위를 걷는 나무 길', '등대 섬': '빨간 줄무늬 등대가 서 있는 작은 섬', '등대 전망대': '바다와 마을이 한눈에 보이는 곳' };
+  '몽글 해변': '파도가 찰랑이는 모래사장', '등대 부두': '바다 위를 걷는 나무 길', '등대 섬': '빨간 줄무늬 등대가 서 있는 작은 섬', '등대 전망대': '바다와 마을이 한눈에 보이는 곳', '반딧불 동굴': '폭포 뒤에 숨은 반짝이는 동굴' };
 function zoneBanner(name) {
   const el = $('zoneTitle'); $('zoneName').textContent = name; $('zoneSub').textContent = ZONE_SUB[name] || '';
   el.classList.remove('show'); void el.offsetWidth; el.classList.add('show');
@@ -5253,6 +5518,11 @@ function frame() {
       want.x = clamp(want.x, CAB.x - CAB.hw + 0.55, CAB.x + CAB.hw - 0.55); want.z = clamp(want.z, CAB.z - CAB.hd + 0.55, CAB.z + CAB.hd - 0.55);
       want.y = Math.min(want.y, CAB.fy + 8.2);
     }
+    if (player.zone === 'cave') {   // keep the camera inside the rock: stop the boom short of the wall or the roof
+      let k = 1;
+      for (let i = 1; i <= 22; i++) { tmpV.lerpVectors(camTarget, want, i / 22); if (tmpV.z > CAVE.z + CAVE.door.z + 1.5 || tmpV.y < caveFloor(tmpV.x, tmpV.z) + caveWall(tmpV.x, tmpV.z) + 0.45 || tmpV.y > caveCeil(tmpV.x, tmpV.z) - 0.55) { k = (i - 1) / 22; break; } }
+      if (k < 1) want.lerpVectors(camTarget, want, Math.max(k, 0.2));
+    }
     const gy = Math.max(baseY(want.x, want.z), want.x < 1000 && seaward(want.x, want.z) > 0 ? SEA_Y : -99) + 0.8; if (want.y < gy) want.y = gy;
     if (camSnap) { camera.position.copy(want); camSnap = false; }
     else camera.position.lerp(want, 1 - Math.exp(-dt * (camIntro < 1 ? 1.1 + 10.9 * camIntro * camIntro * camIntro : 12)));
@@ -5263,7 +5533,7 @@ function frame() {
     if (camShake > 0) { camera.rotateX(rand(-1, 1) * camShake * 0.03); camera.rotateZ(rand(-1, 1) * camShake * 0.04); camShake = Math.max(0, camShake - dt * 1.4); }
     if (player.zone === 'world' && (bloomTimer -= dt) <= 0) { spawnBloom(); bloomTimer = rand(2.5, 5.5); }
     updatePrompt();
-    const zn = player.zone === 'tower' ? '할아버지 나무 안' : player.zone === 'terrace' ? '나무 꼭대기 테라스' : player.zone === 'cabin' ? '나무꾼 오두막 안' : player.zone === 'lighthouse' ? '등대 전망대' : zoneOf(player.pos.x, player.pos.z);
+    const zn = player.zone === 'tower' ? '할아버지 나무 안' : player.zone === 'terrace' ? '나무 꼭대기 테라스' : player.zone === 'cabin' ? '나무꾼 오두막 안' : player.zone === 'lighthouse' ? '등대 전망대' : player.zone === 'cave' ? '반딧불 동굴' : zoneOf(player.pos.x, player.pos.z);
     if (zn !== curZone) { if ((zoneHold += dt) > 0.6) { curZone = zn; zoneHold = 0; zoneBanner(zn); } } else zoneHold = 0;
   } else {
     selT += dt * 0.06;
@@ -5312,10 +5582,12 @@ function frame() {
   // forest mood: greener haze, softer sky light, more birdsong
   forestAmb += ((player && player.zone === 'world' ? forestK(player.pos.x, player.pos.z) : 0) - forestAmb) * Math.min(1, dt * 1.5);
   const S = updateSky(dt, T);
-  scene.fog.color.copy(S.fog).lerp(FOG_F, forestAmb * (1 - S.night) * 0.8);
+  tickCave(dt, T, S);
+  scene.fog.color.copy(S.fog).lerp(FOG_F, forestAmb * (1 - S.night) * 0.8).lerp(CAVE_FOG, cave.amb);
   // from the treetop terrace the haze lifts and far things stay drawn, so the whole village shows
   viewBoost += ((player && (player.zone === 'terrace' || player.zone === 'lighthouse') ? 1.9 : 1) - viewBoost) * Math.min(1, dt * 2);
   scene.fog.near = LEVELS[level].fogN * viewBoost * S.fogMul; scene.fog.far = LEVELS[level].fogF * viewBoost * (0.6 + 0.4 * S.fogMul);
+  if (cave.amb > 0) { scene.fog.near += (14 - scene.fog.near) * cave.amb; scene.fog.far += (82 - scene.fog.far) * cave.amb; }   // the far end of the cavern fades into the dark
   if (player) tickResidents(dt);
   tickWanderers(dt, T, skyU.night.value);
   tickBlink(dt);
@@ -5331,6 +5603,12 @@ function frame() {
   hemi.intensity = outHemi + (0.48 - outHemi) * indoorAmb;
   hemi.color.copy(S.hs).lerp(WARM_SKY, indoorAmb); hemi.groundColor.copy(S.hg).lerp(WARM_GND, indoorAmb);
   sun.intensity = S.li + (0.37 - S.li) * indoorAmb; sun.color.copy(S.lc).lerp(WARM_SUN, indoorAmb);
+  if (cave.amb > 0) {   // in the cave it is always a cool blue dusk, whatever the hour outside, and what light there is comes off the mushrooms
+    const k = cave.amb; hemi.intensity += (0.62 - hemi.intensity) * k; hemi.color.lerp(CAVE_SKY, k); hemi.groundColor.lerp(CAVE_GND, k);
+    sun.intensity += (0.2 - sun.intensity) * k; sun.color.lerp(CAVE_SUN, k);
+    U.uNight.value += (0.7 - U.uNight.value) * k; U.uDay.value = 1 - U.uNight.value;
+  }
+  U.uLampTint.value.set(1.0, 0.8, 0.52).lerp(CAVE_TINT, cave.amb);
   Snd.setForest(forestAmb * (1 - S.night));
   for (const s of forestBits.shafts) s.m.opacity = s.base * (0.7 + 0.3 * Math.sin(T * 0.5 + s.ph)) * S.shaft;
   TEX.water.offset.set(T * 0.012, T * 0.007);
@@ -5516,7 +5794,7 @@ function tickWeather(dt, T) {
   }
   U.uWx.value.set(wx.snow, wx.rain, 0);
   // where the falling stuff is drawn: a box a little ahead of the camera; none inside the tree
-  const out = !(player && player.zone === 'tower'), q = [1, 0.7, 0.45, 0.25][level], f = new V3(); camera.getWorldDirection(f);
+  const out = !(player && (player.zone === 'tower' || player.zone === 'cave')), q = [1, 0.7, 0.45, 0.25][level], f = new V3(); camera.getWorldDirection(f);
   const cx = camera.position.x + f.x * 12, cy = camera.position.y + 6, cz = camera.position.z + f.z * 12;
   Precip.rain.visible = out && wx.rain > 0.01; Precip.snow.visible = out && wx.snowfall > 0.01;
   if (Precip.rain.visible) { Precip.rU.uC.value.set(cx, cy, cz); Precip.rU.uK.value = wx.rain; Precip.rain.geometry.setDrawRange(0, 2 * Math.round(Precip.NR * q * (0.12 + 0.88 * wx.rain)));
@@ -5527,7 +5805,7 @@ function tickWeather(dt, T) {
   if (w.storm && wx.rain > 0.72 && out && (wx.next -= dt) <= 0) { wx.next = rand(7, 19); strike(); }
   wx.ft += dt; wx.flash = wx.ft < 0.07 ? 1 : wx.ft < 0.15 ? 0.25 : wx.ft < 0.24 ? 0.8 : Math.max(0, 0.8 - (wx.ft - 0.24) * 2.6);
   Precip.bolt.visible = wx.ft < 0.24 && out; Precip.bolt.material.opacity = wx.ft < 0.07 || wx.ft > 0.15 ? 1 : 0.3;
-  Snd.setRain(wx.rain * (!player ? 0.5 : player.zone === 'tower' ? 0.18 : player.zone === 'cabin' ? 0.5 : 1));
+  Snd.setRain(wx.rain * (!player ? 0.5 : player.zone === 'tower' ? 0.18 : player.zone === 'cave' ? 0.06 : player.zone === 'cabin' ? 0.5 : 1));
 }
 /* what everyone says about it: a creature's own line if it has one, else a general one; indoor folk only hear it through the walls */
 const WX_OUT = new Set(['mongsil', 'tosil', 'haneul', 'leo', 'fox', 'duck', 'post', 'turtle', 'woodcutter', 'crab', 'gull']);
