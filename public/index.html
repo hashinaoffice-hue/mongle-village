@@ -260,6 +260,7 @@ button{font:inherit;color:inherit}
   <button class="btn" id="bSwap" hidden>친구 바꾸기</button>
   <button class="btn snd" id="bMap" hidden aria-pressed="true" aria-controls="map" title="지도 펴기/접기 (M)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M2.5 5l5-2 5 2 5-2v12l-5 2-5-2-5 2z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M7.5 3v12M12.5 5v12" stroke="currentColor" stroke-width="1.6"/></svg>지도</button>
   <button class="btn" id="bBeam" hidden aria-pressed="false" title="내 화면을 허공에 띄워 같이 봐요 (채널에 한 명씩)">화면 공유</button>
+  <div id="beamSize" class="seg" hidden role="group" aria-label="공유 화면 크기"><span>크기</span><button type="button" data-d="-1" title="작게 ([ 키)" aria-label="작게">－</button><b id="beamK" style="font-weight:normal;min-width:3.2em;text-align:center">100%</b><button type="button" data-d="1" title="크게 (] 키)" aria-label="크게">＋</button></div>
   <div id="gfx" class="seg" role="group" aria-label="그래픽 설정"><span>화질</span><button type="button" data-l="2">낮음</button><button type="button" data-l="1">중간</button><button type="button" data-l="0">높음</button></div>
   <button class="btn snd" id="bMusic" aria-pressed="true" title="배경음악 켜기/끄기"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 15.5V4.5l9-2v10.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="5" cy="15.5" r="2.4" fill="currentColor"/><circle cx="14" cy="13" r="2.4" fill="currentColor"/></svg>음악</button>
   <button class="btn snd" id="bSfx" aria-pressed="true" title="효과음·목소리 켜기/끄기"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 8h3l4-3.5v11L6 12H3z" fill="currentColor"/><path d="M13 7.5a3.5 3.5 0 0 1 0 5M15.5 5a7 7 0 0 1 0 10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>효과음</button>
@@ -5416,7 +5417,7 @@ const Net = { ws: null, id: 0, nick: '', ch: 0, max: 20, remotes: new Map(), sen
 let selCh = 0, chData = null;
 /* ---------------- the beam projector: one person per channel can share their screen, and it hangs in the air like a hologram for everyone to watch together ----------------
    The picture and sound go straight from the sharer's browser to each viewer's (WebRTC); the server only says who is sharing where and passes the handshake along. */
-const Beam = { host: 0, mine: false, pending: null, stream: null, peers: new Map(), video: null, tex: null, group: null, U: null, glow: null, cone: null, y0: 0, aspect: 16 / 9, needTap: false,
+const Beam = { k: 1, host: 0, mine: false, pending: null, stream: null, peers: new Map(), video: null, tex: null, group: null, U: null, glow: null, cone: null, y0: 0, aspect: 16 / 9, needTap: false,
   can: !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia && window.RTCPeerConnection), ICE: [{ urls: 'stun:stun.l.google.com:19302' }] };
 {
   const v = Beam.video = document.createElement('video'); v.playsInline = true; v.autoplay = true; v.setAttribute('playsinline', ''); v.style.display = 'none'; document.body.appendChild(v);
@@ -5447,24 +5448,37 @@ const Beam = { host: 0, mine: false, pending: null, stream: null, peers: new Map
   v.addEventListener('resize', () => { if (v.videoWidth && v.videoHeight) { Beam.aspect = clamp(v.videoWidth / v.videoHeight, 0.6, 2.4); Beam.layout(); } });
   addEventListener('pointerdown', () => { if (Beam.needTap) { Beam.needTap = false; v.muted = Beam.mine; v.play().catch(() => {}); } }, true);
 }
-Beam.layout = () => {   // fit the screen to the picture's shape: about 5.4 m tall, never wider than 12 m
-  const h = Math.min(5.4, 12 / Beam.aspect), w = h * Beam.aspect, gy = Beam.gy - Beam.y0;
+const BEAM_SIZES = [0.6, 0.8, 1, 1.4, 2, 3, 4];   // how big the sharer can make it: times the usual 5.4 m height
+Beam.layout = () => {   // fit the screen to the picture's shape: about 5.4 m tall (times the chosen size), never wider than 12 m at the usual size
+  const h = Math.min(5.4, 12 / Beam.aspect) * Beam.k, w = h * Beam.aspect;
+  Beam.y0 = Beam.gy + 2.7 + h / 2;                                                                  // the lower edge always floats 2.7 m over the ground
+  const gy = Beam.gy - Beam.y0;
   Beam.scr.scale.set(w, h, 1); Beam.glow.scale.set(w * 1.9, h * 2.0, 1);
   Beam.dev.position.set(0, gy, 0);
   const top = -h / 2 - 0.1, len = Math.max(0.5, top - (gy + 0.5)); Beam.cone.scale.set(w * 0.42, len, 0.5); Beam.cone.position.set(0, gy + 0.5 + len / 2, 0);
 };
 Beam.show = (s) => {
-  Beam.host = s.id; Beam.mine = s.id === Net.id; Beam.y0 = s.y; Beam.gy = baseY(s.x, s.z); Beam.U.uOn.value = 0;
+  Beam.host = s.id; Beam.mine = s.id === Net.id; Beam.k = s.k || 1; Beam.gy = baseY(s.x, s.z); Beam.U.uOn.value = 0;
   Beam.group.position.set(s.x, s.y, s.z); Beam.group.rotation.y = s.yaw; Beam.group.visible = true; Beam.layout();
   $('bBeam').setAttribute('aria-pressed', Beam.mine); $('bBeam').textContent = Beam.mine ? '공유 끝내기' : '화면 공유';
+  Beam.sizeUI();
 };
 Beam.play = (stream) => {
   const v = Beam.video; v.srcObject = stream; v.muted = Beam.mine;                                 // you don't hear your own screen back
   const p = v.play(); if (p && p.catch) p.catch(() => { v.muted = true; v.play().catch(() => {}); if (!Beam.mine) { Beam.needTap = true; toast('화면을 한 번 누르면 소리가 켜져요', 4000); } });
 };
+Beam.sizeUI = () => { $('beamSize').hidden = !Beam.mine; $('beamK').textContent = Math.round(Beam.k * 100) + '%'; };
+Beam.resize = (dir) => {   // only the sharer: one step bigger or smaller, for everyone
+  if (!Beam.mine) return;
+  let i = BEAM_SIZES.findIndex(v => v >= Beam.k - 1e-3); if (i < 0) i = BEAM_SIZES.length - 1;
+  const k = BEAM_SIZES[clamp(i + dir, 0, BEAM_SIZES.length - 1)]; if (k === Beam.k) return;
+  Beam.k = k; Beam.layout(); Beam.sizeUI(); netSend({ t: 'scr', k });
+};
+Beam.onSize = (m) => { if (!Beam.host || Beam.mine || typeof m.k !== 'number') return; Beam.k = clamp(m.k, 0.6, 4); Beam.layout(); };
+document.querySelectorAll('#beamSize button').forEach(b => b.addEventListener('click', () => { Beam.resize(+b.dataset.d); Snd.pop(); canvas.focus(); }));
 Beam.closePeers = () => { for (const pc of Beam.peers.values()) try { pc.close(); } catch (e) {} Beam.peers.clear(); };
 Beam.hide = () => {   // the screen goes dark for everyone here
-  Beam.closePeers(); Beam.host = 0; Beam.mine = false; Beam.group.visible = false; Beam.U.uOn.value = 0; Beam.needTap = false;
+  Beam.closePeers(); Beam.host = 0; Beam.mine = false; Beam.k = 1; $('beamSize').hidden = true; Beam.group.visible = false; Beam.U.uOn.value = 0; Beam.needTap = false;
   Beam.video.pause(); Beam.video.srcObject = null;
   if (Beam.stream) { Beam.stream.getTracks().forEach(t => t.stop()); Beam.stream = null; }
   if (Beam.pending) { Beam.pending.getTracks().forEach(t => t.stop()); Beam.pending = null; }
@@ -5512,7 +5526,7 @@ Beam.onScreen = (m) => {
   if (mine) {
     if (Beam.pending) { Beam.stream = Beam.pending; Beam.pending = null; }
     Beam.play(Beam.stream); for (const id of Net.remotes.keys()) Beam.call(id);
-    toast('화면을 허공에 띄웠어요 · 다시 누르면 끝나요', 3600);
+    toast(IS_TOUCH ? '화면을 허공에 띄웠어요 · 크기는 위쪽 －/＋로 바꿔요' : '화면을 허공에 띄웠어요 · 크기는 －/＋ (또는 [ ] 키)로 바꿔요', 4200);
   } else { toast((m.nick || '친구') + '님이 화면을 띄웠어요! 가까이 가서 같이 봐요', 4200); addLog(null, (m.nick || '친구') + '님이 화면을 띄웠어요'); }
 };
 Beam.start = async () => {
@@ -5537,7 +5551,7 @@ function tickBeam(dt, T) {
   Beam.group.position.y = Beam.y0 + Math.sin(T * 0.9) * 0.07; Beam.dev.position.y = Beam.gy - Beam.group.position.y;
   Beam.glow.material.opacity = 0.26 + 0.07 * Math.sin(T * 1.7); Beam.cone.material.opacity = 0.085 + 0.03 * Math.sin(T * 2.3);
   // the sound is loudest in front of the screen and fades as you walk away
-  if (player && !Beam.mine) { const d = player.pos.distanceTo(Beam.group.position); v.volume = Snd.st.sfx === false ? 0 : Math.pow(clamp(1 - (d - 10) / 70, 0, 1), 1.6); }
+  if (player && !Beam.mine) { const d = player.pos.distanceTo(Beam.group.position); v.volume = Snd.st.sfx === false ? 0 : Math.pow(clamp(1 - (d - 10 * Beam.k) / (70 + 30 * Beam.k), 0, 1), 1.6); }   // a bigger screen carries further }
 }
 
 function setStatus(t) { $('status').textContent = t; }
@@ -5598,6 +5612,7 @@ function onNet(m) {
   else if (m.t === 'leave') { const r = Net.remotes.get(m.id); if (r) { toast(r.c.nick + '님이 돌아갔어요'); addLog(null, r.c.nick + '님이 돌아갔어요'); } removeRemote(m.id); updateCount(); { const pc = Beam.peers.get(m.id); if (pc) { try { pc.close(); } catch (e) {} Beam.peers.delete(m.id); } } }
   else if (m.t === 'screen') Beam.onScreen(m);
   else if (m.t === 'rtc') Beam.onRtc(m);
+  else if (m.t === 'scr') Beam.onSize(m);
   else if (m.t === 'ufo') ufoArrive();
   else if (m.t === 'shower') {
     if (m.busy) { toast('지금은 유성우가 내리는 중이에요. 끝나면 다시 외쳐 보세요', 3200); return; }
@@ -5770,6 +5785,7 @@ addEventListener('keydown', e => {
   if (e.code === 'Space') { player.jump(); e.preventDefault(); }
   if (e.code === 'KeyE' && !e.repeat) greet();
   if (e.code === 'KeyM' && !e.repeat) { setMap(!MAP.open, true); Snd.pop(); }
+  if ((e.code === 'BracketLeft' || e.code === 'BracketRight') && !e.repeat && Beam.mine) { Beam.resize(e.code === 'BracketRight' ? 1 : -1); Snd.pop(); }
   if (e.code === 'KeyF' && !e.repeat && promptPortal) promptPortal.run();
   if (/^Digit[1-4]$/.test(e.code) && !e.repeat) emote(+e.code.slice(5) - 1);
 });
