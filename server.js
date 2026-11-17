@@ -44,6 +44,15 @@ function rollUfo(me) {
   broadcast(channels[me.ch], { t: 'ufo' });
   console.log(`[채널 ${me.ch + 1}] UFO가 광장에 떨어졌어요 (${me.nick})`);
 }
+// 화면 공유(빔 프로젝터): 채널마다 한 번에 한 명만 허공에 화면을 띄울 수 있어요.
+// 영상은 서버를 거치지 않고 사람들끼리 직접 주고받아요(WebRTC). 서버는 누가 어디에 띄웠는지와, 서로 연결하는 데 필요한 신호만 전해 줘요.
+const screens = Array(CHANNELS).fill(null);                       // { id, nick, x, y, z, yaw }
+const RTC_MAX = 12000;                                             // 연결 신호 하나의 최대 크기 (글자 수)
+function endScreen(ch, id) {
+  if (!screens[ch] || (id != null && screens[ch].id !== id)) return;
+  screens[ch] = null;
+  broadcast(channels[ch], { t: 'screen', off: 1 });
+}
 let nextId = 1;
 
 function makeNick(room) {
@@ -81,7 +90,7 @@ const r2 = v => Math.round(v * 100) / 100;
 // 제어 문자와 방향 바꾸는 보이지 않는 문자를 지우고 공백을 하나로 모아요
 const clean = (v, max) => typeof v === 'string' ? [...v.replace(/[\u0000-\u001f\u007f​-‏‪-‮⁦-⁩﻿]/g, '').replace(/\s+/g, ' ').trim()].slice(0, max).join('').trim() : '';
 
-const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 1024 });
+const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 16384 });   // 화면 공유 연결 신호(SDP)는 몇 KB쯤 돼요
 wss.on('connection', ws => {
   ws.alive = true;
   ws.on('pong', () => { ws.alive = true; });
@@ -106,7 +115,7 @@ wss.on('connection', ws => {
       me = { id: nextId++, ws, ch, char: m.char, nick: want || makeNick(room), s: [6, 0, 22, 0, 0, 1, 0], lastChat: 0 };
       if (m.stars === true) me.starsDone = true;   // 다른 채널에서 이미 별사탕을 다 모았어요: 외치기는 되지만 첫 유성우·UFO는 다시 굴리지 않아요
       room.set(me.id, me);
-      send(ws, { t: 'welcome', id: me.id, nick: me.nick, ch, max: MAX_PER_CHANNEL, now: Date.now(), ufo: ufos[ch] ? 1 : 0, shower: Math.max(0, showerEnd[ch] - SHOWER_GAP_MS - Date.now()), players: [...room.values()].filter(p => p !== me).map(info) });
+      send(ws, { t: 'welcome', id: me.id, nick: me.nick, ch, max: MAX_PER_CHANNEL, now: Date.now(), ufo: ufos[ch] ? 1 : 0, shower: Math.max(0, showerEnd[ch] - SHOWER_GAP_MS - Date.now()), screen: screens[ch], players: [...room.values()].filter(p => p !== me).map(info) });
       broadcast(room, { t: 'join', ...info(me) }, me);
       console.log(`[채널 ${ch + 1}] ${me.nick} 입장 (${room.size}/${MAX_PER_CHANNEL})`);
       return;
@@ -123,6 +132,22 @@ wss.on('connection', ws => {
       if (me.starsDone) return; me.starsDone = true;
       callShower(me, 'stars');
       rollUfo(me);
+    } else if (m.t === 'screen') {
+      // 화면 공유 시작/끝: 이미 다른 사람이 띄우고 있으면 못 띄워요
+      if (m.off) return endScreen(me.ch, me.id);
+      const cur = screens[me.ch];
+      if (cur && cur.id !== me.id) return send(ws, { t: 'screen', busy: 1, nick: cur.nick });
+      screens[me.ch] = { id: me.id, nick: me.nick, x: r2(num(m.x, -2000, 2000)), y: r2(num(m.y, -50, 150)), z: r2(num(m.z, -2000, 2000)), yaw: r2(num(m.yaw, -50, 50)) };
+      broadcast(channels[me.ch], { t: 'screen', ...screens[me.ch] });
+      console.log(`[채널 ${me.ch + 1}] ${me.nick} 화면 공유 시작`);
+    } else if (m.t === 'rtc') {
+      // 연결 신호 전달: 화면을 띄운 사람과 보는 사람 사이에서만, 내용은 들여다보지 않고 그대로 건네요
+      const cur = screens[me.ch], to = channels[me.ch].get(m.to);
+      if (!cur || !to || to === me || (cur.id !== me.id && cur.id !== to.id)) return;
+      if (!m.d || typeof m.d !== 'object' || Array.isArray(m.d)) return;
+      let size = 0; try { size = JSON.stringify(m.d).length; } catch { return; }
+      if (size > RTC_MAX) return;
+      send(to.ws, { t: 'rtc', from: me.id, d: m.d });
     } else if (m.t === 'c') {
       // 채팅: 0.7초에 한 번, 60자까지. 내용은 저장하지 않아요.
       if (typeof m.text !== 'string' || now - me.lastChat < CHAT_GAP_MS) return;
@@ -138,7 +163,8 @@ wss.on('connection', ws => {
     if (!me) return;
     const room = channels[me.ch];
     room.delete(me.id);
-    if (room.size === 0) { ufos[me.ch] = null; showerEnd[me.ch] = 0; }   // 채널이 비면 UFO도 유성우도 사라져요
+    endScreen(me.ch, me.id);                                         // 화면을 띄운 사람이 나가면 화면도 꺼져요
+    if (room.size === 0) { ufos[me.ch] = null; showerEnd[me.ch] = 0; screens[me.ch] = null; }   // 채널이 비면 UFO도 유성우도 사라져요
     broadcast(room, { t: 'leave', id: me.id });
     console.log(`[채널 ${me.ch + 1}] ${me.nick} 퇴장 (${room.size}/${MAX_PER_CHANNEL})`);
   });

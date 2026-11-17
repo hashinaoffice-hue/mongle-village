@@ -259,6 +259,7 @@ button{font:inherit;color:inherit}
   <div id="clock" class="chip clock" title="지금 시간에 맞춰 하늘이 바뀌어요 (채널마다 1시간씩 늦어요)"><i aria-hidden="true"></i><span id="clockPh">낮</span><span id="clockT"></span><em id="clockW"></em></div>
   <button class="btn" id="bSwap" hidden>친구 바꾸기</button>
   <button class="btn snd" id="bMap" hidden aria-pressed="true" aria-controls="map" title="지도 펴기/접기 (M)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M2.5 5l5-2 5 2 5-2v12l-5 2-5-2-5 2z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M7.5 3v12M12.5 5v12" stroke="currentColor" stroke-width="1.6"/></svg>지도</button>
+  <button class="btn" id="bBeam" hidden aria-pressed="false" title="내 화면을 허공에 띄워 같이 봐요 (채널에 한 명씩)">화면 공유</button>
   <div id="gfx" class="seg" role="group" aria-label="그래픽 설정"><span>화질</span><button type="button" data-l="2">낮음</button><button type="button" data-l="1">중간</button><button type="button" data-l="0">높음</button></div>
   <button class="btn snd" id="bMusic" aria-pressed="true" title="배경음악 켜기/끄기"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 15.5V4.5l9-2v10.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="5" cy="15.5" r="2.4" fill="currentColor"/><circle cx="14" cy="13" r="2.4" fill="currentColor"/></svg>음악</button>
   <button class="btn snd" id="bSfx" aria-pressed="true" title="효과음·목소리 켜기/끄기"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 8h3l4-3.5v11L6 12H3z" fill="currentColor"/><path d="M13 7.5a3.5 3.5 0 0 1 0 5M15.5 5a7 7 0 0 1 0 10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>효과음</button>
@@ -5386,7 +5387,7 @@ async function start(i) {
   ufoSet(Net.ufo ? 'crashed' : null);
   if (Net.shower > 1500) { startShower(Net.shower / 1000); setTimeout(() => toast('지금 이 채널에 별똥별이 쏟아지고 있어요!', 3500), 1200); }
   setTimeout(() => setMap(MAP.open), 0);
-  $('select').hidden = true; $('hud').hidden = false; $('bSwap').hidden = false; $('bMap').hidden = false;
+  $('select').hidden = true; $('hud').hidden = false; $('bSwap').hidden = false; $('bMap').hidden = false; $('bBeam').hidden = !Beam.can;
   $('whoImg').src = thumbs[player.d.id]; $('whoName').textContent = player.d.name; $('whoNick').textContent = Net.nick;
   updateCount();
   canvas.focus();
@@ -5403,7 +5404,7 @@ function backToSelect() {
   leaveServer(); ufoSet(null); stopShower();
   mode = 'select'; player = null;
   showPickStep();
-  $('select').hidden = false; $('hud').hidden = true; $('bSwap').hidden = true; $('bMap').hidden = true; $('map').hidden = true;
+  $('select').hidden = false; $('hud').hidden = true; $('bSwap').hidden = true; $('bMap').hidden = true; $('bBeam').hidden = true; $('map').hidden = true;
   for (const k in keys) keys[k] = false;
   joy.x = joy.y = 0;
   refreshChannels();
@@ -5413,6 +5414,132 @@ function backToSelect() {
 const PHRASES = ['안녕~!', '반가워!', '같이 가자~', '고마워!'];
 const Net = { ws: null, id: 0, nick: '', ch: 0, max: 20, remotes: new Map(), sendT: 0 };
 let selCh = 0, chData = null;
+/* ---------------- the beam projector: one person per channel can share their screen, and it hangs in the air like a hologram for everyone to watch together ----------------
+   The picture and sound go straight from the sharer's browser to each viewer's (WebRTC); the server only says who is sharing where and passes the handshake along. */
+const Beam = { host: 0, mine: false, pending: null, stream: null, peers: new Map(), video: null, tex: null, group: null, U: null, glow: null, cone: null, y0: 0, aspect: 16 / 9, needTap: false,
+  can: !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia && window.RTCPeerConnection), ICE: [{ urls: 'stun:stun.l.google.com:19302' }] };
+{
+  const v = Beam.video = document.createElement('video'); v.playsInline = true; v.autoplay = true; v.setAttribute('playsinline', ''); v.style.display = 'none'; document.body.appendChild(v);
+  Beam.tex = new THREE.VideoTexture(v); Beam.tex.minFilter = Beam.tex.magFilter = THREE.LinearFilter; Beam.tex.generateMipmaps = false;
+  const g = Beam.group = new THREE.Group(); g.visible = false; g.userData.keep = true; scene.add(g);
+  Beam.U = { map: { value: Beam.tex }, uTime: U.uTime, uOn: { value: 0 } };
+  const scr = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.ShaderMaterial({ transparent: true, side: THREE.DoubleSide, depthWrite: false, uniforms: Beam.U,
+    vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: `uniform sampler2D map; uniform float uTime, uOn; varying vec2 vUv;
+      void main(){
+        vec2 uv = gl_FrontFacing ? vUv : vec2(1.0 - vUv.x, vUv.y);                                   // from behind you see it the right way round too
+        vec3 wait = mix(vec3(0.05, 0.12, 0.24), vec3(0.12, 0.34, 0.5), 0.5 + 0.5 * sin((uv.x + uv.y) * 14.0 - uTime * 2.2));   // before the picture arrives: slow bands of blue
+        vec3 c = mix(wait, texture2D(map, uv).rgb, uOn);
+        c *= 0.95 + 0.05 * sin(uv.y * 620.0 + uTime * 5.0);                                           // faint scan lines
+        float e = min(min(uv.x, 1.0 - uv.x) * 1.78, min(uv.y, 1.0 - uv.y));                           // a soft lit rim
+        c += vec3(0.35, 0.85, 1.0) * smoothstep(0.022, 0.0, e) * 0.8;
+        gl_FragColor = vec4(c, 0.97 * (0.985 + 0.015 * sin(uTime * 31.0))); }` }));
+  scr.renderOrder = 3; g.add(scr); Beam.scr = scr;
+  Beam.glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX.mote, color: 0x7fdcff, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false, opacity: 0.32 })); Beam.glow.position.z = -0.3; Beam.glow.renderOrder = 2; g.add(Beam.glow);
+  // the projector on the ground below, and the cone of light it throws up to the screen
+  const dev = Beam.dev = new THREE.Group(); g.add(dev);
+  mk(new THREE.CylinderGeometry(0.55, 0.65, 0.4, 16), 0xfff7ec, { parent: dev, pos: [0, 0.2, 0], outline: 0.03 });
+  mk(new THREE.CylinderGeometry(0.42, 0.42, 0.12, 16), 0x6f8fc0, { parent: dev, pos: [0, 0.44, 0], outline: 0.02 });
+  mk(SPH_LO, basic(0xbff3ff), { parent: dev, pos: [0, 0.5, 0], scale: [0.3, 0.14, 0.3], outline: 0, shadow: false });
+  Beam.cone = new THREE.Mesh(new THREE.CylinderGeometry(1, 0.3, 1, 20, 1, true), new THREE.MeshBasicMaterial({ color: 0x8fe9ff, transparent: true, opacity: 0.1, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false }));
+  Beam.cone.renderOrder = 2; g.add(Beam.cone);
+  v.addEventListener('loadedmetadata', () => { if (v.videoWidth && v.videoHeight) { Beam.aspect = clamp(v.videoWidth / v.videoHeight, 0.6, 2.4); Beam.layout(); } });
+  v.addEventListener('resize', () => { if (v.videoWidth && v.videoHeight) { Beam.aspect = clamp(v.videoWidth / v.videoHeight, 0.6, 2.4); Beam.layout(); } });
+  addEventListener('pointerdown', () => { if (Beam.needTap) { Beam.needTap = false; v.muted = Beam.mine; v.play().catch(() => {}); } }, true);
+}
+Beam.layout = () => {   // fit the screen to the picture's shape: about 5.4 m tall, never wider than 12 m
+  const h = Math.min(5.4, 12 / Beam.aspect), w = h * Beam.aspect, gy = Beam.gy - Beam.y0;
+  Beam.scr.scale.set(w, h, 1); Beam.glow.scale.set(w * 1.9, h * 2.0, 1);
+  Beam.dev.position.set(0, gy, 0);
+  const top = -h / 2 - 0.1, len = Math.max(0.5, top - (gy + 0.5)); Beam.cone.scale.set(w * 0.42, len, 0.5); Beam.cone.position.set(0, gy + 0.5 + len / 2, 0);
+};
+Beam.show = (s) => {
+  Beam.host = s.id; Beam.mine = s.id === Net.id; Beam.y0 = s.y; Beam.gy = baseY(s.x, s.z); Beam.U.uOn.value = 0;
+  Beam.group.position.set(s.x, s.y, s.z); Beam.group.rotation.y = s.yaw; Beam.group.visible = true; Beam.layout();
+  $('bBeam').setAttribute('aria-pressed', Beam.mine); $('bBeam').textContent = Beam.mine ? '공유 끝내기' : '화면 공유';
+};
+Beam.play = (stream) => {
+  const v = Beam.video; v.srcObject = stream; v.muted = Beam.mine;                                 // you don't hear your own screen back
+  const p = v.play(); if (p && p.catch) p.catch(() => { v.muted = true; v.play().catch(() => {}); if (!Beam.mine) { Beam.needTap = true; toast('화면을 한 번 누르면 소리가 켜져요', 4000); } });
+};
+Beam.closePeers = () => { for (const pc of Beam.peers.values()) try { pc.close(); } catch (e) {} Beam.peers.clear(); };
+Beam.hide = () => {   // the screen goes dark for everyone here
+  Beam.closePeers(); Beam.host = 0; Beam.mine = false; Beam.group.visible = false; Beam.U.uOn.value = 0; Beam.needTap = false;
+  Beam.video.pause(); Beam.video.srcObject = null;
+  if (Beam.stream) { Beam.stream.getTracks().forEach(t => t.stop()); Beam.stream = null; }
+  if (Beam.pending) { Beam.pending.getTracks().forEach(t => t.stop()); Beam.pending = null; }
+  $('bBeam').setAttribute('aria-pressed', false); $('bBeam').textContent = '화면 공유';
+};
+Beam.pc = (id) => {
+  const old = Beam.peers.get(id); if (old) try { old.close(); } catch (e) {}
+  const pc = new RTCPeerConnection({ iceServers: Beam.ICE }); Beam.peers.set(id, pc); pc.queue = [];
+  pc.onicecandidate = e => { if (e.candidate) netSend({ t: 'rtc', to: id, d: { c: e.candidate } }); };
+  return pc;
+};
+Beam.call = async (id) => {   // the sharer rings each viewer
+  if (!Beam.mine || !Beam.stream) return;
+  try {
+    const pc = Beam.pc(id); Beam.stream.getTracks().forEach(t => pc.addTrack(t, Beam.stream));
+    await pc.setLocalDescription(await pc.createOffer()); netSend({ t: 'rtc', to: id, d: { sdp: pc.localDescription } });
+  } catch (e) {}
+};
+Beam.onRtc = async (m) => {
+  const d = m.d; if (!d || !Beam.host) return;
+  try {
+    if (d.sdp && d.sdp.type === 'offer') {                                                           // a viewer answers the sharer
+      if (Beam.mine || m.from !== Beam.host) return;
+      const pc = Beam.pc(m.from);
+      pc.ontrack = e => { Beam.play(e.streams[0] || new MediaStream([e.track])); };
+      await pc.setRemoteDescription(d.sdp); await pc.setLocalDescription(await pc.createAnswer());
+      netSend({ t: 'rtc', to: m.from, d: { sdp: pc.localDescription } });
+      for (const c of pc.queue.splice(0)) pc.addIceCandidate(c).catch(() => {});
+    } else if (d.sdp && d.sdp.type === 'answer') {
+      const pc = Beam.peers.get(m.from); if (!pc || !Beam.mine) return;
+      await pc.setRemoteDescription(d.sdp); for (const c of pc.queue.splice(0)) pc.addIceCandidate(c).catch(() => {});
+    } else if (d.c) {
+      const pc = Beam.peers.get(m.from); if (!pc) return;
+      if (pc.remoteDescription) pc.addIceCandidate(d.c).catch(() => {}); else pc.queue.push(d.c);
+    }
+  } catch (e) {}
+};
+Beam.onScreen = (m) => {
+  if (m.busy) { if (Beam.pending) { Beam.pending.getTracks().forEach(t => t.stop()); Beam.pending = null; } toast('지금은 ' + (m.nick || '다른 친구') + '님이 화면을 띄우고 있어요', 3200); return; }
+  if (m.off) { if (Beam.host) { toast(Beam.mine ? '화면 공유를 끝냈어요' : '화면 공유가 끝났어요', 2600); Beam.hide(); } return; }
+  if (Beam.host && Beam.host !== m.id) Beam.hide();
+  const mine = m.id === Net.id;
+  if (mine && !Beam.pending && !Beam.stream) { netSend({ t: 'screen', off: 1 }); return; }           // a stale echo of a share we already gave up
+  Beam.show(m);
+  if (mine) {
+    if (Beam.pending) { Beam.stream = Beam.pending; Beam.pending = null; }
+    Beam.play(Beam.stream); for (const id of Net.remotes.keys()) Beam.call(id);
+    toast('화면을 허공에 띄웠어요 · 다시 누르면 끝나요', 3600);
+  } else { toast((m.nick || '친구') + '님이 화면을 띄웠어요! 가까이 가서 같이 봐요', 4200); addLog(null, (m.nick || '친구') + '님이 화면을 띄웠어요'); }
+};
+Beam.start = async () => {
+  if (!Beam.can) { toast('이 기기에서는 화면을 공유할 수 없어요 (볼 수는 있어요)', 3600); return; }
+  if (Beam.host) { toast('지금은 다른 친구가 화면을 띄우고 있어요', 3000); return; }
+  if (Beam.pending || !player) return;
+  let stream; try { stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: 24, max: 30 }, width: { max: 1280 }, height: { max: 720 } }, audio: true }); } catch (e) { return; }   // cancelled the picker
+  if (mode !== 'play' || !player || Beam.host) { stream.getTracks().forEach(t => t.stop()); return; }
+  Beam.pending = stream;
+  stream.getVideoTracks().forEach(t => { t.contentHint = 'motion'; t.addEventListener('ended', () => Beam.stop()); });   // "stop sharing" in the browser's own bar ends it too
+  // it appears a few steps in front of you, facing you, its lower edge well over everyone's head
+  const fx = Math.sin(player.yaw), fz = Math.cos(player.yaw), x = player.pos.x + fx * 8, z = player.pos.z + fz * 8;
+  netSend({ t: 'screen', x, y: Math.max(player.pos.y, baseY(x, z)) + 5.4, z, yaw: player.yaw + Math.PI });
+  setTimeout(() => { if (Beam.pending === stream) { stream.getTracks().forEach(t => t.stop()); Beam.pending = null; toast('화면을 띄우지 못했어요. 다시 해 보세요', 3000); } }, 6000);
+};
+Beam.stop = () => { if (Beam.mine || Beam.pending) { netSend({ t: 'screen', off: 1 }); if (!Beam.mine && Beam.pending) { Beam.pending.getTracks().forEach(t => t.stop()); Beam.pending = null; } } };
+$('bBeam').addEventListener('click', () => { Snd.pop(); canvas.focus(); Beam.mine ? Beam.stop() : Beam.start(); });
+function tickBeam(dt, T) {
+  if (!Beam.host) return;
+  const v = Beam.video, has = v.readyState >= 2 && v.videoWidth > 0;
+  Beam.U.uOn.value += ((has ? 1 : 0) - Beam.U.uOn.value) * Math.min(1, dt * 4);
+  Beam.group.position.y = Beam.y0 + Math.sin(T * 0.9) * 0.07; Beam.dev.position.y = Beam.gy - Beam.group.position.y;
+  Beam.glow.material.opacity = 0.26 + 0.07 * Math.sin(T * 1.7); Beam.cone.material.opacity = 0.085 + 0.03 * Math.sin(T * 2.3);
+  // the sound is loudest in front of the screen and fades as you walk away
+  if (player && !Beam.mine) { const d = player.pos.distanceTo(Beam.group.position); v.volume = Snd.st.sfx === false ? 0 : Math.pow(clamp(1 - (d - 10) / 70, 0, 1), 1.6); }
+}
+
 function setStatus(t) { $('status').textContent = t; }
 function updateCount() { $('chInfo').textContent = '채널 ' + (Net.ch + 1) + ' · ' + (Net.remotes.size + 1) + '명'; }
 function connect(ch, charId, nick) {
@@ -5424,7 +5551,7 @@ function connect(ch, charId, nick) {
     ws.onmessage = ev => {
       let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
       if (!settled) {
-        if (m.t === 'welcome') { settled = true; Object.assign(Net, { ws, id: m.id, nick: m.nick, ch: m.ch, max: m.max, ufo: !!m.ufo, shower: m.shower || 0 }); if (m.now) WX.off = m.now - Date.now(); skyCh = m.ch; m.players.forEach(addRemote); resolve(m); }
+        if (m.t === 'welcome') { settled = true; Object.assign(Net, { ws, id: m.id, nick: m.nick, ch: m.ch, max: m.max, ufo: !!m.ufo, shower: m.shower || 0 }); if (m.now) WX.off = m.now - Date.now(); skyCh = m.ch; m.players.forEach(addRemote); if (m.screen) Beam.onScreen(m.screen); resolve(m); }
         else if (m.t === 'full') { settled = true; reject('full'); }
         else if (m.t === 'taken') { settled = true; reject('taken'); }
         return;
@@ -5434,12 +5561,12 @@ function connect(ch, charId, nick) {
     ws.onclose = () => {
       if (!settled) { settled = true; reject('noserver'); return; }
       if (Net.ws !== ws) return;                       // we left on purpose
-      Net.ws = null; clearRemotes();
+      Net.ws = null; clearRemotes(); Beam.hide();
       if (mode === 'play') { backToSelect(); setStatus('서버와 연결이 끊어졌어요. 다시 골라 주세요.'); }
     };
   });
 }
-function leaveServer() { const w = Net.ws; Net.ws = null; if (w) w.close(); clearRemotes(); }
+function leaveServer() { const w = Net.ws; Net.ws = null; if (w) w.close(); clearRemotes(); Beam.hide(); }
 function netSend(obj) { if (Net.ws && Net.ws.readyState === 1) Net.ws.send(JSON.stringify(obj)); }
 function addRemote(p) {
   if (Net.remotes.has(p.id)) return;
@@ -5467,8 +5594,10 @@ function removeRemote(id) {
 function clearRemotes() { [...Net.remotes.keys()].forEach(removeRemote); }
 function onNet(m) {
   if (m.t === 'snap') { for (const s of m.p) { if (s[0] === Net.id) continue; const r = Net.remotes.get(s[0]); if (r) applyState(r, s.slice(1)); } }
-  else if (m.t === 'join') { addRemote(m); toast(m.nick + '님이 놀러 왔어요'); addLog(null, m.nick + '님이 놀러 왔어요'); updateCount(); }
-  else if (m.t === 'leave') { const r = Net.remotes.get(m.id); if (r) { toast(r.c.nick + '님이 돌아갔어요'); addLog(null, r.c.nick + '님이 돌아갔어요'); } removeRemote(m.id); updateCount(); }
+  else if (m.t === 'join') { addRemote(m); toast(m.nick + '님이 놀러 왔어요'); addLog(null, m.nick + '님이 놀러 왔어요'); updateCount(); Beam.call(m.id); }
+  else if (m.t === 'leave') { const r = Net.remotes.get(m.id); if (r) { toast(r.c.nick + '님이 돌아갔어요'); addLog(null, r.c.nick + '님이 돌아갔어요'); } removeRemote(m.id); updateCount(); { const pc = Beam.peers.get(m.id); if (pc) { try { pc.close(); } catch (e) {} Beam.peers.delete(m.id); } } }
+  else if (m.t === 'screen') Beam.onScreen(m);
+  else if (m.t === 'rtc') Beam.onRtc(m);
   else if (m.t === 'ufo') ufoArrive();
   else if (m.t === 'shower') {
     if (m.busy) { toast('지금은 유성우가 내리는 중이에요. 끝나면 다시 외쳐 보세요', 3200); return; }
@@ -5954,6 +6083,7 @@ function frame() {
   tickFalls(dt, S);
   tickBeach(dt, T, S);
   tickHill(dt, T, S);
+  tickBeam(dt, T);
   // indoors the light turns warm and soft, like lamplight inside a tree
   indoorAmb += ((player && player.zone === 'tower' ? 1 : player && player.zone === 'cabin' ? 0.35 : 0) - indoorAmb) * Math.min(1, dt * 3);
   const outHemi = S.hi - 0.1 * forestAmb * (1 - S.night);
