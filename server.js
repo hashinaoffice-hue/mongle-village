@@ -137,9 +137,15 @@ wss.on('connection', ws => {
       if (m.off) return endScreen(me.ch, me.id);
       const cur = screens[me.ch];
       if (cur && cur.id !== me.id) return send(ws, { t: 'screen', busy: 1, nick: cur.nick });
-      screens[me.ch] = { id: me.id, nick: me.nick, x: r2(num(m.x, -2000, 2000)), y: r2(num(m.y, -50, 150)), z: r2(num(m.z, -2000, 2000)), yaw: r2(num(m.yaw, -50, 50)) };
+      screens[me.ch] = { id: me.id, nick: me.nick, x: r2(num(m.x, -2000, 2000)), y: r2(num(m.y, -50, 150)), z: r2(num(m.z, -2000, 2000)), yaw: r2(num(m.yaw, -50, 50)), k: 1 };
       broadcast(channels[me.ch], { t: 'screen', ...screens[me.ch] });
       console.log(`[채널 ${me.ch + 1}] ${me.nick} 화면 공유 시작`);
+    } else if (m.t === 'scr') {
+      // 화면 크기: 띄운 사람만 바꿀 수 있어요 (0.6배~4배)
+      const cur = screens[me.ch];
+      if (!cur || cur.id !== me.id || typeof m.k !== 'number' || !Number.isFinite(m.k)) return;
+      cur.k = r2(Math.max(0.6, Math.min(4, m.k)));
+      broadcast(channels[me.ch], { t: 'scr', k: cur.k });
     } else if (m.t === 'rtc') {
       // 연결 신호 전달: 화면을 띄운 사람과 보는 사람 사이에서만, 내용은 들여다보지 않고 그대로 건네요
       const cur = screens[me.ch], to = channels[me.ch].get(m.to);
