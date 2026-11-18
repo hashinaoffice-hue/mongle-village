@@ -5567,36 +5567,98 @@ const SHIP_DEFAULT = [   // used when there is no playlist (or it cannot be read
   const c = SHIP.canvas = document.createElement('canvas'); c.width = 1024; c.height = 512; SHIP.ctx = c.getContext('2d');
   SHIP.tex = new THREE.CanvasTexture(c); SHIP.tex.minFilter = THREE.LinearFilter; SHIP.tex.generateMipmaps = false;
   const g = SHIP.group = new THREE.Group(); g.userData.keep = true; scene.add(g);
-  const cream = toon(0xfff4e6, { soft: true, rim: 0.2 }), pink = toon(0xf3a5b6, { soft: true, rim: 0.15 }), blue = toon(0x8fb2e6, { soft: true, rim: 0.15 }), navy = 0x3a4a7a;
+  // ---- a cuddly airship: a round cream balloon with a sleepy bear face and ears, pastel gores and stars, heart fins, a little cabin with flower boxes, and bunting
+  const PINK = 0xf3a5b6, MINT = 0x9fdccb, BUTTER = 0xffd98a, LILAC = 0xc4b2f0, INKC = 0x4b3a35;
+  const sft = c => toon(c, { soft: true, rim: 0.15 }), V = (x, y, z) => new V3(x, y, z);
   const L = 14, R = 4.3, rAt = z => R * Math.sqrt(Math.max(0, 1 - (z / L) ** 2));
-  const hull = mk(SPH, cream, { parent: g, scale: [R, R, L], outline: 0.06 });
-  mk(SPH_MED, pink, { parent: g, pos: [0, 0, L - 0.9], scale: [1.35, 1.35, 1.1], outline: 0.04 });                                  // nose cap
-  for (const z of [-7.5, -3, 4.5]) mk(new THREE.TorusGeometry(rAt(z) + 0.02, 0.22, 8, 40), z > 0 ? pink : blue, { parent: g, pos: [0, 0, z], outline: 0.02 });   // painted bands
-  for (let k = 0; k < 4; k++) {                                                                                                         // tail fins
-    const fin = new THREE.Group(); fin.position.z = -L + 3.2; fin.rotation.z = k * Math.PI / 2; g.add(fin);
-    mk(new THREE.BoxGeometry(0.3, 3.6, 3.6), k % 2 ? blue : pink, { parent: fin, pos: [0, rAt(-L + 3.2) + 1.3, -0.6], rot: [0.5, 0, 0], outline: 0.03 });
+  const onHull = (x, y, z) => { const n = V(x / (R * R), y / (R * R), z / (L * L)).normalize(); return n; };   // the hull's outward direction at a point on it
+  const stick = (obj, p, n) => { obj.position.copy(p); obj.quaternion.setFromUnitVectors(V(0, 0, 1), n); g.add(obj); return obj; };
+  // the hull: gores like a hot-air balloon, a scalloped pink collar at the nose, a mint one at the tail, and little stars and dots between
+  { const c = document.createElement('canvas'); c.width = 1024; c.height = 512; const x = c.getContext('2d');   // across = round the hull, down = nose to tail
+    x.fillStyle = '#fff4e6'; x.fillRect(0, 0, 1024, 512);
+    for (let i = 0; i < 16; i++) { x.fillStyle = i % 2 ? 'rgba(255,214,226,.28)' : 'rgba(255,255,255,0)'; x.fillRect(i * 64, 0, 64, 512); }
+    x.strokeStyle = 'rgba(75,58,53,.16)'; x.lineWidth = 2; for (let i = 0; i < 16; i++) { x.beginPath(); x.moveTo(i * 64, 0); x.lineTo(i * 64, 512); x.stroke(); }
+    const scallop = (y0, h, col, down) => { x.fillStyle = col; x.fillRect(0, down ? y0 - h : y0, 1024, h); x.beginPath(); for (let i = 0; i <= 32; i++) x.arc(i * 32 + 16, down ? y0 : y0, 16, 0, Math.PI * (down ? 1 : -1), !down); x.fill();
+      x.strokeStyle = 'rgba(75,58,53,.35)'; x.lineWidth = 3; x.beginPath(); for (let i = 0; i < 32; i++) x.arc(i * 32 + 16, y0, 16, down ? 0 : Math.PI, down ? Math.PI : Math.PI * 2, false); x.stroke(); };
+    scallop(222, 26, '#f6a9c0', true); scallop(408, 26, '#9fdccb', false);   // the pink collar sits just behind the face, so the face stays on cream
+    const st = (cx, cy, r, col) => { x.beginPath(); for (let k = 0; k < 10; k++) { const a = -Math.PI / 2 + k * Math.PI / 5, rr = k % 2 ? r * 0.45 : r; x.lineTo(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr); } x.closePath(); x.fillStyle = col; x.fill(); };
+    for (let i = 0; i < 70; i++) { const px = (i * 149) % 1024, py = 150 + ((i * 97) % 240); i % 3 ? (x.beginPath(), x.arc(px, py, 5, 0, 7), x.fillStyle = ['#f6a9c0', '#9fdccb', '#c4b2f0'][i % 3], x.fill()) : st(px, py, 11, '#ffd98a'); }
+    const tex = new THREE.CanvasTexture(c);
+    const hg = new THREE.SphereGeometry(1, 48, 28); hg.rotateX(Math.PI / 2);                                  // poles at nose and tail, so the pattern wraps the right way
+    mk(hg, toon(0xffffff, { map: tex, soft: true, rim: 0.2 }), { parent: g, scale: [R, R, L], outline: 0.06 }); }
+  // a sleepy, smiling face on the nose, rosy cheeks, and two round bear ears on top
+  for (const sx of [-1, 1]) {
+    const px = sx * 1.25, py = 0.95, pz = L * Math.sqrt(1 - (px * px + py * py) / (R * R)), n = onHull(px, py, pz);
+    const eye = stick(new THREE.Group(), V(px, py, pz).addScaledVector(n, 0.02), n);
+    mk(SPH_MED, basic(0x2b2220), { parent: eye, scale: [0.3, 0.38, 0.1], outline: 0, shadow: false });
+    mk(SPH_LO, basic(0xffffff), { parent: eye, pos: [0.09, 0.13, 0.08], scale: [0.1, 0.1, 0.04], outline: 0, shadow: false });
+    const bx = sx * 2.2, by = -0.35, bz = L * Math.sqrt(1 - (bx * bx + by * by) / (R * R)), bn = onHull(bx, by, bz);
+    const bl = stick(new THREE.Mesh(CIRCLE, blushMat), V(bx, by, bz).addScaledVector(bn, 0.03), bn); bl.scale.set(0.55, 0.36, 1);
+    const ex = sx * 1.75, ez = 8.6, ey = Math.sqrt(Math.max(0, rAt(ez) ** 2 - ex * ex)) + 0.35;
+    const ear = new THREE.Group(); ear.position.set(ex, ey, ez); ear.rotation.z = -sx * 0.35; g.add(ear);
+    mk(SPH_MED, sft(0xfff4e6), { parent: ear, scale: [0.95, 0.95, 0.5], outline: 0.035 });
+    mk(SPH_LO, sft(0xf6b7c4), { parent: ear, pos: [0, 0.05, 0.3], scale: [0.55, 0.55, 0.25], outline: 0 });
   }
-  // the gondola underneath, with round windows, and a propeller either side
-  const gon = new THREE.Group(); gon.position.set(0, -R - 1.1, 1); g.add(gon);
-  mk(SPH, cream, { parent: gon, scale: [1.45, 1.05, 3.6], outline: 0.04 });
-  mk(new THREE.BoxGeometry(2.4, 0.18, 6.6), blue, { parent: gon, pos: [0, 0.75, 0], outline: 0.02 });
-  for (const sx of [-1, 1]) for (let i = 0; i < 4; i++) { const w = new THREE.Mesh(new THREE.CircleGeometry(0.28, 14), basic(0xcfeefc)); w.position.set(sx * 1.37, 0.05, -1.6 + i * 1.05); w.rotation.y = sx * Math.PI / 2; gon.add(w); }
+  { const pz = L * Math.sqrt(1 - 0.36 / (R * R)), n = onHull(0, 0.6, pz);
+    const sm = stick(new THREE.Mesh(new THREE.TorusGeometry(0.34, 0.07, 6, 16, Math.PI), basic(0x2b2220)), V(0, -0.1, L * Math.sqrt(1 - 0.01 / (R * R))).addScaledVector(V(0, 0, 1), 0.02), V(0, 0, 1)); sm.rotation.z = Math.PI;
+    mk(SPH_LO, sft(0xf29db0), { parent: g, pos: [0, 0.35, L - 0.02], scale: [0.3, 0.22, 0.18], outline: 0.02 }); }                 // a little pink nose
+  // a star on a stalk on top
+  { const top = rAt(0.5); mk(new THREE.CylinderGeometry(0.06, 0.08, 1.4, 6), sft(INKC), { parent: g, pos: [0, top + 0.65, 0.5], outline: 0 });
+    mk(STAR_GEO, gloss(0xffe27a, { emissive: 0x4a3a00, shin: 70, spec: 0xffffff, rim: 0.25 }), { parent: g, pos: [0, top + 1.6, 0.4], scale: 0.42, outline: 0.03 }); }
+  // tail fins: rounded, in pastels; the top one carries a heart on each side
+  { const fin = new THREE.Shape(); fin.moveTo(0, 0); fin.lineTo(3.6, -1.5); fin.quadraticCurveTo(4.5, 2.2, 2.3, 3.0); fin.quadraticCurveTo(0.6, 3.2, 0, 0);   // the root slopes in as the hull narrows toward the tail
+    const fg = new THREE.ExtrudeGeometry(fin, { depth: 0.26, bevelEnabled: true, bevelSize: 0.08, bevelThickness: 0.06, bevelSegments: 2, curveSegments: 10 }); fg.translate(0, 0, -0.13);
+    const heart = new THREE.Shape(); heart.moveTo(0, -0.55); heart.bezierCurveTo(-0.75, -0.05, -0.55, 0.55, 0, 0.25); heart.bezierCurveTo(0.55, 0.55, 0.75, -0.05, 0, -0.55);
+    const hgeo = new THREE.ExtrudeGeometry(heart, { depth: 0.06, bevelEnabled: false, curveSegments: 10 });
+    [PINK, MINT, LILAC, MINT].forEach((cl, k) => {
+      const piv = new THREE.Group(); piv.rotation.z = k * Math.PI / 2; g.add(piv);
+      const z0 = -L + 4.6, f = mk(fg, sft(cl), { parent: piv, pos: [0, rAt(z0) - 0.5, z0], rot: [0, Math.PI / 2, 0], scale: k === 2 ? 0.8 : 1, outline: 0.03 });
+      if (k === 0) for (const sd of [-1, 1]) mk(hgeo, sft(0xffffff), { parent: f, pos: [2.0, 1.7, sd * 0.2], rot: [0, sd < 0 ? Math.PI : 0, 0], outline: 0 });
+    }); }
+  // the cabin underneath: rounded, butter-yellow roof trim, round windows that glow at dusk, flower boxes, and a heart door at the back
+  const gon = new THREE.Group(); gon.position.set(0, -R - 1.05, 1); g.add(gon);
+  mk(SPH, sft(0xfff4e6), { parent: gon, scale: [1.45, 1.05, 3.4], outline: 0.04 });
+  mk(new THREE.CylinderGeometry(1.5, 1.5, 0.3, 24), sft(BUTTER), { parent: gon, pos: [0, 0.78, 0], scale: [1, 1, 2.35], outline: 0.025 });
+  SHIP.winMat = new THREE.MeshBasicMaterial({ color: 0xcfeefc });
+  for (const sx of [-1, 1]) for (let i = 0; i < 3; i++) {
+    const wz = -1.4 + i * 1.4, w = new THREE.Group(); w.position.set(sx * 1.4, 0.12, wz); w.rotation.y = sx * Math.PI / 2; gon.add(w);
+    mk(new THREE.TorusGeometry(0.34, 0.07, 6, 18), sft(PINK), { parent: w, pos: [0, 0, 0.02], outline: 0.012, shadow: false });
+    const gl = new THREE.Mesh(new THREE.CircleGeometry(0.32, 16), SHIP.winMat); w.add(gl);
+    mk(new THREE.BoxGeometry(0.7, 0.16, 0.18), sft(0xc98a55), { parent: w, pos: [0, -0.48, 0.1], outline: 0.01, shadow: false });            // flower box
+    for (let f = 0; f < 3; f++) mk(SPH_LO, basic([0xf48aa3, 0xffd76a, 0xffffff][(i + f) % 3]), { parent: w, pos: [-0.22 + f * 0.22, -0.36, 0.16], scale: 0.08, outline: 0, shadow: false });
+  }
+  { const d = new THREE.Group(); d.position.set(0, -0.05, -3.35); d.rotation.y = Math.PI; gon.add(d);
+    mk(new THREE.ExtrudeGeometry(archShape(0.42, 0.5), { depth: 0.06, bevelEnabled: false }), sft(PINK), { parent: d, pos: [0, -0.55, 0], outline: 0.012 }); }
+  // propellers: pink pods with mint tips, four soft yellow blades each
   SHIP.props = [];
   for (const sx of [-1, 1]) {
-    const pod = new THREE.Group(); pod.position.set(sx * 2.6, 0.2, -1.2); gon.add(pod);
-    mk(new THREE.BoxGeometry(1.2, 0.16, 0.3), navy, { parent: pod, pos: [-sx * 0.6, 0, 0], outline: 0.012 });
-    mk(SPH_LO, pink, { parent: pod, scale: [0.42, 0.42, 0.9], outline: 0.02 });
+    const pod = new THREE.Group(); pod.position.set(sx * 2.7, 0.15, -1.0); gon.add(pod);
+    mk(new THREE.CylinderGeometry(0.09, 0.09, 1.3, 6), sft(INKC), { parent: pod, pos: [-sx * 0.65, 0, 0], rot: [0, 0, Math.PI / 2], outline: 0 });
+    mk(SPH_LO, sft(PINK), { parent: pod, scale: [0.45, 0.45, 0.95], outline: 0.02 });
+    mk(SPH_LO, sft(MINT), { parent: pod, pos: [0, 0, -0.85], scale: 0.2, outline: 0.012 });
     const prop = new THREE.Group(); prop.position.z = -0.95; pod.add(prop); SHIP.props.push(prop);
-    for (let b = 0; b < 3; b++) mk(new THREE.BoxGeometry(0.16, 1.5, 0.05), navy, { parent: prop, pos: [0, 0, 0], rot: [0, 0, b * 2.094], outline: 0.01 }).geometry.translate(0, 0.62, 0);
+    for (let b = 0; b < 4; b++) { const bl = new THREE.Group(); bl.rotation.z = b * Math.PI / 2; prop.add(bl); mk(SPH_LO, sft(BUTTER), { parent: bl, pos: [0, 0.62, 0], scale: [0.2, 0.55, 0.04], rot: [0, 0.35, 0], outline: 0.012 }); }
   }
-  // a screen on each side, tipped a little toward the ground so people below can see it
+  // bunting: two strings of little pennants, nose to cabin and cabin to tail
+  { const BG = new Geo(), cols = [PINK, BUTTER, MINT, LILAC, 0xffb38a];
+    const string = (a, b, sag, n) => {
+      const P = t => V(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t - Math.sin(Math.PI * t) * sag, a.z + (b.z - a.z) * t);
+      for (let i = 0; i < 16; i++) beam(BG, P(i / 16), P((i + 1) / 16), 0.035, INKC, { round: true, seg: 4 });
+      for (let i = 1; i < n; i++) { const p = P(i / n), q = P((i + 0.6) / n), tri = new THREE.BufferGeometry();
+        tri.setAttribute('position', new THREE.Float32BufferAttribute([p.x, p.y, p.z, q.x, q.y, q.z, (p.x + q.x) / 2, Math.min(p.y, q.y) - 0.55, (p.z + q.z) / 2], 3)); tri.computeVertexNormals();
+        BG.add(tri, cols[i % cols.length]); }
+    };
+    for (const sx of [-1, 1]) { string(V(sx * 0.5, -rAt(11.5) + 0.2, 11.5), V(sx * 1.2, -R - 0.4, 3.6), 0.9, 7); string(V(sx * 1.2, -R - 0.4, -1.8), V(sx * 0.5, -rAt(-10.5) + 0.2, -10.5), 0.9, 7); }
+    mk(BG.build(), toon(0xffffff, { vc: true, side: THREE.DoubleSide, soft: true }), { parent: g, outline: 0, shadow: false }); }
+  // a screen on each side with a slim pink rim and tiny gold studs at the corners, tipped a little toward the ground so people below can see it
   SHIP.screens = [];
   for (const sx of [-1, 1]) {
-    const piv = new THREE.Group(); piv.position.set(sx * (R + 0.45), -0.2, -0.6); piv.rotation.y = sx * Math.PI / 2; g.add(piv);
+    const piv = new THREE.Group(); piv.position.set(sx * (R + 0.4), -0.2, -0.6); piv.rotation.y = sx * Math.PI / 2; g.add(piv);
     const tilt = new THREE.Group(); tilt.rotation.x = 0.2; piv.add(tilt);
-    mk(new THREE.BoxGeometry(13.6, 7.1, 0.35), navy, { parent: tilt, pos: [0, 0, -0.2], outline: 0.04 });
+    mk(new THREE.BoxGeometry(13.06, 6.66, 0.14), sft(PINK), { parent: tilt, pos: [0, 0, -0.08], outline: 0.02 });
     const scr = new THREE.Mesh(new THREE.PlaneGeometry(12.8, 6.4), new THREE.MeshBasicMaterial({ map: SHIP.tex, fog: false })); scr.position.z = 0.0; tilt.add(scr);
-    for (const ex of [-5.5, 5.5]) mk(new THREE.BoxGeometry(0.3, 0.3, 1.2), navy, { parent: tilt, pos: [ex, 0, -0.9], outline: 0.012 });   // brackets back to the hull
+    for (const [cx, cy] of [[-6.53, 3.33], [6.53, 3.33], [-6.53, -3.33], [6.53, -3.33]]) mk(SPH_LO, gloss(0xf3c64a, { shin: 100, spec: 0xffffff }), { parent: tilt, pos: [cx, cy, 0.02], scale: 0.16, outline: 0.012, shadow: false });
+    for (const ex of [-5.0, 5.0]) mk(new THREE.CylinderGeometry(0.08, 0.08, 0.9, 6), sft(INKC), { parent: tilt, pos: [ex, 0, -0.55], rot: [Math.PI / 2, 0, 0], outline: 0 });   // brackets back to the hull
     const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX.mote, color: 0xfff1d6, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 })); glow.scale.set(22, 12, 1); glow.position.z = 0.3; tilt.add(glow);
     SHIP.screens.push({ glow });
   }
@@ -5663,7 +5725,8 @@ function tickShip(dt, T, S) {
   for (const p of SHIP.props) p.rotation.z += dt * 14;
   const night = S.night, blink = Math.sin(T * 3.1) > 0.55 ? 1 : 0.15;
   SHIP.navs.forEach((n, i) => n.material.opacity = (0.25 + 0.75 * night) * (i === 2 ? blink : 0.9));
-  for (const s of SHIP.screens) { s.glow.material.opacity = 0.32 * night; s.glow.visible = night > 0.03; }   // by day the glow is not drawn at all (it is a big sprite)
+  for (const s of SHIP.screens) { s.glow.material.opacity = 0.32 * night; s.glow.visible = night > 0.03; }
+  SHIP.winMat.color.copy(WIN_DAY).lerp(WIN_NIGHT, smooth(0.25, 0.7, night));   // the cabin windows light up at dusk   // by day the glow is not drawn at all (it is a big sprite)
   if (!SHIP.list.length) return;
   const [i, into] = shipSlot();
   if (i !== SHIP.cur) shipShow(i, into);
