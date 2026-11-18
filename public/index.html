@@ -1895,40 +1895,41 @@ const grassChunks = [];
 }
 
 /* ---------------- wildflowers (static patches + ones that bloom as you walk) ---------------- */
-function flowerHeadParts(G, M, petal, center, n, pr, len, wid, thick, cr) {
+function flowerHeadParts(G, M, petal, center, n, pr, len, wid, thick, cr, geo = SPH_LO) {
   const mm = new THREE.Matrix4();
   for (let i = 0; i < n; i++) {
     const a = i / n * Math.PI * 2;
     mm.compose(new V3(Math.cos(a) * pr, Math.sin(a) * pr, 0), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, a)), new V3(len, wid, thick));
-    G.addM(SPH_LO, petal, M.clone().multiply(mm));
+    G.addM(geo, petal, M.clone().multiply(mm));
   }
   mm.compose(new V3(0, 0, thick * 0.8), new THREE.Quaternion(), new V3(cr, cr, thick * 1.4));
-  G.addM(SPH_LO, center, M.clone().multiply(mm));
+  G.addM(geo, center, M.clone().multiply(mm));
 }
 function flowerHead(G, M, petal, center) { flowerHeadParts(G, M, petal, center, 5, 0.2, 0.15, 0.11, 0.06, 0.1); }
+const FLOWER_SPH = new THREE.SphereGeometry(1, 6, 4);   // the wildflowers number in the thousands: their petals are a few dozen triangles each, not a few hundred
 function flowerGeo(kind) {
   const G = new Geo(), stemH = kind === 'clover' || kind === 'whiteclover' ? 0.14 : rand(0.38, 0.5);
   const head = (x, y, tilt, ry) => new THREE.Matrix4().compose(new V3(x, y, 0), new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2 + tilt, ry || 0, 0, 'YXZ')), new V3(1, 1, 1));
   if (kind !== 'clover') {
     G.add(new THREE.CylinderGeometry(0.016, 0.022, stemH, 5), 0x6aa250, [0, stemH / 2, 0]);
-    G.add(SPH_LO, 0x7cb562, [0.06, stemH * 0.3, 0], [0, 0, -0.9], [0.035, 0.11, 0.015]);
+    G.add(FLOWER_SPH, 0x7cb562, [0.06, stemH * 0.3, 0], [0, 0, -0.9], [0.035, 0.11, 0.015]);
   }
-  if (kind === 'daisy') flowerHeadParts(G, head(0, stemH, 0.35), 0xffffff, 0xffd34d, 12, 0.085, 0.075, 0.028, 0.012, 0.045);
-  if (kind === 'cosmos') flowerHeadParts(G, head(0, stemH, 0.4), 0xf49ac0, 0xf4c542, 8, 0.1, 0.085, 0.05, 0.012, 0.04);
-  if (kind === 'buttercup') flowerHeadParts(G, head(0, stemH, 0.2), 0xffd84a, 0xf0a830, 5, 0.055, 0.06, 0.05, 0.02, 0.03);
+  if (kind === 'daisy') flowerHeadParts(G, head(0, stemH, 0.35), 0xffffff, 0xffd34d, 12, 0.085, 0.075, 0.028, 0.012, 0.045, FLOWER_SPH);
+  if (kind === 'cosmos') flowerHeadParts(G, head(0, stemH, 0.4), 0xf49ac0, 0xf4c542, 8, 0.1, 0.085, 0.05, 0.012, 0.04, FLOWER_SPH);
+  if (kind === 'buttercup') flowerHeadParts(G, head(0, stemH, 0.2), 0xffd84a, 0xf0a830, 5, 0.055, 0.06, 0.05, 0.02, 0.03, FLOWER_SPH);
   if (kind === 'bluebell') {
     for (const [hx, hy] of [[-0.07, stemH + 0.02], [0.06, stemH - 0.04], [0, stemH + 0.07]]) {
       G.add(new THREE.CylinderGeometry(0.008, 0.008, 0.12, 4), 0x6aa250, [hx / 2, hy - 0.05, 0], [0, 0, -hx * 4]);
-      flowerHeadParts(G, head(hx, hy, 0.3), 0x8ea8f2, 0xfff0a0, 5, 0.032, 0.032, 0.026, 0.012, 0.016);
+      flowerHeadParts(G, head(hx, hy, 0.3), 0x8ea8f2, 0xfff0a0, 5, 0.032, 0.032, 0.026, 0.012, 0.016, FLOWER_SPH);
     }
   }
   if (kind === 'clover' || kind === 'whiteclover') {
     for (let c = 0; c < 3; c++) {
       const cx = rand(-0.12, 0.12), cz = rand(-0.12, 0.12), ch = rand(0.08, 0.14);
       G.add(new THREE.CylinderGeometry(0.008, 0.01, ch, 4), 0x6aa250, [cx, ch / 2, cz]);
-      for (let l = 0; l < 3; l++) { const a = l / 3 * Math.PI * 2 + c; G.add(SPH_LO, 0x72b35d, [cx + Math.cos(a) * 0.045, ch, cz + Math.sin(a) * 0.045], [0, -a, 0], [0.05, 0.012, 0.042]); }
+      for (let l = 0; l < 3; l++) { const a = l / 3 * Math.PI * 2 + c; G.add(FLOWER_SPH, 0x72b35d, [cx + Math.cos(a) * 0.045, ch, cz + Math.sin(a) * 0.045], [0, -a, 0], [0.05, 0.012, 0.042]); }
     }
-    if (kind === 'whiteclover') { G.add(new THREE.CylinderGeometry(0.01, 0.01, 0.24, 4), 0x6aa250, [0, 0.12, 0]); G.add(lumpy(1, 10, 8, 0.25, 6), 0xfff4f6, [0, 0.27, 0], [0, 0, 0], 0.06); }
+    if (kind === 'whiteclover') { G.add(new THREE.CylinderGeometry(0.01, 0.01, 0.24, 4), 0x6aa250, [0, 0.12, 0]); G.add(lumpy(1, 6, 5, 0.25, 6), 0xfff4f6, [0, 0.27, 0], [0, 0, 0], 0.06); }
   }
   return G.build();
 }
@@ -1956,16 +1957,22 @@ const FL_KINDS = ['daisy', 'cosmos', 'buttercup', 'bluebell', 'clover', 'whitecl
     }
   }
   const mat = toon(0xffffff, { vc: true, wind: 0.22, push: true, rim: 0.08 }), olm = outlineMat(0.012, 0.22), zero = new THREE.Matrix4().makeScale(0, 0, 0), C = new THREE.Color();
+  // the patches are cut into 40 m squares, each its own pair of meshes (flowers and their outlines) that is drawn only when near and in view, like the grass
+  const CELL = 40, inst = (geo, list, n) => {
+    const im = new THREE.InstancedMesh(geo, mat, n), ol = new THREE.InstancedMesh(geo, olm, n);
+    for (let i = 0; i < n; i++) { im.setMatrixAt(i, list[i] || zero); im.setColorAt(i, list[i] ? C.setRGB(rand(0.92, 1.04), rand(0.92, 1.04), rand(0.92, 1.04)) : C.setRGB(1, 1, 1)); }
+    ol.instanceMatrix = im.instanceMatrix; im.receiveShadow = true; im.frustumCulled = ol.frustumCulled = false;
+    const g = new THREE.Group(); g.add(im, ol); g.userData.keep = true; scene.add(g); return { g, im };
+  };
   FL_KINDS.forEach(k => {
-    const bloomable = k !== 'clover' && k !== 'whiteclover', L = lists[k], total = L.length + (bloomable ? BLOOM_PER : 0);
-    if (!total) return;
-    const geo = flowerGeo(k), im = new THREE.InstancedMesh(geo, mat, total), ol = new THREE.InstancedMesh(geo, olm, total);
-    L.forEach((m, i) => { im.setMatrixAt(i, m); im.setColorAt(i, C.setRGB(rand(0.92, 1.04), rand(0.92, 1.04), rand(0.92, 1.04))); });
-    for (let i = L.length; i < total; i++) { im.setMatrixAt(i, zero); im.setColorAt(i, C.setRGB(1, 1, 1)); }
-    ol.instanceMatrix = im.instanceMatrix;
-    im.receiveShadow = true; im.frustumCulled = ol.frustumCulled = false;
-    scene.add(im, ol);
-    FL[k] = { im, base: L.length, next: 0 };
+    const bloomable = k !== 'clover' && k !== 'whiteclover', L = lists[k], geo = flowerGeo(k), cells = new Map();
+    for (const m of L) { const key = Math.floor(m.elements[12] / CELL) + ',' + Math.floor(m.elements[14] / CELL); if (!cells.has(key)) cells.set(key, []); cells.get(key).push(m); }
+    cells.forEach(list => {
+      const { g } = inst(geo, list, list.length), c = new V3(); list.forEach(m => { c.x += m.elements[12]; c.z += m.elements[14]; }); c.divideScalar(list.length);
+      let r = 3; list.forEach(m => r = Math.max(r, Math.hypot(m.elements[12] - c.x, m.elements[14] - c.z) + 1)); c.y = list[0].elements[13];
+      g.userData.chunk = new THREE.Sphere(c, r); grassChunks.push(g);
+    });
+    if (bloomable) { const { im } = inst(geo, [], BLOOM_PER); FL[k] = { im, base: 0, next: 0 }; }   // the ones that pop up round your feet as you walk
   });
 }
 const blooms = [];
@@ -5656,7 +5663,7 @@ function tickShip(dt, T, S) {
   for (const p of SHIP.props) p.rotation.z += dt * 14;
   const night = S.night, blink = Math.sin(T * 3.1) > 0.55 ? 1 : 0.15;
   SHIP.navs.forEach((n, i) => n.material.opacity = (0.25 + 0.75 * night) * (i === 2 ? blink : 0.9));
-  for (const s of SHIP.screens) s.glow.material.opacity = 0.32 * night;
+  for (const s of SHIP.screens) { s.glow.material.opacity = 0.32 * night; s.glow.visible = night > 0.03; }   // by day the glow is not drawn at all (it is a big sprite)
   if (!SHIP.list.length) return;
   const [i, into] = shipSlot();
   if (i !== SHIP.cur) shipShow(i, into);
