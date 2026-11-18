@@ -1,8 +1,5 @@
 {
   "items": [
-    {"type": "image", "src": "welcome.png", "seconds": 15},
-    {"type": "text", "text": "별사탕 27개를\n모아 보세요", "sub": "다 모으면 별똥별이 쏟아져요", "bg": "#ffe08a", "color": "#4b3a35", "seconds": 12},
-    {"type": "text", "text": "오늘 밤엔\n별빛 언덕으로", "sub": "망원경으로 별자리 여덟 개를 찾아요", "bg": "#2f3f86", "color": "#fff6dc", "seconds": 12},
-    {"type": "text", "text": "같이 영화 볼래?", "sub": "「화면 공유」로 허공에 화면을 띄워요", "bg": "#8fd3c8", "color": "#2b3a3a", "seconds": 12}
+    {"type": "image", "src": "welcome.png", "seconds": 60}
   ]
 }
