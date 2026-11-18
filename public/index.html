@@ -5278,6 +5278,10 @@ function drawMap(T) {
     const [x, z] = mapPos(r.c.pos.x, r.c.pos.z), [a, b] = mapXY(x, z);
     g.beginPath(); g.arc(a, b, 3, 0, 7); g.fillStyle = '#ffffff'; g.fill(); g.lineWidth = 1.2; g.strokeStyle = '#4b3a35'; g.stroke();
   }
+  { const p = SHIP.group.position, [a, b] = mapXY(p.x, p.z), yaw = SHIP.group.rotation.y;   // the airship, drifting round the square
+    g.save(); g.translate(a, b); g.rotate(Math.atan2(-Math.cos(yaw), -Math.sin(yaw)));   // same reckoning as your own arrow
+    g.beginPath(); g.ellipse(0, 0, 7, 3.2, 0, 0, 7); g.fillStyle = '#fff4e6'; g.fill(); g.lineWidth = 1.2; g.strokeStyle = '#4b3a35'; g.stroke();
+    g.fillStyle = '#f3a5b6'; g.fillRect(-8.5, -2.2, 2.4, 4.4); g.strokeRect(-8.5, -2.2, 2.4, 4.4); g.restore(); }
   if (UFO.state === 'crashed') {   // a little saucer where it came down
     const [a, b] = mapXY(UFO.x, UFO.z); g.beginPath(); g.ellipse(a, b + 1, 6, 2.4, 0, 0, 7); g.fillStyle = '#c9d2dc'; g.fill(); g.lineWidth = 1.1; g.strokeStyle = '#4b3a35'; g.stroke();
     g.beginPath(); g.arc(a, b, 2.6, Math.PI, 0); g.fillStyle = '#9fe7f2'; g.fill(); g.stroke();
@@ -5544,6 +5548,125 @@ Beam.start = async () => {
 };
 Beam.stop = () => { if (Beam.mine || Beam.pending) { netSend({ t: 'screen', off: 1 }); if (!Beam.mine && Beam.pending) { Beam.pending.getTracks().forEach(t => t.stop()); Beam.pending = null; } } };
 $('bBeam').addEventListener('click', () => { Snd.pop(); canvas.focus(); Beam.mine ? Beam.stop() : Beam.start(); });
+/* ---------------- the airship: a big blimp that circles high over the village all day long, with a screen on each side showing what the operator has put up ----------------
+   The operator drops pictures and videos into public/airship and lists them in public/airship/playlist.json. Everyone's clock agrees with the server's,
+   so everyone sees the airship in the same place and the same slide at the same moment. */
+const SHIP = { R: 78, H: 50, lap: 150, list: [], total: 0, cur: -1, el: null, kind: '', ready: false, drawT: 0, sig: '' };
+const SHIP_DEFAULT = [   // used when there is no playlist (or it cannot be read)
+  { type: 'text', text: '몽글 마을에\n어서 와요!', sub: '천천히 둘러보고 가요', bg: '#f6a9c0', color: '#4b3a35', seconds: 12 },
+  { type: 'text', text: '별사탕 27개를\n모아 보세요', sub: '다 모으면 별똥별이 쏟아져요', bg: '#ffe08a', color: '#4b3a35', seconds: 12 },
+];
+{
+  const c = SHIP.canvas = document.createElement('canvas'); c.width = 1024; c.height = 512; SHIP.ctx = c.getContext('2d');
+  SHIP.tex = new THREE.CanvasTexture(c); SHIP.tex.minFilter = THREE.LinearFilter; SHIP.tex.generateMipmaps = false;
+  const g = SHIP.group = new THREE.Group(); g.userData.keep = true; scene.add(g);
+  const cream = toon(0xfff4e6, { soft: true, rim: 0.2 }), pink = toon(0xf3a5b6, { soft: true, rim: 0.15 }), blue = toon(0x8fb2e6, { soft: true, rim: 0.15 }), navy = 0x3a4a7a;
+  const L = 14, R = 4.3, rAt = z => R * Math.sqrt(Math.max(0, 1 - (z / L) ** 2));
+  const hull = mk(SPH, cream, { parent: g, scale: [R, R, L], outline: 0.06 });
+  mk(SPH_MED, pink, { parent: g, pos: [0, 0, L - 0.9], scale: [1.35, 1.35, 1.1], outline: 0.04 });                                  // nose cap
+  for (const z of [-7.5, -3, 4.5]) mk(new THREE.TorusGeometry(rAt(z) + 0.02, 0.22, 8, 40), z > 0 ? pink : blue, { parent: g, pos: [0, 0, z], outline: 0.02 });   // painted bands
+  for (let k = 0; k < 4; k++) {                                                                                                         // tail fins
+    const fin = new THREE.Group(); fin.position.z = -L + 3.2; fin.rotation.z = k * Math.PI / 2; g.add(fin);
+    mk(new THREE.BoxGeometry(0.3, 3.6, 3.6), k % 2 ? blue : pink, { parent: fin, pos: [0, rAt(-L + 3.2) + 1.3, -0.6], rot: [0.5, 0, 0], outline: 0.03 });
+  }
+  // the gondola underneath, with round windows, and a propeller either side
+  const gon = new THREE.Group(); gon.position.set(0, -R - 1.1, 1); g.add(gon);
+  mk(SPH, cream, { parent: gon, scale: [1.45, 1.05, 3.6], outline: 0.04 });
+  mk(new THREE.BoxGeometry(2.4, 0.18, 6.6), blue, { parent: gon, pos: [0, 0.75, 0], outline: 0.02 });
+  for (const sx of [-1, 1]) for (let i = 0; i < 4; i++) { const w = new THREE.Mesh(new THREE.CircleGeometry(0.28, 14), basic(0xcfeefc)); w.position.set(sx * 1.37, 0.05, -1.6 + i * 1.05); w.rotation.y = sx * Math.PI / 2; gon.add(w); }
+  SHIP.props = [];
+  for (const sx of [-1, 1]) {
+    const pod = new THREE.Group(); pod.position.set(sx * 2.6, 0.2, -1.2); gon.add(pod);
+    mk(new THREE.BoxGeometry(1.2, 0.16, 0.3), navy, { parent: pod, pos: [-sx * 0.6, 0, 0], outline: 0.012 });
+    mk(SPH_LO, pink, { parent: pod, scale: [0.42, 0.42, 0.9], outline: 0.02 });
+    const prop = new THREE.Group(); prop.position.z = -0.95; pod.add(prop); SHIP.props.push(prop);
+    for (let b = 0; b < 3; b++) mk(new THREE.BoxGeometry(0.16, 1.5, 0.05), navy, { parent: prop, pos: [0, 0, 0], rot: [0, 0, b * 2.094], outline: 0.01 }).geometry.translate(0, 0.62, 0);
+  }
+  // a screen on each side, tipped a little toward the ground so people below can see it
+  SHIP.screens = [];
+  for (const sx of [-1, 1]) {
+    const piv = new THREE.Group(); piv.position.set(sx * (R + 0.45), -0.2, -0.6); piv.rotation.y = sx * Math.PI / 2; g.add(piv);
+    const tilt = new THREE.Group(); tilt.rotation.x = 0.2; piv.add(tilt);
+    mk(new THREE.BoxGeometry(13.6, 7.1, 0.35), navy, { parent: tilt, pos: [0, 0, -0.2], outline: 0.04 });
+    const scr = new THREE.Mesh(new THREE.PlaneGeometry(12.8, 6.4), new THREE.MeshBasicMaterial({ map: SHIP.tex, fog: false })); scr.position.z = 0.0; tilt.add(scr);
+    for (const ex of [-5.5, 5.5]) mk(new THREE.BoxGeometry(0.3, 0.3, 1.2), navy, { parent: tilt, pos: [ex, 0, -0.9], outline: 0.012 });   // brackets back to the hull
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX.mote, color: 0xfff1d6, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 })); glow.scale.set(22, 12, 1); glow.position.z = 0.3; tilt.add(glow);
+    SHIP.screens.push({ glow });
+  }
+  // navigation lights: red to port, green to starboard, white at the tail
+  SHIP.navs = [[-1, 0xff6a6a], [1, 0x7dff9a], [0, 0xffffff]].map(([sx, c]) => {
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX.mote, color: c, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 }));
+    s.position.set(sx * (R + 0.2), sx ? 1.6 : 0, sx ? 3 : -L + 0.3); s.scale.setScalar(2.2); g.add(s); return s;
+  });
+  g.traverse(o => { if (o.isMesh) { o.castShadow = false; } });
+  g.scale.setScalar(1.35);   // big enough that the screen reads from the square: about 17 m by 8.6 m
+}
+const shipNow = () => (Date.now() + WX.off) / 1000;   // the server's clock, in seconds
+// --- the playlist: what is on, worked out from the clock so everyone shares the same slide
+function shipLoad() {
+  fetch('/airship/playlist.json', { cache: 'no-cache' }).then(r => r.ok ? r.json() : null).catch(() => null).then(j => {
+    const raw = j && Array.isArray(j.items) ? j.items : null;
+    const list = (raw || SHIP_DEFAULT).filter(it => it && ['text', 'image', 'video'].includes(it.type) && (it.type === 'text' || typeof it.src === 'string')).slice(0, 60)
+      .map(it => ({ ...it, seconds: clamp(+it.seconds || (it.type === 'video' ? 30 : 10), 3, 3600), src: it.src ? (/^https?:\/\//.test(it.src) ? it.src : '/airship/' + it.src.replace(/^\/+|^airship\//g, '')) : '' }));
+    const use = list.length ? list : SHIP_DEFAULT, sig = JSON.stringify(use);
+    if (sig === SHIP.sig) return;
+    SHIP.sig = sig; SHIP.list = use; SHIP.total = use.reduce((a, it) => a + it.seconds, 0); SHIP.cur = -1;
+  });
+}
+if (document.fonts) document.fonts.ready.then(() => { if (SHIP.kind === 'text' && SHIP.list[SHIP.cur]) shipText(SHIP.list[SHIP.cur]); });   // redraw once the rounded font has arrived
+shipLoad(); setInterval(shipLoad, 180e3);   // the operator's changes reach everyone within a few minutes, no reload needed
+function shipSlot() { let t = ((shipNow() % SHIP.total) + SHIP.total) % SHIP.total; for (let i = 0; i < SHIP.list.length; i++) { if (t < SHIP.list[i].seconds) return [i, t]; t -= SHIP.list[i].seconds; } return [0, 0]; }
+function shipFit(src, sw, sh) {   // letterbox a picture into the screen, over a dark backdrop
+  const x = SHIP.ctx, W = 1024, H = 512, k = Math.min(W / sw, H / sh), w = sw * k, h = sh * k;
+  x.fillStyle = '#141a33'; x.fillRect(0, 0, W, H); x.drawImage(src, (W - w) / 2, (H - h) / 2, w, h); SHIP.tex.needsUpdate = true;
+}
+function shipText(it) {
+  const x = SHIP.ctx, W = 1024, H = 512;
+  x.fillStyle = it.bg || '#f6a9c0'; x.fillRect(0, 0, W, H);
+  x.globalAlpha = 0.18; x.fillStyle = '#ffffff';
+  for (let i = 0; i < 26; i++) { const sx = (i * 397) % W, sy = (i * 211) % H, r = 6 + (i % 4) * 4; x.beginPath(); for (let k = 0; k < 10; k++) { const a = -Math.PI / 2 + k * Math.PI / 5, rr = k % 2 ? r * 0.45 : r; x.lineTo(sx + Math.cos(a) * rr, sy + Math.sin(a) * rr); } x.fill(); }
+  x.globalAlpha = 1; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillStyle = it.color || '#4b3a35';
+  const lines = String(it.text || '').split('\n').slice(0, 3), sub = it.sub ? String(it.sub) : '';
+  const big = lines.length > 2 ? 92 : 112, gap = big * 1.12, top = H / 2 - (lines.length - 1) * gap / 2 - (sub ? 40 : 0);
+  x.font = big + 'px Jua, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif';
+  lines.forEach((l, i) => { let f = big; while (f > 40 && x.measureText(l).width > W - 90) { f -= 6; x.font = f + 'px Jua, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif'; } x.fillText(l, W / 2, top + i * gap); x.font = big + 'px Jua, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif'; });
+  if (sub) { x.font = '44px Jua, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif'; x.globalAlpha = 0.85; x.fillText(sub, W / 2, top + (lines.length - 1) * gap + 104, W - 80); x.globalAlpha = 1; }
+  SHIP.tex.needsUpdate = true;
+}
+function shipShow(i, t) {   // put slide i up, t seconds into its turn
+  if (SHIP.el && SHIP.kind === 'video') { SHIP.el.pause(); SHIP.el.removeAttribute('src'); SHIP.el.load(); }
+  SHIP.el = null; SHIP.ready = false; SHIP.cur = i;
+  const it = SHIP.list[i]; SHIP.kind = it.type;
+  if (it.type === 'text') { shipText(it); return; }
+  if (it.type === 'image') {
+    const img = new Image(); img.crossOrigin = 'anonymous'; SHIP.el = img;               // a picture from elsewhere that does not allow it just fails to load, rather than breaking the screen
+    img.onload = () => { if (SHIP.el === img) { shipFit(img, img.naturalWidth || 1024, img.naturalHeight || 512); SHIP.ready = true; } };
+    img.src = it.src; return;
+  }
+  const v = document.createElement('video'); v.crossOrigin = 'anonymous'; v.muted = true; v.loop = true; v.playsInline = true; v.preload = 'auto'; SHIP.el = v;   // no sound: it is a sign, not a cinema
+  v.addEventListener('loadedmetadata', () => { if (SHIP.el === v && v.duration > 0 && isFinite(v.duration)) v.currentTime = t % v.duration; });
+  v.addEventListener('playing', () => { if (SHIP.el === v) SHIP.ready = true; });
+  v.src = it.src; v.play().catch(() => {});
+}
+function tickShip(dt, T, S) {
+  // the flight: one slow lap round the square, a gentle rise and fall, a little lean into the turn
+  const t = shipNow(), a = t / SHIP.lap * Math.PI * 2, g = SHIP.group;
+  g.position.set(Math.cos(a) * SHIP.R, SHIP.H + Math.sin(t * 0.21) * 1.6, Math.sin(a) * SHIP.R);
+  g.rotation.set(Math.sin(t * 0.33) * 0.03, -a, -0.06, 'YXZ');
+  for (const p of SHIP.props) p.rotation.z += dt * 14;
+  const night = S.night, blink = Math.sin(T * 3.1) > 0.55 ? 1 : 0.15;
+  SHIP.navs.forEach((n, i) => n.material.opacity = (0.25 + 0.75 * night) * (i === 2 ? blink : 0.9));
+  for (const s of SHIP.screens) s.glow.material.opacity = 0.32 * night;
+  if (!SHIP.list.length) return;
+  const [i, into] = shipSlot();
+  if (i !== SHIP.cur) shipShow(i, into);
+  // a video is copied onto the screen about 20 times a second, and only when someone could see it
+  if (SHIP.kind === 'video' && SHIP.ready && SHIP.el && (SHIP.drawT -= dt) <= 0) {
+    const f = player ? player.pos : camera.position;
+    if (Math.hypot(f.x - g.position.x, f.z - g.position.z) < 420 && !(player && (player.zone === 'tower' || player.zone === 'cave' || player.zone === 'cabin'))) { SHIP.drawT = 0.05; shipFit(SHIP.el, SHIP.el.videoWidth || 1024, SHIP.el.videoHeight || 512); }
+  }
+}
+
 function tickBeam(dt, T) {
   if (!Beam.host) return;
   const v = Beam.video, has = v.readyState >= 2 && v.videoWidth > 0;
@@ -6100,6 +6223,7 @@ function frame() {
   tickBeach(dt, T, S);
   tickHill(dt, T, S);
   tickBeam(dt, T);
+  tickShip(dt, T, S);
   // indoors the light turns warm and soft, like lamplight inside a tree
   indoorAmb += ((player && player.zone === 'tower' ? 1 : player && player.zone === 'cabin' ? 0.35 : 0) - indoorAmb) * Math.min(1, dt * 3);
   const outHemi = S.hi - 0.1 * forestAmb * (1 - S.night);

@@ -65,12 +65,34 @@ function makeNick(room) {
 }
 
 const INDEX = path.join(__dirname, 'public', 'index.html');
+// 비행선 전광판: 운영자가 public/airship 폴더에 그림·영상과 playlist.json을 넣어 두면 그대로 내보내요
+const AIRSHIP_DIR = path.join(__dirname, 'public', 'airship');
+const MIME = { '.json': 'application/json; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml', '.mp4': 'video/mp4', '.webm': 'video/webm' };
+function serveAirship(req, res, url) {
+  let name; try { name = decodeURIComponent(url.slice('/airship/'.length)); } catch { name = ''; }
+  const file = path.resolve(AIRSHIP_DIR, name), type = MIME[path.extname(file).toLowerCase()];
+  if (!name || !type || !file.startsWith(AIRSHIP_DIR + path.sep)) { res.writeHead(404); return res.end('not found'); }   // 폴더 밖이나 모르는 종류의 파일은 안 내보내요
+  fs.stat(file, (err, st) => {
+    if (err || !st.isFile()) { res.writeHead(404); return res.end('not found'); }
+    const head = { 'Content-Type': type, 'Accept-Ranges': 'bytes', 'Cache-Control': type.startsWith('application/json') ? 'no-cache' : 'public, max-age=300' };
+    const m = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range || '');   // 영상은 중간부터 틀 수 있게 일부분씩 보내 줘요
+    if (m && (m[1] || m[2])) {
+      let a = m[1] ? +m[1] : Math.max(0, st.size - +m[2]), b = m[1] && m[2] ? Math.min(+m[2], st.size - 1) : st.size - 1;
+      if (a > b || a >= st.size) { res.writeHead(416, { 'Content-Range': `bytes */${st.size}` }); return res.end(); }
+      res.writeHead(206, { ...head, 'Content-Range': `bytes ${a}-${b}/${st.size}`, 'Content-Length': b - a + 1 });
+      return fs.createReadStream(file, { start: a, end: b }).pipe(res);
+    }
+    res.writeHead(200, { ...head, 'Content-Length': st.size });
+    fs.createReadStream(file).pipe(res);
+  });
+}
 const server = http.createServer((req, res) => {
   const url = (req.url || '/').split('?')[0];
   if (url === '/api/channels') {
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
     return res.end(JSON.stringify({ max: MAX_PER_CHANNEL, channels: channels.map(c => c.size), now: Date.now() }));   // now: 날씨 시각을 모두가 똑같이 맞추도록 서버 시계를 알려 줘요
   }
+  if (url.startsWith('/airship/')) return serveAirship(req, res, url);
   if (url === '/' || url === '/index.html') {
     return fs.readFile(INDEX, (err, buf) => {
       if (err) { res.writeHead(500); return res.end('index.html not found'); }
