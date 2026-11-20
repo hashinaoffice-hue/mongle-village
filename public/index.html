@@ -994,11 +994,11 @@ function mushroomGeo(G, x, z, s, capCol, y = 0) {
 
 // --- giant pudding mountain
 const PUD = { x: -22, z: 4 };
-const pudding = { body: null, jig: 0 };
+const pudding = { body: null, jig: 0, grp: null, lg: null, plain: [] };   // plain: the pudding's own dressing, hidden when it becomes the Christmas tree
 const PUD_BASE = terrain(PUD.x, PUD.z) - 0.2;
 const PUD_TOP_Y = PUD_BASE + 11.4;
 {
-  const grp = new THREE.Group(); grp.position.set(PUD.x, PUD_BASE, PUD.z); scene.add(grp);
+  const grp = new THREE.Group(); grp.position.set(PUD.x, PUD_BASE, PUD.z); scene.add(grp); pudding.grp = grp;
   // ceramic plate with a blue rim line
   const plate = [[0.01, 0], [10.6, 0], [11.4, 0.12], [11.95, 0.52], [11.85, 0.68], [11.1, 0.5], [0.01, 0.5]].map(p => new THREE.Vector2(p[0], p[1]));
   mk(new THREE.LatheGeometry(plate, 96), gloss(0xffffff, { shin: 90, spec: 0x777777 }), { parent: grp, outline: 0.1 });
@@ -1006,7 +1006,7 @@ const PUD_TOP_Y = PUD_BASE + 11.4;
   // caramel pooled on the plate
   const pool = new THREE.Shape(); for (let i = 0; i <= 80; i++) { const a = i / 80 * Math.PI * 2, r = 10.2 + 0.35 * Math.sin(a * 7) + 0.2 * Math.sin(a * 13); i ? pool.lineTo(Math.cos(a) * r, Math.sin(a) * r) : pool.moveTo(Math.cos(a) * r, Math.sin(a) * r); }
   const pg = new THREE.ExtrudeGeometry(pool, { depth: 0.04, bevelEnabled: true, bevelSize: 0.12, bevelThickness: 0.08, bevelSegments: 3 }); pg.rotateX(-Math.PI / 2);
-  mk(pg, gloss(0xc0601f, { shin: 140, spec: 0xffd2a0 }), { parent: grp, pos: [0, 0.5, 0], outline: 0.04, shadow: false });
+  pudding.plain.push(mk(pg, gloss(0xc0601f, { shin: 140, spec: 0xffd2a0 }), { parent: grp, pos: [0, 0.5, 0], outline: 0.04, shadow: false }));
 
   const body = new THREE.Group(); body.position.y = 0.5; grp.add(body); pudding.body = body;
   // fluted mould shape
@@ -1021,11 +1021,11 @@ const PUD_TOP_Y = PUD_BASE + 11.4;
   const pc = new Float32Array(lp.count * 3), c0 = col(0xec8a30), c1 = col(0xf7a948), c2 = col(0xfccd70), tc = new THREE.Color();
   for (let i = 0; i < lp.count; i++) { const y = lp.getY(i); y < 5 ? mixC(tc, c0, c1, y / 5) : mixC(tc, c1, c2, (y - 5) / 5.5); tc.toArray(pc, i * 3); }
   lg.setAttribute('color', new THREE.BufferAttribute(pc, 3));
-  mk(lg, gloss(0xffffff, { vc: true, shin: 55, spec: 0x80603a, rim: 0.22 }), { parent: body, outline: 0.16 });
+  pudding.plain.push(mk(lg, gloss(0xffffff, { vc: true, shin: 55, spec: 0x80603a, rim: 0.22 }), { parent: body, outline: 0.16 })); pudding.lg = lg;
   // glossy caramel cap + drips with rounded ends
   const cap = [[0.01, 10.1], [7.3, 10.05], [7.45, 10.3], [7.2, 10.75], [6.2, 11.0], [0.01, 11.05]].map(p => new THREE.Vector2(p[0], p[1]));
   const caramel = gloss(0xb35a1d, { shin: 150, spec: 0xffd6a8, rim: 0.12 });
-  mk(new THREE.LatheGeometry(cap, 96), caramel, { parent: body, outline: 0.1 });
+  pudding.plain.push(mk(new THREE.LatheGeometry(cap, 96), caramel, { parent: body, outline: 0.1 }));
   const D = new Geo();
   for (let i = 0; i < 12; i++) {
     const a = i / 12 * Math.PI * 2 + rand(-0.15, 0.15), len = rand(0.7, 2.6), y = 10.25 - len / 2, r = 7.38 - (10.25 - y) * 0.13 + 0.06;
@@ -1034,16 +1034,16 @@ const PUD_TOP_Y = PUD_BASE + 11.4;
     const r2 = 7.38 - (10.25 - (y - len / 2)) * 0.13 + 0.06;
     D.add(SPH_MED, 0xb35a1d, [Math.sin(a) * r2, y - len / 2, Math.cos(a) * r2], [0, 0, 0], [w * 1.12, w * 1.3, w * 1.12]);
   }
-  mk(D.build(), gloss(0xffffff, { vc: true, shin: 150, spec: 0xffd6a8, rim: 0.12 }), { parent: body, outline: 0.05 });
+  pudding.plain.push(mk(D.build(), gloss(0xffffff, { vc: true, shin: 150, spec: 0xffd6a8, rim: 0.12 }), { parent: body, outline: 0.05 }));
   // piped whipped cream + cherry
   const cream = [[0.01, 0], [1.45, 0], [1.55, 0.3], [1.25, 0.8], [0.95, 1.2], [0.6, 1.62], [0.28, 1.98], [0.01, 2.25]].map(p => new THREE.Vector2(p[0], p[1]));
   const cg = new THREE.LatheGeometry(cream, 64, 0, Math.PI * 2); const cp = cg.attributes.position;
   for (let i = 0; i < cp.count; i++) { const x = cp.getX(i), y = cp.getY(i), z = cp.getZ(i), a = Math.atan2(x, z), k = 1 + 0.16 * Math.sin(a * 8 + y * 2.6); cp.setX(i, x * k); cp.setZ(i, z * k); }
   cg.computeVertexNormals(); weldNormals(cg);
-  mk(cg, toon(0xfffbf2, { soft: true, rim: 0.2 }), { parent: body, pos: [3.4, 11.0, -1.8], outline: 0.06 });
-  mk(SPH, gloss(0xe23b55, { shin: 110, spec: 0xffffff, rim: 0.1 }), { parent: body, pos: [3.4, 13.5, -1.8], scale: 0.62, outline: 0.05 });
+  pudding.plain.push(mk(cg, toon(0xfffbf2, { soft: true, rim: 0.2 }), { parent: body, pos: [3.4, 11.0, -1.8], outline: 0.06 }));
+  pudding.plain.push(mk(SPH, gloss(0xe23b55, { shin: 110, spec: 0xffffff, rim: 0.1 }), { parent: body, pos: [3.4, 13.5, -1.8], scale: 0.62, outline: 0.05 }));
   const stem = new THREE.QuadraticBezierCurve3(new V3(3.4, 14.0, -1.8), new V3(3.5, 14.9, -1.6), new V3(4.0, 15.3, -1.3));
-  mk(new THREE.TubeGeometry(stem, 12, 0.06, 6), 0x6b8e3a, { parent: body, outline: 0.03 });
+  pudding.plain.push(mk(new THREE.TubeGeometry(stem, 12, 0.06, 6), 0x6b8e3a, { parent: body, outline: 0.03 }));
   // light streaks on the jelly
   for (const [a, y, s] of [[0.9, 8.4, 1], [1.2, 6.0, 0.6], [-2.4, 8.8, 0.8], [2.6, 3.5, 0.7]]) {
     const r = 9.2 - y * 0.16;
@@ -1082,6 +1082,213 @@ const PUD_TOP_Y = PUD_BASE + 11.4;
     scene.add(mk(SPH_MED, toon(0xfff4e0, { soft: true }), { pos: [x, terrain(x, z) + 0.02, z], scale: [0.5, 0.2, 0.5], outline: 0.03 }));
     scene.add(mk(new THREE.CylinderGeometry(0.42, 0.26, 0.22, 16), toon(0xf4d9a8, { soft: true }), { pos: [x, top - 0.52, z], outline: 0.025 }));   // a collar where the stick meets the cookie
     solid(x, z, 0.3, top - 0.4).nocam = true;
+  }
+}
+
+/* ---------------- Christmas: the pudding becomes a giant jelly Christmas tree, presents piled round its foot ----------------
+   Only in the Christmas channel (THEME 'xmas'). Three tiers of soft green jelly with snow icing, still wobbling when you land on them;
+   the cookie stairs carry on round the upper tiers to a big star on top, and the gold star candy waits at the very top.
+   Everything lives under the pudding's own group, so the distance culling treats it as one thing, and is hidden in other channels. */
+const XTREE = { items: [], solids: [], bulbs: null, glowPts: null, bulbCol: [], star: null, starGlow: null, topSolid: null, topped: false, candyY: 0 };
+{
+  const body = pudding.body, X = XTREE, on = m => (m.visible = false, X.items.push(m), m);
+  const jellyMat = gloss(0xffffff, { vc: true, shin: 70, spec: 0x5f8f6a, rim: 0.25 });
+  const icing = toon(0xffffff, { soft: true, rim: 0.2 });
+  const G0 = col(0x2b8a4a), G1 = col(0x3fa75e), G2 = col(0x79d38c), tc = new THREE.Color();
+  const greenUp = (geo, h) => {   // dark at the foot of each tier, light toward its top
+    const p = geo.attributes.position, c = new Float32Array(p.count * 3);
+    for (let i = 0; i < p.count; i++) { const k = clamp(p.getY(i) / h, 0, 1); k < 0.5 ? mixC(tc, G0, G1, k * 2) : mixC(tc, G1, G2, (k - 0.5) * 2); tc.toArray(c, i * 3); }
+    geo.setAttribute('color', new THREE.BufferAttribute(c, 3));
+  };
+  // r at height y up a lathe profile (for hanging things on its side)
+  const rAt = (prof, y) => { for (let i = 1; i < prof.length; i++) if (prof[i][1] >= y) { const [r0, y0] = prof[i - 1], [r1, y1] = prof[i]; return r0 + (r1 - r0) * (y - y0) / Math.max(1e-3, y1 - y0); } return prof[prof.length - 1][0]; };
+  const lathe = (prof, seg) => new THREE.LatheGeometry(prof.map(p => new THREE.Vector2(p[0], p[1])), seg);
+  function drips(G, rTop, yTop, n, slope) {   // icing running down from the snow cap, with round ends
+    for (let i = 0; i < n; i++) {
+      const a = i / n * Math.PI * 2 + rand(-0.15, 0.15), len = rand(0.5, 1.9), y = yTop - len / 2, r = rTop - (yTop - y) * slope + 0.06, w = rand(0.2, 0.32);
+      G.add(new THREE.CylinderGeometry(w, w * 0.9, len, 10), 0xffffff, [Math.sin(a) * r, y, Math.cos(a) * r], [Math.cos(a) * slope, 0, -Math.sin(a) * slope]);
+      const r2 = rTop - (yTop - (y - len / 2)) * slope + 0.06;
+      G.add(SPH_LO, 0xffffff, [Math.sin(a) * r2, y - len / 2, Math.cos(a) * r2], [0, 0, 0], [w * 1.12, w * 1.3, w * 1.12]);
+    }
+  }
+  // tier 1 is the pudding itself, in green: the same mould, so it keeps the shape you know
+  { const g = pudding.lg.clone(); greenUp(g, 10.7); on(mk(g, jellyMat, { parent: body, outline: 0.16 })); }
+  on(mk(lathe([[0.01, 10.1], [7.3, 10.05], [7.45, 10.3], [7.2, 10.75], [6.2, 11.0], [0.01, 11.05]], 96), icing, { parent: body, outline: 0.1 }));
+  const D = new Geo(); drips(D, 7.38, 10.25, 14, 0.13);
+  // tiers 2 and 3 stand on top, each fluted like the mould
+  const TIERS = [
+    { y0: 10.95, h: 5.8, prof: [[0.01, 0], [6.1, 0], [6.15, 0.35], [5.85, 1.1], [5.3, 2.8], [4.75, 4.4], [4.45, 5.2], [4.2, 5.55], [3.7, 5.75], [0.01, 5.8]],
+      cap: [[0.01, 5.35], [4.45, 5.3], [4.6, 5.5], [4.4, 5.85], [3.8, 6.05], [0.01, 6.1]], capR: 4.5, top: 5.95, solidR: 5.0 },
+    { y0: 16.95, h: 4.35, prof: [[0.01, 0], [4.0, 0], [4.05, 0.3], [3.8, 1.0], [3.3, 2.4], [2.85, 3.6], [2.6, 4.1], [2.15, 4.3], [0.01, 4.35]],
+      cap: [[0.01, 3.95], [2.65, 3.9], [2.75, 4.08], [2.6, 4.4], [2.15, 4.55], [0.01, 4.6]], capR: 2.7, top: 4.5, solidR: 3.1 }];
+  const xsolid = (...a) => { const s = solid(...a); solids.splice(solids.indexOf(s), 1); X.solids.push(s); return s; };
+  for (const T of TIERS) {
+    const g = lathe(T.prof, 96), p = g.attributes.position;
+    for (let i = 0; i < p.count; i++) { const x = p.getX(i), y = p.getY(i), z = p.getZ(i), a = Math.atan2(x, z), k = 1 + 0.025 * Math.sin(a * 16) * smooth(0.2, 1, y) * (1 - smooth(T.h - 0.9, T.h - 0.3, y)); p.setX(i, x * k); p.setZ(i, z * k); }
+    g.computeVertexNormals(); weldNormals(g); greenUp(g, T.h);
+    on(mk(g, jellyMat, { parent: body, pos: [0, T.y0, 0], outline: 0.12 }));
+    on(mk(lathe(T.cap, 72), icing, { parent: body, pos: [0, T.y0, 0], outline: 0.08 }));
+    drips(D, T.capR, T.y0 + T.cap[1][1] + 0.15, Math.round(T.capR * 2.2), 0.16);
+    const sd = xsolid(PUD.x, PUD.z, T.solidR, PUD_BASE + 0.5 + T.y0 + T.top); sd.pud = true; T.solid = sd;
+  }
+  on(mk(D.build(), toon(0xffffff, { vc: true, soft: true, rim: 0.2 }), { parent: body, outline: 0.04 }));
+  X.topSolid = TIERS[1].solid;
+  X.candyY = X.topSolid.top + 1.3;
+  // jelly baubles in red, gold and sky blue, each with a little gold cap
+  const B = new Geo(), BALL = [0xe8455a, 0xf6c445, 0x7cc4f0, 0xe8455a, 0xf6c445];
+  const hang = [[pudding.lg, null, 0, 10.0, 16], [null, TIERS[0], 0, 0, 11], [null, TIERS[1], 0, 0, 7]];
+  const P1 = [[9.45, 0], [9.0, 2.5], [8.6, 4.8], [8.15, 7.2], [7.6, 9.2], [7.35, 10.0]];
+  let bi = 0;
+  for (const [, T, , , n] of hang) {
+    const prof = T ? T.prof : P1, y0 = T ? T.y0 : 0, h = T ? T.h - 0.9 : 9.4;
+    for (let i = 0; i < n; i++) {
+      const a = i / n * Math.PI * 2 + rand(-0.2, 0.2) + (T ? 0.4 : 0), y = h * rand(0.18, 0.82), rr = rand(0.38, 0.6), r = rAt(prof, y) + rr * 0.7;
+      const x = Math.sin(a) * r, z = Math.cos(a) * r;
+      B.add(SPH_LO, BALL[bi++ % BALL.length], [x, y0 + y, z], [0, 0, 0], rr);
+      B.add(new THREE.CylinderGeometry(0.13, 0.15, 0.16, 10), 0xd9b24a, [x, y0 + y + rr * 0.98, z], [0, 0, 0], rr / 0.5);
+    }
+  }
+  on(mk(B.build(), gloss(0xffffff, { vc: true, shin: 120, spec: 0xffffff, rim: 0.22 }), { parent: body, outline: 0.04 }));
+  // candy canes hooked over the first tier
+  const caneTex = TEX.stripe.clone(); caneTex.repeat.set(1, 6); caneTex.needsUpdate = true;
+  const caneMat = toon(0xffffff, { map: caneTex, rim: 0.12 });
+  for (let i = 0; i < 6; i++) {
+    const a = i / 6 * Math.PI * 2 + 0.25, y = rand(4.2, 8.2), r = rAt(P1, y) + 0.25, ux = Math.sin(a), uz = Math.cos(a);
+    const c = new THREE.CatmullRomCurve3([new V3(0, -1.5, 0), new V3(0, 0, 0), new V3(0, 0.38, 0.05), new V3(0, 0.55, 0.32), new V3(0, 0.4, 0.62), new V3(0, 0.12, 0.66)]);
+    on(mk(new THREE.TubeGeometry(c, 24, 0.11, 8), caneMat, { parent: body, pos: [ux * r, y, uz * r], rot: [0, a + Math.PI, 0], scale: 1.6, outline: 0.03 }));
+  }
+  // strings of lights: two strands winding round each tier; the bulbs are one instanced mesh, their glow one set of points
+  const pts = [], wire = [];
+  for (const [prof, y0, h, turns] of [[P1, 0, 9.6, 2.25], [TIERS[0].prof, TIERS[0].y0, TIERS[0].h - 0.6, 1.75], [TIERS[1].prof, TIERS[1].y0, TIERS[1].h - 0.5, 1.5]]) {
+    for (const ph of [0, Math.PI]) {
+      const strand = [];
+      for (let t = 0; t <= 1.0001; t += 0.004) {
+        const y = 0.5 + (h - 0.7) * t, a = ph + t * turns * Math.PI * 2, r = rAt(prof, y) + 0.16;
+        strand.push(new V3(Math.sin(a) * r, y0 + y - 0.18 * Math.abs(Math.sin(t * turns * Math.PI * 6)), Math.cos(a) * r));
+      }
+      wire.push(strand);
+      let acc = 0; for (let i = 1; i < strand.length; i++) { acc += strand[i].distanceTo(strand[i - 1]); if (acc > 0.85) { acc = 0; pts.push(strand[i].clone()); } }
+    }
+  }
+  for (const w of wire) on(mk(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(w), w.length, 0.035, 4), 0x245a32, { parent: body, outline: 0, shadow: false }));
+  const BULB = [0xff5a6e, 0xffd447, 0x6fd2ff, 0x8dff9a, 0xfff1c4].map(c => col(c));
+  const im = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 7, 5), new THREE.MeshBasicMaterial({ color: 0xffffff }), pts.length);   // a few hundred bulbs: keep each one tiny in triangles
+  const m4 = new THREE.Matrix4();
+  pts.forEach((q, i) => { m4.makeScale(0.15, 0.19, 0.15).setPosition(q); im.setMatrixAt(i, m4); im.setColorAt(i, BULB[i % BULB.length]); X.bulbCol.push(BULB[i % BULB.length]); });
+  im.frustumCulled = false; body.add(on(im)); X.bulbs = im;
+  const gp = new THREE.BufferGeometry(); gp.setAttribute('position', new THREE.Float32BufferAttribute(pts.flatMap(q => [q.x, q.y, q.z]), 3)); gp.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(pts.length * 3), 3));
+  const glow = new THREE.Points(gp, new THREE.PointsMaterial({ map: TEX.mote, size: 1.5, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 }));
+  glow.frustumCulled = false; body.add(on(glow)); X.glowPts = glow;
+  // the star on top, glowing after dark
+  X.star = on(mk(STAR_GEO, gloss(0xffd23f, { emissive: 0x7a5200, shin: 90, spec: 0xffffff, rim: 0.3 }), { parent: body, pos: [0, TIERS[1].y0 + TIERS[1].h + 4.6, 0], scale: 1.7, outline: 0.08 }));
+  X.starGlow = on(new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX.mote, color: 0xffe08a, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 })));
+  X.starGlow.position.copy(X.star.position); X.starGlow.scale.setScalar(9); body.add(X.starGlow);
+
+  // cookie steps carry on round tiers 2 and 3, each on a striped candy stick
+  const xg = new THREE.Group(); pudding.grp.add(xg); on(xg);   // local to the pudding: (0, 0, 0) is the middle of its foot
+  const cookieMats = [toon(0xffffff, { map: TEX.cookieSide }), toon(0xffffff, { map: TEX.cookie }), toon(0xffffff, { map: TEX.cookieSide })];
+  const stickTex = TEX.stripe.clone(); stickTex.repeat.set(1, 3); stickTex.needsUpdate = true;
+  const stickMat = toon(0xffffff, { map: stickTex, rim: 0.12 }), cookieGeo = new THREE.CylinderGeometry(1.4, 1.33, 0.42, 36, 1);
+  function step(a, r, top, foot) {   // top: world height of the step; foot: world height its stick goes down to
+    const x = Math.sin(a) * r, z = Math.cos(a) * r, ly = top - PUD_BASE;
+    mk(cookieGeo, cookieMats, { parent: xg, pos: [x, ly - 0.21, z], rot: [0, rand(0, 6), 0], outline: 0.06 });
+    const sh = Math.max(0.4, top - 0.4 - foot);
+    mk(new THREE.CylinderGeometry(0.15, 0.18, sh, 12), stickMat, { parent: xg, pos: [x, ly - 0.4 - sh / 2, z], outline: 0.03 });
+    xsolid(PUD.x + x, PUD.z + z, 1.45, top, top - 0.5);
+  }
+  const t1 = PUD_TOP_Y, t2 = TIERS[0].solid.top;
+  let a = 3.98;
+  for (let k = 1; k <= 5; k++, a += 0.52) step(a, 6.9, t1 + 1.15 * k, t1);
+  a += 0.1;
+  for (let k = 1; k <= 4; k++, a += 0.7) step(a, 4.5, t2 + 1.1 * k, t2);
+
+  // presents round the foot of the tree (away from the cookie stairs and the lane), a few big enough to climb, and a teddy bear
+  const P = new Geo(), PAPER = [0xe8455a, 0x3f9d5a, 0x5b8fe0, 0xf29bc0, 0xf6c445, 0x9b7be0, 0xffffff], TIE = [0xffffff, 0xf6c445, 0xe8455a];
+  const box = new THREE.BoxGeometry(1, 1, 1), loop = new THREE.TorusGeometry(0.22, 0.075, 6, 14);
+  let pi = 0;
+  function present(lx, lz, y, w, h, d, rot) {   // y: local height of its bottom
+    const paper = PAPER[pi % PAPER.length], tie = TIE[(pi * 2 + 1) % TIE.length]; pi++;
+    const c = Math.cos(rot), s = Math.sin(rot), at = (u, v, hh) => [lx + u * c + v * s, y + hh, lz - u * s + v * c];
+    P.add(box, paper, at(0, 0, h / 2), [0, rot, 0], [w, h, d]);
+    const rw = Math.min(w, d) * 0.16;
+    P.add(box, tie, at(0, 0, h / 2), [0, rot, 0], [rw, h + 0.04, d + 0.04]);
+    P.add(box, tie, at(0, 0, h / 2), [0, rot, 0], [w + 0.04, h + 0.04, rw]);
+    const k = Math.min(w, d) / 1.4;
+    P.add(loop, tie, at(-0.2 * k, 0, h + 0.18 * k), [0, rot, 0.6], k);
+    P.add(loop, tie, at(0.2 * k, 0, h + 0.18 * k), [0, rot, -0.6], k);
+    return y + h;
+  }
+  const piles = [[4.25, 13.6, 3], [4.85, 15.4, 2], [5.45, 13.2, 3], [5.95, 15.6, 2], [6.45, 13.4, 3]];
+  for (const [pa, pr, n] of piles) {
+    const wx0 = PUD.x + Math.sin(pa) * pr, wz0 = PUD.z + Math.cos(pa) * pr;
+    if (pathDist(wx0, wz0) < 3.2) continue;
+    let base = terrain(wx0, wz0) - PUD_BASE - 0.05, size = rand(1.7, 2.4), top = 0;
+    for (let k = 0; k < n; k++) {
+      const off = k ? rand(-0.25, 0.25) : 0;
+      top = present(Math.sin(pa) * pr + off, Math.cos(pa) * pr + off, base, size * rand(0.9, 1.15), size * rand(0.55, 0.85), size * rand(0.9, 1.1), rand(0, 1.5));
+      base = top; size *= rand(0.55, 0.7);
+    }
+    xsolid(wx0, wz0, 1.3, PUD_BASE + top);
+    for (let k = 0; k < 3; k++) {   // little ones scattered round the pile
+      const a2 = pa + rand(-0.32, 0.32), r2 = pr + rand(1.6, 2.6) * (Math.random() < 0.5 ? -1 : 1), x2 = Math.sin(a2) * r2, z2 = Math.cos(a2) * r2;
+      if (r2 < 12.3 || pathDist(PUD.x + x2, PUD.z + z2) < 2.5) continue;
+      present(x2, z2, terrain(PUD.x + x2, PUD.z + z2) - PUD_BASE - 0.05, rand(0.6, 1.0), rand(0.45, 0.8), rand(0.6, 1.0), rand(0, 3));
+    }
+  }
+  // a big teddy bear sitting against the presents with a red bow
+  {
+    const ta = 5.2, tr = 14.6, tx = Math.sin(ta) * tr, tz = Math.cos(ta) * tr, ty = terrain(PUD.x + tx, PUD.z + tz) - PUD_BASE, fur = 0xc98d5a, pale = 0xf1d2b0, face = ta + Math.PI;
+    const R = (u, v, h) => [tx + u * Math.cos(face) + v * Math.sin(face), ty + h, tz - u * Math.sin(face) + v * Math.cos(face)];
+    P.add(SPH_LO, fur, R(0, 0, 1.15), [0, 0, 0], [1.0, 1.15, 0.9]);
+    P.add(SPH_LO, pale, R(0, 0.55, 1.05), [0, 0, 0], [0.62, 0.72, 0.4]);
+    P.add(SPH_MED, fur, R(0, 0.1, 2.55), [0, 0, 0], 0.78);
+    P.add(SPH_LO, pale, R(0, 0.68, 2.42), [0, 0, 0], [0.34, 0.27, 0.24]);
+    P.add(SPH_LO, 0x3a2a22, R(0, 0.92, 2.5), [0, 0, 0], [0.11, 0.08, 0.07]);
+    for (const sx of [-1, 1]) {
+      P.add(SPH_LO, 0x3a2a22, R(sx * 0.28, 0.7, 2.75), [0, 0, 0], 0.075);
+      P.add(SPH_LO, fur, R(sx * 0.58, 0.05, 3.15), [0, 0, 0], [0.3, 0.3, 0.2]);
+      P.add(SPH_LO, pale, R(sx * 0.58, 0.14, 3.15), [0, 0, 0], [0.17, 0.17, 0.12]);
+      P.add(SPH_LO, fur, R(sx * 0.95, 0.35, 1.35), [0, 0, 0], [0.32, 0.55, 0.32]);
+      P.add(SPH_LO, fur, R(sx * 0.5, 0.75, 0.32), [0, 0, 0], [0.38, 0.32, 0.6]);
+      P.add(SPH_LO, pale, R(sx * 0.5, 1.28, 0.34), [0, 0, 0], [0.26, 0.26, 0.08]);
+      P.add(loop, 0xe8455a, R(sx * 0.2, 0.62, 1.85), [0, face, sx * 0.6], 1.1);
+    }
+    xsolid(PUD.x + tx, PUD.z + tz, 1.1, PUD_BASE + ty + 1.9);
+  }
+  mk(P.build(), toon(0xffffff, { vc: true, rim: 0.12 }), { parent: xg, outline: 0.04 });
+}
+// switch the tree, its steps and the presents on or off with the channel's theme
+THEME_HOOKS.push(t => {
+  const on = t === 'xmas';
+  for (const m of pudding.plain) m.visible = !on;
+  for (const m of XTREE.items) m.visible = on;
+  for (const s of XTREE.solids) { const i = solids.indexOf(s); if (on && i < 0) solids.push(s); else if (!on && i >= 0) solids.splice(i, 1); }
+  const g = stars.find(s => s.gold); if (g) { g.y = on ? XTREE.candyY : PUD_TOP_Y + 1.6; g.m.position.y = g.y; }   // the gold star candy waits at the very top
+  XTREE.topped = false;
+});
+const XT_MODES = 3, _xc = new THREE.Color(), _xv = new V3();
+function tickXmasTree(dt, T, S) {
+  if (THEME !== 'xmas') return;
+  const X = XTREE, n = smooth(0.2, 0.8, Math.max(S.night, wx.snowfall * 0.3)), day = 0.5 + 0.5 * n;
+  // the lights: a wave running up the strands, then a sparkle, then all breathing together, twelve seconds each
+  const mode = Math.floor(T / 12) % XT_MODES, cs = X.glowPts.geometry.attributes.color;
+  for (let i = 0; i < X.bulbCol.length; i++) {
+    let b;
+    if (mode === 0) b = 0.3 + 0.7 * Math.max(0, Math.sin(T * 3 - i * 0.35));
+    else if (mode === 1) b = wxHash(i * 97 + Math.floor(T * 5)) > 0.45 ? 1 : 0.25;
+    else b = 0.3 + 0.7 * (0.5 + 0.5 * Math.sin(T * 2.2));
+    _xc.copy(X.bulbCol[i]).multiplyScalar(day * (0.45 + 0.55 * b)); X.bulbs.setColorAt(i, _xc);
+    cs.setXYZ(i, _xc.r * b, _xc.g * b, _xc.b * b);
+  }
+  X.bulbs.instanceColor.needsUpdate = true; cs.needsUpdate = true;
+  X.glowPts.material.opacity = 0.85 * n;
+  X.star.rotation.y = T * 0.6;
+  X.starGlow.material.opacity = (0.15 + 0.7 * n) * (0.85 + 0.15 * Math.sin(T * 3.1));
+  // reaching the top
+  if (player && !X.topped && player.supSolid === X.topSolid && player.ground) {
+    X.topped = true;
+    toast('트리 꼭대기 정복! 메리 몽글 크리스마스!', 3600); Snd.star(true);
+    emit(sparkTex, X.star.getWorldPosition(_xv), 26, { size: 0.7, spread: 4, up: 3, life: 1.4, g: 5 });
   }
 }
 
@@ -6481,6 +6688,7 @@ function frame() {
   tickHill(dt, T, S);
   tickBeam(dt, T);
   tickShip(dt, T, S);
+  tickXmasTree(dt, T, S);
   // indoors the light turns warm and soft, like lamplight inside a tree
   indoorAmb += ((player && player.zone === 'tower' ? 1 : player && player.zone === 'cabin' ? 0.35 : 0) - indoorAmb) * Math.min(1, dt * 3);
   const outHemi = S.hi - 0.1 * forestAmb * (1 - S.night);
