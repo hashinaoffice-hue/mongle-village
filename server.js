@@ -1,17 +1,22 @@
 // 몽글 마을 멀티플레이 서버
 // - public/index.html 을 내려주고, /ws 웹소켓으로 같은 채널 사람들의 위치를 주고받아요.
-// - 파일이나 DB에 저장하는 데이터는 없어요. 신고·차단 기록도 메모리에만 있어서 서버가 꺼지거나 잠들면 모두 사라져요.
+// - 파일이나 DB에 저장하는 데이터는 없어요. 신고·차단 기록만 BAN_FILE 을 정해 두면 파일에 남기고, 아니면 메모리에만 있어요.
 const http = require('http');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
+const zlib = require('zlib');
 const { WebSocketServer } = require('ws');
 
 const PORT = Number(process.env.PORT) || 8787;
 const CHANNELS = 10;                                               // 공용 채널 수
 const MAX_PER_CHANNEL = Number(process.env.MAX_PER_CHANNEL) || 20; // 채널당 최대 인원 (비공개 채널도 같아요)
 const TICK_MS = 100;                                              // 위치 동기화 주기 (초당 10번)
+const NEAR = 90;                                                  // 이보다 먼 친구는 초당 2번만 알려 줘요 (어차피 작게 보이거나 안 보여요)
+const FAR_EVERY = 5;
+const MAX_PLAYERS = Number(process.env.MAX_PLAYERS) || 2000;     // 서버 전체 동시 접속 상한 (넘으면 「잠시 뒤에 와 주세요」)
+const MAX_PER_IP = Number(process.env.MAX_PER_IP) || 10;         // 한 IP에서 동시에 열 수 있는 접속 수 (학교·카페는 IP를 같이 써서 넉넉히)
 const CHAR_IDS = new Set(['mongsil', 'tosil', 'haneul', 'leo']);
 const PHRASE_COUNT = 4;
 const CHAT_MAX = 60;       // 채팅 최대 글자 수
@@ -23,6 +28,10 @@ const UFO_CHANCE = process.env.UFO_CHANCE != null ? Number(process.env.UFO_CHANC
 const CODE_LEN = 6, CODE_ABC = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const MAX_PRIVATE = Number(process.env.MAX_PRIVATE) || 300;        // 동시에 열 수 있는 비공개 채널 수
 const PRIVATE_KEEP_MS = 3 * 60e3;                                  // 비공개 채널이 비어도 3분은 남겨 둬요 (친구 바꾸기로 잠깐 나갔다 와도 같은 코드로 들어오게)
+// 크리스마스 채널: 12월 한 달(한국 시간) 동안만 열려요. 꽉 차면 「크리스마스 2」, 「크리스마스 3」…이 저절로 열려요.
+// XMAS=1 이면 기간이 아니어도 열고, XMAS=0 이면 닫아요. 주소에 ?xmas=1 을 붙이면 기간 전에도 미리 들어가 볼 수 있어요
+const XMAS_ENV = process.env.XMAS, MAX_XMAS_ROOMS = 60;
+const xmasOpen = (now = Date.now()) => XMAS_ENV === '1' ? true : XMAS_ENV === '0' ? false : new Date(now + 9 * 3600e3).getUTCMonth() === 11;
 const CODE_MISS_MAX = 12, CODE_MISS_MS = 10 * 60e3;               // 없는 코드를 10분에 12번 넘게 넣으면 잠깐 막아요 (코드 맞히기 방지)
 
 // 관리자: 채팅창에 「/코드」를 치면 관리자 모드가 켜져요. 코드 자체는 저장소에 없고, 해시(지문)만 있어요.
@@ -35,17 +44,62 @@ const ADMIN_HASHES = new Set([
 ]);
 const ADMIN_TRIES = 5;     // 접속 한 번에 틀릴 수 있는 횟수
 
-// 신고: 한 채널에서 서로 다른 사람(IP) 3명에게 신고받으면 내보내고 그 IP는 2시간 못 들어와요.
-// 같은 IP가 누적 9번 신고받으면 영구 차단이에요. (메모리에만 있어서 서버가 다시 켜지면 초기화돼요)
+// 신고: 한 채널에서 서로 다른 사람 3명에게 신고받으면 내보내고 그 기기는 2시간 못 들어와요.
+// 같은 기기가 누적 9번 신고받으면 영구 차단이에요.
+// - 차단은 기기 단위예요. PC방·학교처럼 IP를 같이 쓰는 곳의 다른 사람은 막히지 않아요
+// - 신고한 사람은 IP로 세요. 한 사람이 창을 여러 개 열어 혼자 3번을 채울 수 없게요
 const REPORTS_TO_KICK = 3, KICK_BAN_MS = 2 * 3600e3, REPORTS_TO_BAN = 9;
-const bans = new Map();      // ip -> 풀리는 시각 (Infinity = 영구)
-const strikes = new Map();   // ip -> 지금까지 받은 신고 수
+const bans = new Map();      // 기기 -> 풀리는 시각 (Infinity = 영구)
+const strikes = new Map();   // 기기 -> 지금까지 받은 신고 수
 const codeMiss = new Map();  // ip -> { n, t }
-function banLeft(ip) {       // 0 = 차단 아님, Infinity = 영구, 그 밖엔 남은 ms
-  const until = bans.get(ip); if (!until) return 0;
-  if (until !== Infinity && until <= Date.now()) { bans.delete(ip); return 0; }
+// BAN_FILE 을 정해 두면(예: /var/lib/mongle/bans.json) 차단과 신고 수를 파일에 남겨서 서버를 다시 켜도 이어져요
+const BAN_FILE = process.env.BAN_FILE || '';
+if (BAN_FILE) {
+  try {
+    const d = JSON.parse(fs.readFileSync(BAN_FILE, 'utf8'));
+    for (const [ip, u] of Object.entries(d.bans || {})) bans.set(ip, u === 'forever' ? Infinity : +u);
+    for (const [ip, n] of Object.entries(d.strikes || {})) strikes.set(ip, +n);
+    console.log(`차단 기록을 불러왔어요 (차단 ${bans.size}개, 신고받은 기기 ${strikes.size}개)`);
+  } catch (e) { if (e.code !== 'ENOENT') console.log('차단 기록을 읽지 못했어요:', e.message); }
+}
+let banSaveT = null;
+function saveBans() {
+  if (!BAN_FILE || banSaveT) return;
+  banSaveT = setTimeout(() => {
+    banSaveT = null;
+    const d = { bans: {}, strikes: Object.fromEntries(strikes) };
+    for (const [ip, u] of bans) d.bans[ip] = u === Infinity ? 'forever' : u;
+    const tmp = BAN_FILE + '.tmp';
+    fs.writeFile(tmp, JSON.stringify(d), err => { if (err) return console.log('차단 기록 저장 실패:', err.message); fs.rename(tmp, BAN_FILE, () => {}); });
+  }, 2000);
+}
+function banLeft(dev) {      // 0 = 차단 아님, Infinity = 영구, 그 밖엔 남은 ms
+  const until = bans.get(dev); if (!until) return 0;
+  if (until !== Infinity && until <= Date.now()) { bans.delete(dev); return 0; }
   return until === Infinity ? Infinity : until - Date.now();
 }
+// 기기 표: 브라우저마다 서버가 무작위 번호를 하나 주고, 서버만 아는 비밀 열쇠로 서명해요(위조 불가). 개인정보는 없어요.
+// 열쇠가 바뀌면 모든 표가 새로 발급돼서 차단도 풀려요. 그래서 DEVICE_SECRET 이나 BAN_FILE 옆 파일(.key)에 열쇠를 남겨 둬요
+const DEVICE_KEY = (() => {
+  if (process.env.DEVICE_SECRET) return process.env.DEVICE_SECRET;
+  if (BAN_FILE) {
+    const f = BAN_FILE + '.key';
+    try { return fs.readFileSync(f, 'utf8').trim(); } catch {}
+    const k = crypto.randomBytes(32).toString('hex');
+    try { fs.writeFileSync(f, k, { mode: 0o600 }); } catch (e) { console.log('기기 열쇠를 저장하지 못했어요:', e.message); }
+    return k;
+  }
+  return crypto.randomBytes(32).toString('hex');
+})();
+const devSig = id => crypto.createHmac('sha256', DEVICE_KEY).update(id).digest('base64url').slice(0, 22);
+function checkDevice(tok) {   // 맞는 표면 기기 번호, 아니면 ''
+  if (typeof tok !== 'string' || tok.length > 64) return '';
+  const [id, sig] = tok.split('.');
+  if (!/^[A-Za-z0-9_-]{22}$/.test(id || '') || !sig) return '';
+  const a = Buffer.from(sig), b = Buffer.from(devSig(id));
+  return a.length === b.length && crypto.timingSafeEqual(a, b) ? id : '';
+}
+function newDevice() { const id = crypto.randomBytes(16).toString('base64url'); return { id, tok: id + '.' + devSig(id) }; }
 const banMsg = left => ({ t: 'banned', left: left === Infinity ? 0 : Math.ceil(left) });
 // Render 같은 호스팅에서는 앞단 프록시가 진짜 주소를 알려 줘요. 내 PC에서 켤 땐 그 머리글을 믿지 않아요 (누구나 꾸며 보낼 수 있어서)
 // CF-Connecting-IP 는 Cloudflare가 늘 덮어써서 꾸밀 수 없어요. 없을 때만 X-Forwarded-For 의 첫 주소를 써요
@@ -63,11 +117,20 @@ const NOUN = ['도토리', '구름', '푸딩', '쿠키', '민들레', '솜사탕
 
 // 채널(방): 공용 채널 10개는 늘 있고, 비공개 채널은 코드로 만들었다가 아무도 없이 3분이 지나면 사라져요.
 // 방마다 UFO·유성우·화면 공유를 따로 가져요. sky: 하늘과 날씨를 어느 공용 채널 것으로 보여 줄지
-function makeRoom(pub, idx, code, sky) { return { pub, idx, code, sky, players: new Map(), ufo: null, showerEnd: 0, screen: null }; }
+// theme: 'xmas' 면 크리스마스로 꾸민 마을이에요. xmas: 공용 크리스마스 채널 (번호는 idx + 1)
+function makeRoom(pub, idx, code, sky, theme = '') { return { pub, idx, code, sky, theme, xmas: false, players: new Map(), ufo: null, showerEnd: 0, screen: null, tick: 0 }; }
 const publicRooms = Array.from({ length: CHANNELS }, (_, i) => makeRoom(true, i, null, i));
 const privateRooms = new Map();   // code -> room
-const allRooms = () => [...publicRooms, ...privateRooms.values()];
-const label = room => room.pub ? `채널 ${room.idx + 1}` : `비공개 ${room.code}`;
+const xmasRooms = [];             // 크리스마스 1, 2, 3 … (한번 열리면 비어도 남아 있어요. 비어 있으면 하는 일이 없어 가벼워요)
+function xmasRoom() {             // 자리가 남은 첫 크리스마스 채널. 다 찼으면 하나 더 열어요
+  for (const r of xmasRooms) if (r.players.size < MAX_PER_CHANNEL) return r;
+  if (xmasRooms.length >= MAX_XMAS_ROOMS) return null;
+  const r = makeRoom(true, xmasRooms.length, null, 0, 'xmas'); r.xmas = true; xmasRooms.push(r);
+  console.log(`크리스마스 ${xmasRooms.length} 채널이 열렸어요`);
+  return r;
+}
+const allRooms = () => [...publicRooms, ...xmasRooms, ...privateRooms.values()];
+const label = room => room.xmas ? `크리스마스 ${room.idx + 1}` : room.pub ? `채널 ${room.idx + 1}` : `비공개 ${room.code}`;
 function newCode() {
   for (;;) {
     let s = ''; for (let i = 0; i < CODE_LEN; i++) s += CODE_ABC[crypto.randomInt(CODE_ABC.length)];
@@ -115,6 +178,35 @@ function makeNick(players) {
 }
 
 const INDEX = path.join(__dirname, 'public', 'index.html');
+// 게임 페이지(약 600KB)는 미리 압축해 두고(br 약 150KB), 바뀌지 않았으면 「그대로예요(304)」만 보내요
+let page = null, pageLoading = null;
+function loadPage() {
+  if (pageLoading) return pageLoading;
+  pageLoading = new Promise((ok, no) => fs.stat(INDEX, (err, st) => {
+    if (err) return no(err);
+    if (page && page.mtime === st.mtimeMs) return ok(page);
+    fs.readFile(INDEX, (e, raw) => {
+      if (e) return no(e);
+      page = { mtime: st.mtimeMs, raw, etag: '"' + sha(raw).slice(0, 20) + '"',
+        gz: zlib.gzipSync(raw, { level: 9 }), br: zlib.brotliCompressSync(raw, { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 11, [zlib.constants.BROTLI_PARAM_SIZE_HINT]: raw.length } }) };
+      ok(page);
+    });
+  })).finally(() => { pageLoading = null; });
+  return pageLoading;
+}
+function servePage(req, res) {
+  loadPage().then(pg => {
+    const head = { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache', 'ETag': pg.etag, 'Vary': 'Accept-Encoding' };
+    if (req.headers['if-none-match'] === pg.etag) { res.writeHead(304, head); return res.end(); }
+    const ae = String(req.headers['accept-encoding'] || '');
+    const [body, enc] = /\bbr\b/.test(ae) ? [pg.br, 'br'] : /\bgzip\b/.test(ae) ? [pg.gz, 'gzip'] : [pg.raw, null];
+    if (enc) head['Content-Encoding'] = enc;
+    head['Content-Length'] = body.length;
+    res.writeHead(200, head); res.end(req.method === 'HEAD' ? undefined : body);
+    stats.out += body.length;
+  }, () => { res.writeHead(500); res.end('index.html not found'); });
+}
+const stats = { out: 0, outRate: 0, since: Date.now() };   // 내보낸 바이트 (운영 현황용)
 // 비행선 전광판: 운영자가 public/airship 폴더에 그림·영상과 playlist.json을 넣어 두면 그대로 내보내요
 const AIRSHIP_DIR = path.join(__dirname, 'public', 'airship');
 const MIME = { '.json': 'application/json; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml', '.mp4': 'video/mp4', '.webm': 'video/webm' };
@@ -140,22 +232,24 @@ const server = http.createServer((req, res) => {
   const url = (req.url || '/').split('?')[0];
   if (url === '/api/channels') {
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
-    return res.end(JSON.stringify({ max: MAX_PER_CHANNEL, channels: publicRooms.map(r => r.players.size), now: Date.now() }));   // now: 날씨 시각을 모두가 똑같이 맞추도록 서버 시계를 알려 줘요
+    // now: 날씨 시각을 모두가 똑같이 맞추도록 서버 시계를 알려 줘요. xmas: 크리스마스 채널이 열려 있으면 채널마다 인원
+    return res.end(JSON.stringify({ max: MAX_PER_CHANNEL, channels: publicRooms.map(r => r.players.size), xmas: xmasOpen() ? (xmasRooms.length ? xmasRooms.map(r => r.players.size) : [0]) : null, now: Date.now() }));
+  }
+  if (url === '/api/stats') {   // 운영 현황: 접속자 수와 내보내는 데이터 양 (개인 정보는 없어요)
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+    const n = rs => rs.reduce((a, r) => a + r.players.size, 0);
+    return res.end(JSON.stringify({ players: wss.clients.size, public: publicRooms.map(r => r.players.size), xmas: xmasRooms.map(r => r.players.size), private: { rooms: privateRooms.size, players: n([...privateRooms.values()]) },
+      outKBps: Math.round(stats.outRate / 1024), outMBTotal: Math.round(stats.out / 1048576), upMin: Math.round((Date.now() - stats.since) / 60000), bans: bans.size, mem: Math.round(process.memoryUsage().rss / 1048576) }));
   }
   if (url.startsWith('/airship/')) return serveAirship(req, res, url);
-  if (url === '/' || url === '/index.html') {
-    return fs.readFile(INDEX, (err, buf) => {
-      if (err) { res.writeHead(500); return res.end('index.html not found'); }
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
-      res.end(buf);
-    });
-  }
+  if (url === '/' || url === '/index.html') return servePage(req, res);
   res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
   res.end('not found');
 });
 
-const send = (ws, obj) => { if (ws.readyState === 1) ws.send(JSON.stringify(obj)); };
-const broadcast = (players, obj, except) => { const s = JSON.stringify(obj); for (const p of players.values()) if (p !== except && p.ws.readyState === 1) p.ws.send(s); };
+const out = (ws, data) => { if (ws.readyState !== 1) return; ws.send(data); stats.out += data.length || data.byteLength || 0; };
+const send = (ws, obj) => out(ws, JSON.stringify(obj));
+const broadcast = (players, obj, except) => { const s = JSON.stringify(obj); for (const p of players.values()) if (p !== except) out(p.ws, s); };
 const info = p => ({ id: p.id, nick: p.nick, char: p.char, s: p.s });
 const num = (v, lo, hi) => (typeof v === 'number' && Number.isFinite(v)) ? Math.max(lo, Math.min(hi, v)) : 0;
 const r2 = v => Math.round(v * 100) / 100;
@@ -174,27 +268,33 @@ function report(me, m) {
   if (to.reportedBy.has(me.ip)) return send(me.ws, { t: 'report', dup: 1, nick: to.nick });   // 한 사람(IP)이 같은 친구를 여러 번 신고해도 한 번만 세요
   to.reportedBy.add(me.ip);
   send(me.ws, { t: 'report', ok: 1, nick: to.nick });
-  if (to.admin || to.ip === me.ip) return;                         // 관리자는 내보내지지 않아요. 같은 인터넷(IP)끼리의 신고는 세지 않아요
+  if (to.admin) return;                                             // 관리자는 내보내지지 않아요
   to.hits++;
-  const total = (strikes.get(to.ip) || 0) + 1; strikes.set(to.ip, total);
+  const total = (strikes.get(to.dev) || 0) + 1; strikes.set(to.dev, total); saveBans();
   console.log(`[${label(me.room)}] ${to.nick} 신고됨 (이번 접속 ${to.hits}/${REPORTS_TO_KICK}, 누적 ${total}/${REPORTS_TO_BAN})`);
   if (total >= REPORTS_TO_BAN) {
-    bans.set(to.ip, Infinity);
+    bans.set(to.dev, Infinity); saveBans();
     console.log(`[${label(me.room)}] ${to.nick} 영구 차단`);
-    for (const room of allRooms()) for (const p of room.players.values()) if (p.ip === to.ip) kick(p, Infinity);   // 같은 IP로 들어와 있는 접속도 모두 내보내요
+    for (const room of allRooms()) for (const p of room.players.values()) if (p.dev === to.dev) kick(p, Infinity);   // 같은 기기로 열어 둔 다른 창도 모두 내보내요
   } else if (to.hits >= REPORTS_TO_KICK) {
-    bans.set(to.ip, Math.max(bans.get(to.ip) || 0, Date.now() + KICK_BAN_MS));
+    bans.set(to.dev, Math.max(bans.get(to.dev) || 0, Date.now() + KICK_BAN_MS)); saveBans();
+    for (const room of allRooms()) for (const p of room.players.values()) if (p.dev === to.dev && p !== to) kick(p, KICK_BAN_MS);
     console.log(`[${label(me.room)}] ${to.nick} 강제 퇴장 (2시간 차단)`);
     kick(to, KICK_BAN_MS);
   }
 }
 
+const perIp = new Map();   // ip -> 지금 열려 있는 접속 수
 const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 16384 });   // 화면 공유 연결 신호(SDP)는 몇 KB쯤 돼요
 wss.on('connection', (ws, req) => {
   ws.alive = true;
   ws.on('pong', () => { ws.alive = true; });
   const ip = clientIp(req);
-  { const left = banLeft(ip); if (left) { send(ws, banMsg(left)); return ws.close(); } }
+  if (wss.clients.size > MAX_PLAYERS) { send(ws, { t: 'busy' }); return ws.close(); }
+  const nIp = (perIp.get(ip) || 0) + 1;
+  if (nIp > MAX_PER_IP) { send(ws, { t: 'busy', ip: 1 }); return ws.close(); }
+  perIp.set(ip, nIp);
+  ws.on('close', () => { const k = (perIp.get(ip) || 1) - 1; if (k > 0) perIp.set(ip, k); else perIp.delete(ip); });
   let me = null, budget = 40, last = Date.now();
 
   ws.on('message', raw => {
@@ -207,13 +307,21 @@ wss.on('connection', (ws, req) => {
     if (!me) {
       if (m.t !== 'join') return;
       if (!CHAR_IDS.has(m.char)) return ws.close();
-      { const left = banLeft(ip); if (left) { send(ws, banMsg(left)); return ws.close(); } }
+      // 기기 표 확인: 없거나 틀리면 새로 주고, 차단된 기기면 못 들어와요
+      let dev = checkDevice(m.dev), devTok = '';
+      if (!dev) { const d = newDevice(); dev = d.id; devTok = d.tok; }
+      { const left = banLeft(dev); if (left) { send(ws, banMsg(left)); return ws.close(); } }
       // 어느 방에 들어갈지: 공용 채널 번호(ch), 새 비공개 채널(make), 비공개 채널 코드(code)
       let room = null, made = false;
+      const xmasOk = xmasOpen() || m.preview === 1;                 // 미리보기(?xmas=1)는 기간 전에도 들어갈 수 있어요
       if (m.make === 1) {
         if (privateRooms.size >= MAX_PRIVATE) { send(ws, { t: 'full', rooms: 1 }); return ws.close(); }
         const sky = Number.isInteger(m.sky) && m.sky >= 0 && m.sky < CHANNELS ? m.sky : 0;
-        room = makeRoom(false, -1, newCode(), sky); made = true;
+        room = makeRoom(false, -1, newCode(), sky, m.xmas === 1 && xmasOk ? 'xmas' : ''); made = true;
+      } else if (m.xmas === 1) {
+        if (!xmasOk) { send(ws, { t: 'closed' }); return ws.close(); }
+        room = xmasRoom();
+        if (!room) { send(ws, { t: 'full' }); return ws.close(); }
       } else if (typeof m.code === 'string') {
         const miss = codeMiss.get(ip);
         if (miss && now - miss.t < CODE_MISS_MS && miss.n >= CODE_MISS_MAX) { send(ws, { t: 'nocode', slow: 1 }); return ws.close(); }
@@ -233,10 +341,10 @@ wss.on('connection', (ws, req) => {
       const want = clean(m.nick, NICK_MAX);
       if (want && [...players.values()].some(p => p.nick === want)) { send(ws, { t: 'taken' }); return ws.close(); }
       if (made) privateRooms.set(room.code, room);
-      me = { id: nextId++, ws, ip, room, char: m.char, nick: want || makeNick(players), s: [6, 0, 22, 0, 0, 1, 0], lastChat: 0, admin: false, adminTries: 0, reportedBy: new Set(), hits: 0 };
+      me = { id: nextId++, ws, ip, dev, room, char: m.char, nick: want || makeNick(players), s: [6, 0, 22, 0, 0, 1, 0], ver: 1, seen: new Map(), lastChat: 0, admin: false, adminTries: 0, reportedBy: new Set(), hits: 0 };
       if (m.stars === true) me.starsDone = true;   // 다른 채널에서 이미 별사탕을 다 모았어요: 외치기는 되지만 첫 유성우·UFO는 다시 굴리지 않아요
       players.set(me.id, me);
-      send(ws, { t: 'welcome', id: me.id, nick: me.nick, ch: room.pub ? room.idx : -1, code: room.code, made: made ? 1 : 0, sky: room.sky, max: MAX_PER_CHANNEL, now: Date.now(), ufo: room.ufo ? 1 : 0, shower: Math.max(0, room.showerEnd - SHOWER_GAP_MS - Date.now()), screen: room.screen, players: [...players.values()].filter(p => p !== me).map(info) });
+      send(ws, { t: 'welcome', dev: devTok || undefined, id: me.id, nick: me.nick, ch: room.pub && !room.xmas ? room.idx : -1, code: room.code, xmas: room.xmas ? room.idx + 1 : 0, theme: room.theme, made: made ? 1 : 0, sky: room.sky, max: MAX_PER_CHANNEL, now: Date.now(), ufo: room.ufo ? 1 : 0, shower: Math.max(0, room.showerEnd - SHOWER_GAP_MS - Date.now()), screen: room.screen, players: [...players.values()].filter(p => p !== me).map(info) });
       broadcast(players, { t: 'join', ...info(me) }, me);
       console.log(`[${label(room)}] ${me.nick} ${made ? '비공개 채널을 만들고 ' : ''}입장 (${players.size}/${MAX_PER_CHANNEL})`);
       return;
@@ -244,8 +352,10 @@ wss.on('connection', (ws, req) => {
     const room = me.room;
     if (m.t === 's') {
       // x reaches ~1400 inside grandpa tree (indoor spaces sit east of the map), y up to the treetop terrace
-      // 7th value: sitting on the cabin sofa (so others see the seat taken)
+      // 7th value: sitting on the cabin sofa (so others see the seat taken). ver goes up only when something changed
+      const old = me.s;
       me.s = [r2(num(m.x, -2000, 2000)), r2(num(m.y, -50, 150)), r2(num(m.z, -2000, 2000)), r2(num(m.yaw, -50, 50)), r2(num(m.sp, 0, 20)), m.g ? 1 : 0, m.sit ? 1 : 0];
+      if (me.s.some((v, i) => v !== old[i])) me.ver++;
     } else if (m.t === 'e') {
       const k = Number.isInteger(m.k) ? m.k : -1;
       if (k >= 0 && k < PHRASE_COUNT) broadcast(room.players, { t: 'e', id: me.id, k }, me);
@@ -303,6 +413,7 @@ wss.on('connection', (ws, req) => {
     if (!me) return;
     const room = me.room, players = room.players;
     players.delete(me.id);
+    for (const p of players.values()) p.seen.delete(me.id);
     endScreen(room, me.id);                                          // 화면을 띄운 사람이 나가면 화면도 꺼져요
     if (players.size === 0) {
       room.ufo = null; room.showerEnd = 0; room.screen = null;       // 채널이 비면 UFO도 유성우도 사라져요
@@ -313,14 +424,32 @@ wss.on('connection', (ws, req) => {
   });
 });
 
-// 채널마다 모두의 최신 위치를 한 번에 보내요
+// 채널마다 친구들의 위치를 보내요. 짧은 이진 형식으로, 지난번 뒤로 움직인 친구만, 멀리 있는 친구는 초당 2번만 보내요.
+// 한 명당 20바이트: id(u32) x y z(f32) 방향(i16, ×600) 빠르기(u8, ×12) 상태(u8: 1 땅에 있음, 2 앉음)
+const SNAP_REC = 20, snapBuf = Buffer.alloc(1 + SNAP_REC * 256);
 setInterval(() => {
   for (const room of allRooms()) {
     if (room.players.size < 2) continue;
-    const msg = JSON.stringify({ t: 'snap', p: [...room.players.values()].map(p => [p.id, ...p.s]) });
-    for (const p of room.players.values()) if (p.ws.readyState === 1) p.ws.send(msg);
+    const farTick = room.tick++ % FAR_EVERY === 0, list = [...room.players.values()];
+    for (const me of list) {
+      if (me.ws.readyState !== 1) continue;
+      let n = 0;
+      for (const p of list) {
+        if (p === me || me.seen.get(p.id) === p.ver) continue;
+        if (!farTick && Math.abs(p.s[0] - me.s[0]) + Math.abs(p.s[2] - me.s[2]) > NEAR) continue;
+        me.seen.set(p.id, p.ver);
+        const o = 1 + n++ * SNAP_REC, s = p.s;
+        snapBuf.writeUInt32LE(p.id, o); snapBuf.writeFloatLE(s[0], o + 4); snapBuf.writeFloatLE(s[1], o + 8); snapBuf.writeFloatLE(s[2], o + 12);
+        snapBuf.writeInt16LE(Math.round(s[3] * 600), o + 16); snapBuf.writeUInt8(Math.min(255, Math.round(s[4] * 12)), o + 18); snapBuf.writeUInt8(s[5] | (s[6] << 1), o + 19);
+      }
+      if (!n) continue;
+      snapBuf[0] = 1;   // 1 = 위치 묶음
+      out(me.ws, Buffer.from(snapBuf.subarray(0, 1 + n * SNAP_REC)));
+    }
   }
 }, TICK_MS);
+// 초당 내보내는 양 (운영 현황용)
+{ let last = 0; setInterval(() => { stats.outRate = (stats.out - last) / 5; last = stats.out; }, 5000); }
 
 // 응답 없는 연결 정리, 기한이 지난 차단 풀기
 setInterval(() => {
@@ -328,13 +457,14 @@ setInterval(() => {
     if (!ws.alive) { ws.terminate(); continue; }
     ws.alive = false; ws.ping();
   }
-  for (const ip of bans.keys()) banLeft(ip);
+  { const n = bans.size; for (const d of bans.keys()) banLeft(d); if (bans.size !== n) saveBans(); }
   const now = Date.now();
   for (const [ip, v] of codeMiss) if (now - v.t >= CODE_MISS_MS) codeMiss.delete(ip);
   for (const [code, room] of privateRooms) if (room.players.size === 0 && now - room.emptyAt >= PRIVATE_KEEP_MS) privateRooms.delete(code);
 }, 15000);
 
-server.listen(PORT, '0.0.0.0', () => {
+const HOST = process.env.HOST || '0.0.0.0';   // Cloudflare Tunnel 뒤에 둘 땐 127.0.0.1 (바깥에서 서버로 바로 못 들어오게)
+server.listen(PORT, HOST, () => {
   console.log(`몽글 마을 서버가 켜졌어요 (공용 채널 ${CHANNELS}개, 채널당 최대 ${MAX_PER_CHANNEL}명)`);
   console.log(`  이 PC에서:      http://localhost:${PORT}`);
   for (const list of Object.values(os.networkInterfaces())) for (const a of list || []) {
