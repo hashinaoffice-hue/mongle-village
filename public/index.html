@@ -5819,18 +5819,22 @@ function tickBeam(dt, T) {
 
 function setStatus(t) { $('status').textContent = t; }
 function updateCount() { $('chInfo').textContent = (Net.code ? '비공개 ' + Net.code : Net.xmas ? '크리스마스 ' + Net.xmas : '채널 ' + (Net.ch + 1)) + ' · ' + (Net.remotes.size + 1) + '명'; }
+// this browser's device ticket, handed out and signed by the server (no personal data). Reports and bans follow it, not the shared internet address
+const DEV_KEY = 'mongle-dev';
+const devGet = () => { try { return localStorage.getItem(DEV_KEY) || ''; } catch (e) { return ''; } };
+const devSet = v => { try { localStorage.setItem(DEV_KEY, v); } catch (e) {} };
 function connect(where, charId, nick) {
   return new Promise((resolve, reject) => {
     let ws, settled = false;
     try { ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws'); }
     catch (e) { return reject('noserver'); }
     ws.binaryType = 'arraybuffer';
-    ws.onopen = () => ws.send(JSON.stringify({ t: 'join', ...where, char: charId, nick, stars: got === stars.length }))   // stars you've gathered count in every channel;
+    ws.onopen = () => ws.send(JSON.stringify({ t: 'join', ...where, dev: devGet(), char: charId, nick, stars: got === stars.length }))   // stars you've gathered count in every channel;
     ws.onmessage = ev => {
       if (typeof ev.data !== 'string') { if (settled && Net.ws === ws) onSnap(ev.data); return; }
       let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
       if (!settled) {
-        if (m.t === 'welcome') { settled = true; Object.assign(Net, { ws, id: m.id, nick: m.nick, ch: m.ch, code: m.code || '', xmas: m.xmas || 0, theme: m.theme || '', pub: !m.code, admin: false, made: !!m.made, kickMsg: '', max: m.max, ufo: !!m.ufo, shower: m.shower || 0 }); if (m.now) WX.off = m.now - Date.now(); skyCh = Number.isInteger(m.sky) ? m.sky : Math.max(0, m.ch); setTheme(Net.theme); m.players.forEach(addRemote); if (m.screen) Beam.onScreen(m.screen); resolve(m); }
+        if (m.t === 'welcome') { settled = true; if (m.dev) devSet(m.dev); Object.assign(Net, { ws, id: m.id, nick: m.nick, ch: m.ch, code: m.code || '', xmas: m.xmas || 0, theme: m.theme || '', pub: !m.code, admin: false, made: !!m.made, kickMsg: '', max: m.max, ufo: !!m.ufo, shower: m.shower || 0 }); if (m.now) WX.off = m.now - Date.now(); skyCh = Number.isInteger(m.sky) ? m.sky : Math.max(0, m.ch); setTheme(Net.theme); m.players.forEach(addRemote); if (m.screen) Beam.onScreen(m.screen); resolve(m); }
         else if (m.t === 'full') { settled = true; reject(m.rooms ? 'fullrooms' : 'full'); }
         else if (m.t === 'taken') { settled = true; reject('taken'); }
         else if (m.t === 'nocode') { settled = true; reject(m.slow ? 'slow' : 'nocode'); }

@@ -44,11 +44,13 @@ const ADMIN_HASHES = new Set([
 ]);
 const ADMIN_TRIES = 5;     // 접속 한 번에 틀릴 수 있는 횟수
 
-// 신고: 한 채널에서 서로 다른 사람(IP) 3명에게 신고받으면 내보내고 그 IP는 2시간 못 들어와요.
-// 같은 IP가 누적 9번 신고받으면 영구 차단이에요. (메모리에만 있어서 서버가 다시 켜지면 초기화돼요)
+// 신고: 한 채널에서 서로 다른 사람 3명에게 신고받으면 내보내고 그 기기는 2시간 못 들어와요.
+// 같은 기기가 누적 9번 신고받으면 영구 차단이에요.
+// - 차단은 기기 단위예요. PC방·학교처럼 IP를 같이 쓰는 곳의 다른 사람은 막히지 않아요
+// - 신고한 사람은 IP로 세요. 한 사람이 창을 여러 개 열어 혼자 3번을 채울 수 없게요
 const REPORTS_TO_KICK = 3, KICK_BAN_MS = 2 * 3600e3, REPORTS_TO_BAN = 9;
-const bans = new Map();      // ip -> 풀리는 시각 (Infinity = 영구)
-const strikes = new Map();   // ip -> 지금까지 받은 신고 수
+const bans = new Map();      // 기기 -> 풀리는 시각 (Infinity = 영구)
+const strikes = new Map();   // 기기 -> 지금까지 받은 신고 수
 const codeMiss = new Map();  // ip -> { n, t }
 // BAN_FILE 을 정해 두면(예: /var/lib/mongle/bans.json) 차단과 신고 수를 파일에 남겨서 서버를 다시 켜도 이어져요
 const BAN_FILE = process.env.BAN_FILE || '';
@@ -57,7 +59,7 @@ if (BAN_FILE) {
     const d = JSON.parse(fs.readFileSync(BAN_FILE, 'utf8'));
     for (const [ip, u] of Object.entries(d.bans || {})) bans.set(ip, u === 'forever' ? Infinity : +u);
     for (const [ip, n] of Object.entries(d.strikes || {})) strikes.set(ip, +n);
-    console.log(`차단 기록을 불러왔어요 (차단 ${bans.size}개, 신고받은 IP ${strikes.size}개)`);
+    console.log(`차단 기록을 불러왔어요 (차단 ${bans.size}개, 신고받은 기기 ${strikes.size}개)`);
   } catch (e) { if (e.code !== 'ENOENT') console.log('차단 기록을 읽지 못했어요:', e.message); }
 }
 let banSaveT = null;
@@ -71,11 +73,33 @@ function saveBans() {
     fs.writeFile(tmp, JSON.stringify(d), err => { if (err) return console.log('차단 기록 저장 실패:', err.message); fs.rename(tmp, BAN_FILE, () => {}); });
   }, 2000);
 }
-function banLeft(ip) {       // 0 = 차단 아님, Infinity = 영구, 그 밖엔 남은 ms
-  const until = bans.get(ip); if (!until) return 0;
-  if (until !== Infinity && until <= Date.now()) { bans.delete(ip); return 0; }
+function banLeft(dev) {      // 0 = 차단 아님, Infinity = 영구, 그 밖엔 남은 ms
+  const until = bans.get(dev); if (!until) return 0;
+  if (until !== Infinity && until <= Date.now()) { bans.delete(dev); return 0; }
   return until === Infinity ? Infinity : until - Date.now();
 }
+// 기기 표: 브라우저마다 서버가 무작위 번호를 하나 주고, 서버만 아는 비밀 열쇠로 서명해요(위조 불가). 개인정보는 없어요.
+// 열쇠가 바뀌면 모든 표가 새로 발급돼서 차단도 풀려요. 그래서 DEVICE_SECRET 이나 BAN_FILE 옆 파일(.key)에 열쇠를 남겨 둬요
+const DEVICE_KEY = (() => {
+  if (process.env.DEVICE_SECRET) return process.env.DEVICE_SECRET;
+  if (BAN_FILE) {
+    const f = BAN_FILE + '.key';
+    try { return fs.readFileSync(f, 'utf8').trim(); } catch {}
+    const k = crypto.randomBytes(32).toString('hex');
+    try { fs.writeFileSync(f, k, { mode: 0o600 }); } catch (e) { console.log('기기 열쇠를 저장하지 못했어요:', e.message); }
+    return k;
+  }
+  return crypto.randomBytes(32).toString('hex');
+})();
+const devSig = id => crypto.createHmac('sha256', DEVICE_KEY).update(id).digest('base64url').slice(0, 22);
+function checkDevice(tok) {   // 맞는 표면 기기 번호, 아니면 ''
+  if (typeof tok !== 'string' || tok.length > 64) return '';
+  const [id, sig] = tok.split('.');
+  if (!/^[A-Za-z0-9_-]{22}$/.test(id || '') || !sig) return '';
+  const a = Buffer.from(sig), b = Buffer.from(devSig(id));
+  return a.length === b.length && crypto.timingSafeEqual(a, b) ? id : '';
+}
+function newDevice() { const id = crypto.randomBytes(16).toString('base64url'); return { id, tok: id + '.' + devSig(id) }; }
 const banMsg = left => ({ t: 'banned', left: left === Infinity ? 0 : Math.ceil(left) });
 // Render 같은 호스팅에서는 앞단 프록시가 진짜 주소를 알려 줘요. 내 PC에서 켤 땐 그 머리글을 믿지 않아요 (누구나 꾸며 보낼 수 있어서)
 // CF-Connecting-IP 는 Cloudflare가 늘 덮어써서 꾸밀 수 없어요. 없을 때만 X-Forwarded-For 의 첫 주소를 써요
@@ -244,16 +268,17 @@ function report(me, m) {
   if (to.reportedBy.has(me.ip)) return send(me.ws, { t: 'report', dup: 1, nick: to.nick });   // 한 사람(IP)이 같은 친구를 여러 번 신고해도 한 번만 세요
   to.reportedBy.add(me.ip);
   send(me.ws, { t: 'report', ok: 1, nick: to.nick });
-  if (to.admin || to.ip === me.ip) return;                         // 관리자는 내보내지지 않아요. 같은 인터넷(IP)끼리의 신고는 세지 않아요
+  if (to.admin) return;                                             // 관리자는 내보내지지 않아요
   to.hits++;
-  const total = (strikes.get(to.ip) || 0) + 1; strikes.set(to.ip, total); saveBans();
+  const total = (strikes.get(to.dev) || 0) + 1; strikes.set(to.dev, total); saveBans();
   console.log(`[${label(me.room)}] ${to.nick} 신고됨 (이번 접속 ${to.hits}/${REPORTS_TO_KICK}, 누적 ${total}/${REPORTS_TO_BAN})`);
   if (total >= REPORTS_TO_BAN) {
-    bans.set(to.ip, Infinity); saveBans();
+    bans.set(to.dev, Infinity); saveBans();
     console.log(`[${label(me.room)}] ${to.nick} 영구 차단`);
-    for (const room of allRooms()) for (const p of room.players.values()) if (p.ip === to.ip) kick(p, Infinity);   // 같은 IP로 들어와 있는 접속도 모두 내보내요
+    for (const room of allRooms()) for (const p of room.players.values()) if (p.dev === to.dev) kick(p, Infinity);   // 같은 기기로 열어 둔 다른 창도 모두 내보내요
   } else if (to.hits >= REPORTS_TO_KICK) {
-    bans.set(to.ip, Math.max(bans.get(to.ip) || 0, Date.now() + KICK_BAN_MS)); saveBans();
+    bans.set(to.dev, Math.max(bans.get(to.dev) || 0, Date.now() + KICK_BAN_MS)); saveBans();
+    for (const room of allRooms()) for (const p of room.players.values()) if (p.dev === to.dev && p !== to) kick(p, KICK_BAN_MS);
     console.log(`[${label(me.room)}] ${to.nick} 강제 퇴장 (2시간 차단)`);
     kick(to, KICK_BAN_MS);
   }
@@ -265,7 +290,6 @@ wss.on('connection', (ws, req) => {
   ws.alive = true;
   ws.on('pong', () => { ws.alive = true; });
   const ip = clientIp(req);
-  { const left = banLeft(ip); if (left) { send(ws, banMsg(left)); return ws.close(); } }
   if (wss.clients.size > MAX_PLAYERS) { send(ws, { t: 'busy' }); return ws.close(); }
   const nIp = (perIp.get(ip) || 0) + 1;
   if (nIp > MAX_PER_IP) { send(ws, { t: 'busy', ip: 1 }); return ws.close(); }
@@ -283,7 +307,10 @@ wss.on('connection', (ws, req) => {
     if (!me) {
       if (m.t !== 'join') return;
       if (!CHAR_IDS.has(m.char)) return ws.close();
-      { const left = banLeft(ip); if (left) { send(ws, banMsg(left)); return ws.close(); } }
+      // 기기 표 확인: 없거나 틀리면 새로 주고, 차단된 기기면 못 들어와요
+      let dev = checkDevice(m.dev), devTok = '';
+      if (!dev) { const d = newDevice(); dev = d.id; devTok = d.tok; }
+      { const left = banLeft(dev); if (left) { send(ws, banMsg(left)); return ws.close(); } }
       // 어느 방에 들어갈지: 공용 채널 번호(ch), 새 비공개 채널(make), 비공개 채널 코드(code)
       let room = null, made = false;
       const xmasOk = xmasOpen() || m.preview === 1;                 // 미리보기(?xmas=1)는 기간 전에도 들어갈 수 있어요
@@ -314,10 +341,10 @@ wss.on('connection', (ws, req) => {
       const want = clean(m.nick, NICK_MAX);
       if (want && [...players.values()].some(p => p.nick === want)) { send(ws, { t: 'taken' }); return ws.close(); }
       if (made) privateRooms.set(room.code, room);
-      me = { id: nextId++, ws, ip, room, char: m.char, nick: want || makeNick(players), s: [6, 0, 22, 0, 0, 1, 0], ver: 1, seen: new Map(), lastChat: 0, admin: false, adminTries: 0, reportedBy: new Set(), hits: 0 };
+      me = { id: nextId++, ws, ip, dev, room, char: m.char, nick: want || makeNick(players), s: [6, 0, 22, 0, 0, 1, 0], ver: 1, seen: new Map(), lastChat: 0, admin: false, adminTries: 0, reportedBy: new Set(), hits: 0 };
       if (m.stars === true) me.starsDone = true;   // 다른 채널에서 이미 별사탕을 다 모았어요: 외치기는 되지만 첫 유성우·UFO는 다시 굴리지 않아요
       players.set(me.id, me);
-      send(ws, { t: 'welcome', id: me.id, nick: me.nick, ch: room.pub && !room.xmas ? room.idx : -1, code: room.code, xmas: room.xmas ? room.idx + 1 : 0, theme: room.theme, made: made ? 1 : 0, sky: room.sky, max: MAX_PER_CHANNEL, now: Date.now(), ufo: room.ufo ? 1 : 0, shower: Math.max(0, room.showerEnd - SHOWER_GAP_MS - Date.now()), screen: room.screen, players: [...players.values()].filter(p => p !== me).map(info) });
+      send(ws, { t: 'welcome', dev: devTok || undefined, id: me.id, nick: me.nick, ch: room.pub && !room.xmas ? room.idx : -1, code: room.code, xmas: room.xmas ? room.idx + 1 : 0, theme: room.theme, made: made ? 1 : 0, sky: room.sky, max: MAX_PER_CHANNEL, now: Date.now(), ufo: room.ufo ? 1 : 0, shower: Math.max(0, room.showerEnd - SHOWER_GAP_MS - Date.now()), screen: room.screen, players: [...players.values()].filter(p => p !== me).map(info) });
       broadcast(players, { t: 'join', ...info(me) }, me);
       console.log(`[${label(room)}] ${me.nick} ${made ? '비공개 채널을 만들고 ' : ''}입장 (${players.size}/${MAX_PER_CHANNEL})`);
       return;
@@ -430,7 +457,7 @@ setInterval(() => {
     if (!ws.alive) { ws.terminate(); continue; }
     ws.alive = false; ws.ping();
   }
-  { const n = bans.size; for (const ip of bans.keys()) banLeft(ip); if (bans.size !== n) saveBans(); }
+  { const n = bans.size; for (const d of bans.keys()) banLeft(d); if (bans.size !== n) saveBans(); }
   const now = Date.now();
   for (const [ip, v] of codeMiss) if (now - v.t >= CODE_MISS_MS) codeMiss.delete(ip);
   for (const [code, room] of privateRooms) if (room.players.size === 0 && now - room.emptyAt >= PRIVATE_KEEP_MS) privateRooms.delete(code);
