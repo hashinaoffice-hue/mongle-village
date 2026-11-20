@@ -75,5 +75,5 @@ sudo bash /opt/mongle-village/deploy/update.sh
 
 ## 사람이 아주 많이 몰리면
 
-- `/api/stats`의 `players`가 `MAX_PLAYERS`(기본 1500)에 가까워지거나, Lightsail 화면의 CPU 그래프가 오래 높게 머무르면 더 큰 요금제로 올려요 (Lightsail 「스냅샷」으로 복제해서 큰 인스턴스로 만들 수 있어요).
+- `/api/stats`의 `players`가 `MAX_PLAYERS`(기본 2000)에 가까워지거나, Lightsail 화면의 CPU 그래프가 오래 높게 머무르면 더 큰 요금제로 올려요 (Lightsail 「스냅샷」으로 복제해서 큰 인스턴스로 만들 수 있어요).
 - 한 대로도 모자라면 채널을 서버 여러 대에 나눠요. 채널끼리 서로 독립이라 나누기 쉬운 구조예요. 필요해지면 그때 만들어요.

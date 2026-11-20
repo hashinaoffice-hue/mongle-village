@@ -57,7 +57,7 @@ ReadWritePaths=$DATA
 [Install]
 WantedBy=multi-user.target
 UNIT
-[ -f /etc/mongle.env ] || printf '# 몽글 마을 설정 (바꾼 뒤: sudo systemctl restart mongle)\n# XMAS=1\n# MAX_PLAYERS=1500\n' > /etc/mongle.env
+[ -f /etc/mongle.env ] || printf '# 몽글 마을 설정 (바꾼 뒤: sudo systemctl restart mongle)\n# XMAS=1\n# MAX_PLAYERS=2000\n' > /etc/mongle.env
 systemctl daemon-reload
 systemctl enable mongle >/dev/null
 systemctl restart mongle
