@@ -108,6 +108,11 @@ button{font:inherit;color:inherit}
 .ch:disabled{opacity:.45;cursor:not-allowed}
 .ch.pv{flex-direction:row;font-family:var(--display);font-size:16px;padding:.3em .8em}
 .codeform{display:flex;gap:6px;align-items:center}
+.xmrow{padding:6px}
+.ch.xm{flex-direction:row;gap:10px;align-items:baseline;padding:.35em 1.2em;border-width:2.5px;background:repeating-linear-gradient(135deg,#fff 0 10px,#ffe3e3 10px 20px);box-shadow:inset 0 0 0 3px #3f9d5a}
+.ch.xm .n{font-size:19px}
+.ch.xm[aria-pressed="true"]{background:repeating-linear-gradient(135deg,#fff3c4 0 10px,#ffd0d0 10px 20px);box-shadow:inset 0 0 0 3px #3f9d5a,0 3px 0 var(--ink)}
+.xmpriv{display:inline-flex;align-items:center;gap:4px;font-family:var(--display);font-size:14px;cursor:pointer}
 .codeform input{width:7.2em;font:inherit;font-family:var(--display);font-size:17px;letter-spacing:.12em;text-transform:uppercase;padding:.2em .5em;border:2px solid var(--ink);border-radius:12px;background:#fff}
 .codeform .btn{font-size:14px;padding:.2em .8em;box-shadow:0 2px 0 var(--ink)}
 #bBeam.locked{opacity:.6}
@@ -257,10 +262,12 @@ button{font:inherit;color:inherit}
   </form>
   <div id="pickStep" hidden>
   <div class="nickme">닉네임 <b id="nickShow"></b><button class="btn" type="button" id="bNick">바꾸기</button></div>
+  <div class="chwrap xmrow" id="xmasRow" hidden><button class="ch xm" type="button" id="bXmas" aria-pressed="false" title="12월 한 달 동안만 열리는 크리스마스 마을이에요. 꽉 차면 다음 채널이 저절로 열려요"><span class="n">🎄 크리스마스 채널</span><span class="c" id="xmasN"></span></button></div>
   <div class="chwrap"><span class="chlabel">채널</span><div class="channels" id="channels"></div></div>
   <div class="chwrap"><span class="chlabel">비공개</span><div class="channels">
     <button class="ch pv" type="button" id="bMake" aria-pressed="false" title="친구끼리만 노는 채널을 만들어요. 6글자 코드를 친구에게 알려 주세요">채널 만들기</button>
     <button class="ch pv" type="button" id="bEnter" aria-pressed="false" title="친구에게 받은 6글자 코드로 들어가요">채널 입장</button>
+    <label class="xmpriv" id="xmasPriv" hidden title="비공개 채널도 크리스마스 마을로 만들어요"><input type="checkbox" id="xmasPrivIn"> 🎄 크리스마스로</label>
     <form id="codeForm" class="codeform" hidden autocomplete="off"><input id="codeIn" maxlength="6" placeholder="코드 6글자" aria-label="비공개 채널 코드" spellcheck="false" autocapitalize="characters" enterkeyhint="go"><button class="btn" type="submit">확인</button></form>
   </div></div>
   <p class="lead">함께 산책할 친구를 골라 주세요</p>
@@ -360,6 +367,20 @@ function weatherAt(ch = skyCh, ms = Date.now() + WX.off) {
   if (h > 0.55) return WX_CLEAR;
   const p = (ms - (b * WX.BLOCK + wxHash(b * 977 + ch * 331 + 5) * (WX.BLOCK - WX.LEN))) / WX.LEN;
   return p < 0 || p >= 1 ? WX_CLEAR : wxShape(h < 0.33 ? 'rain' : 'snow', p);
+}
+/* ---- theme: the Christmas channel dresses the whole village up. Things that change with it register in THEME_HOOKS ---- */
+const XMAS_PREVIEW = SKY_Q.get('xmas') === '1';     // ?xmas=1: look inside the Christmas channel before December
+let THEME = '';
+const THEME_HOOKS = [];
+function setTheme(t) { if (t === THEME) return; THEME = t; for (const f of THEME_HOOKS) f(t); }
+// stepping into (or out of) the Christmas village: the snow is simply there, no slow change of weather
+THEME_HOOKS.push(t => { const w = t === 'xmas' ? xmasWeather() : weatherAt(skyCh); wx.snow = w.snow; wx.rain = w.type === 'rain' ? w.k : 0; wx.snowfall = w.type === 'snow' ? w.k : 0; wx.stage = null; });
+// in the Christmas channel snow always lies deep; it falls whenever the usual schedule (channel 1's) has weather, and all through Christmas Eve night and Christmas Day
+function xmasWeather(ms = Date.now() + WX.off) {
+  const kst = new Date(ms + 9 * 3600e3), d = kst.getUTCDate();
+  if (kst.getUTCMonth() === 11 && (d === 25 || (d === 24 && kst.getUTCHours() >= 18))) return { type: 'snow', p: 0.5, k: 0.85, snow: 1, storm: false };
+  const w = weatherAt(0, ms);
+  return w.type ? { type: 'snow', p: 0.5, k: Math.max(0.3, w.k), snow: 1, storm: false } : { type: null, p: 0, k: 0, snow: 1, storm: false };
 }
 // the weather as it is drawn right now: eased toward the schedule so nothing snaps
 const wx = { type: null, rain: 0, snowfall: 0, snow: 0, storm: false, p: 0, stage: null, flash: 0, ft: 9, next: 6, bad: 0 };
@@ -5390,7 +5411,7 @@ $('nickForm').addEventListener('submit', e => {
 $('bNick').addEventListener('click', () => { Snd.pop(); showNickStep(); });
 
 let joining = false;
-const selName = () => selMode === 'make' ? '새 비공개 채널' : selMode === 'code' ? '비공개 채널 ' + selCode : '채널 ' + (selCh + 1);
+const selName = () => selMode === 'make' ? '새 비공개 채널' : selMode === 'code' ? '비공개 채널 ' + selCode : selMode === 'xmas' ? '크리스마스 채널' : '채널 ' + (selCh + 1);
 // how long a ban has left, in words (left = 0 means for good)
 function banText(left, kicked) {
   if (!left) return '신고가 많이 쌓여서 이 인터넷으로는 더 이상 마을에 들어올 수 없어요.';
@@ -5403,13 +5424,17 @@ function joinErr(e) {
   if (e === 'fullrooms') return '지금은 비공개 채널을 더 만들 수 없어요. 잠시 뒤에 다시 해 주세요.';
   if (e === 'nocode') return '「' + selCode + '」 비공개 채널을 찾을 수 없어요. 코드를 다시 확인해 주세요.';
   if (e === 'slow') return '코드를 너무 많이 틀렸어요. 잠시 뒤에 다시 해 주세요.';
+  if (e === 'busy') return '지금 마을에 사람이 너무 많아요. 잠시 뒤에 다시 와 주세요.';
+  if (e === 'busyip') return '이 인터넷에서 너무 많이 접속하고 있어요. 다른 창을 닫고 다시 해 주세요.';
+  if (e === 'closed') return '크리스마스 채널은 12월에만 열려요.';
   return '서버에 연결할 수 없어요. 서버가 켜져 있는지 확인해 주세요.';
 }
 async function start(i) {
   if (joining || myNick === null) return;
   joining = true; setStatus(selMode === 'make' ? '비공개 채널을 만드는 중…' : selName() + '에 들어가는 중…');
   Snd.init();
-  const where = selMode === 'make' ? { make: 1, sky: selCh } : selMode === 'code' ? { code: selCode } : { ch: selCh };
+  const xp = XMAS_PREVIEW ? 1 : 0;
+  const where = selMode === 'make' ? { make: 1, sky: selCh, xmas: $('xmasPrivIn').checked ? 1 : 0, preview: xp } : selMode === 'code' ? { code: selCode } : selMode === 'xmas' ? { xmas: 1, preview: xp } : { ch: selCh };
   try { await connect(where, CHARS[i].id, myNick); }
   catch (e) {
     joining = false;
@@ -5435,6 +5460,7 @@ async function start(i) {
   $('whoImg').src = thumbs[player.d.id]; $('whoName').textContent = player.d.name; $('whoNick').textContent = Net.nick;
   updateCount();
   canvas.focus();
+  if (Net.theme === 'xmas') setTimeout(() => { if (mode === 'play') xmasBanner(); }, 600);
   if (Net.made) { toast('비공개 채널을 만들었어요! 코드 ' + Net.code + ' 를 친구에게 알려 주세요', 6500); addLog(null, '비공개 채널 코드: ' + Net.code + ' (친구가 「채널 입장」에 넣으면 들어와요)'); }
   else toast(Net.nick + '(으)로 ' + chLabel() + '에 들어왔어요');
   Snd.pop();
@@ -5446,7 +5472,7 @@ function backToSelect() {
   closeChat(); closePM(); $('chatlog').innerHTML = '';
   promptPortal = null; promptKey = null; $('prompt').hidden = true;
   if (player) { player.zone = 'world'; player.sitting = null; player.obj.visible = player.blobShadow.visible = true; player.pos.set(6, terrain(6, 22), 22); }
-  leaveServer(); ufoSet(null); stopShower();
+  leaveServer(); ufoSet(null); stopShower(); setTheme(selTheme());
   mode = 'select'; player = null;
   showPickStep();
   $('select').hidden = false; $('hud').hidden = true; $('bSwap').hidden = true; $('bMap').hidden = true; $('bBeam').hidden = true; $('map').hidden = true;
@@ -5457,10 +5483,10 @@ function backToSelect() {
 
 /* ---------------- multiplayer ---------------- */
 const PHRASES = ['안녕~!', '반가워!', '같이 가자~', '고마워!'];
-const Net = { ws: null, id: 0, nick: '', ch: 0, code: '', pub: true, admin: false, made: false, kickMsg: '', max: 20, remotes: new Map(), sendT: 0 };
+const Net = { ws: null, id: 0, nick: '', ch: 0, code: '', xmas: 0, theme: '', pub: true, admin: false, made: false, kickMsg: '', max: 20, remotes: new Map(), sendT: 0 };
 let selCh = 0, chData = null;
-let selMode = 'pub', selCode = '';                   // pub: a public channel, make: a new private channel, code: a private channel by its code
-const chLabel = () => Net.code ? '비공개 채널 ' + Net.code : '채널 ' + (Net.ch + 1);
+let selMode = 'pub', selCode = '';                   // pub: a public channel, xmas: the Christmas channel, make: a new private channel, code: a private channel by its code
+const chLabel = () => Net.code ? '비공개 채널 ' + Net.code : Net.xmas ? '크리스마스 채널 ' + Net.xmas : '채널 ' + (Net.ch + 1);
 /* ---------------- the beam projector: one person per channel can share their screen, and it hangs in the air like a hologram for everyone to watch together ----------------
    The picture and sound go straight from the sharer's browser to each viewer's (WebRTC); the server only says who is sharing where and passes the handshake along. */
 const Beam = { k: 1, host: 0, mine: false, pending: null, stream: null, peers: new Map(), video: null, tex: null, group: null, U: null, glow: null, cone: null, y0: 0, aspect: 16 / 9, needTap: false,
@@ -5792,21 +5818,25 @@ function tickBeam(dt, T) {
 }
 
 function setStatus(t) { $('status').textContent = t; }
-function updateCount() { $('chInfo').textContent = (Net.code ? '비공개 ' + Net.code : '채널 ' + (Net.ch + 1)) + ' · ' + (Net.remotes.size + 1) + '명'; }
+function updateCount() { $('chInfo').textContent = (Net.code ? '비공개 ' + Net.code : Net.xmas ? '크리스마스 ' + Net.xmas : '채널 ' + (Net.ch + 1)) + ' · ' + (Net.remotes.size + 1) + '명'; }
 function connect(where, charId, nick) {
   return new Promise((resolve, reject) => {
     let ws, settled = false;
     try { ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws'); }
     catch (e) { return reject('noserver'); }
+    ws.binaryType = 'arraybuffer';
     ws.onopen = () => ws.send(JSON.stringify({ t: 'join', ...where, char: charId, nick, stars: got === stars.length }))   // stars you've gathered count in every channel;
     ws.onmessage = ev => {
+      if (typeof ev.data !== 'string') { if (settled && Net.ws === ws) onSnap(ev.data); return; }
       let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
       if (!settled) {
-        if (m.t === 'welcome') { settled = true; Object.assign(Net, { ws, id: m.id, nick: m.nick, ch: m.ch, code: m.code || '', pub: !m.code, admin: false, made: !!m.made, kickMsg: '', max: m.max, ufo: !!m.ufo, shower: m.shower || 0 }); if (m.now) WX.off = m.now - Date.now(); skyCh = Number.isInteger(m.sky) ? m.sky : Math.max(0, m.ch); m.players.forEach(addRemote); if (m.screen) Beam.onScreen(m.screen); resolve(m); }
+        if (m.t === 'welcome') { settled = true; Object.assign(Net, { ws, id: m.id, nick: m.nick, ch: m.ch, code: m.code || '', xmas: m.xmas || 0, theme: m.theme || '', pub: !m.code, admin: false, made: !!m.made, kickMsg: '', max: m.max, ufo: !!m.ufo, shower: m.shower || 0 }); if (m.now) WX.off = m.now - Date.now(); skyCh = Number.isInteger(m.sky) ? m.sky : Math.max(0, m.ch); setTheme(Net.theme); m.players.forEach(addRemote); if (m.screen) Beam.onScreen(m.screen); resolve(m); }
         else if (m.t === 'full') { settled = true; reject(m.rooms ? 'fullrooms' : 'full'); }
         else if (m.t === 'taken') { settled = true; reject('taken'); }
         else if (m.t === 'nocode') { settled = true; reject(m.slow ? 'slow' : 'nocode'); }
         else if (m.t === 'banned') { settled = true; reject({ ban: m.left || 0 }); }
+        else if (m.t === 'busy') { settled = true; reject(m.ip ? 'busyip' : 'busy'); }
+        else if (m.t === 'closed') { settled = true; reject('closed'); }
         return;
       }
       onNet(m);
@@ -5819,7 +5849,7 @@ function connect(where, charId, nick) {
     };
   });
 }
-function leaveServer() { const w = Net.ws; Net.ws = null; if (w) w.close(); clearRemotes(); Beam.hide(); }
+function leaveServer() { Net.lastSent = ''; const w = Net.ws; Net.ws = null; if (w) w.close(); clearRemotes(); Beam.hide(); }
 function netSend(obj) { if (Net.ws && Net.ws.readyState === 1) Net.ws.send(JSON.stringify(obj)); }
 function addRemote(p) {
   if (Net.remotes.has(p.id)) return;
@@ -5846,9 +5876,17 @@ function removeRemote(id) {
   Net.remotes.delete(id);
 }
 function clearRemotes() { [...Net.remotes.keys()].forEach(removeRemote); }
+// positions come as a small binary bundle of the friends who moved: 20 bytes each (see server.js)
+function onSnap(buf) {
+  const v = new DataView(buf); if (v.getUint8(0) !== 1) return;
+  for (let o = 1; o + 20 <= buf.byteLength; o += 20) {
+    const r = Net.remotes.get(v.getUint32(o, true)); if (!r) continue;
+    const f = v.getUint8(o + 19);
+    applyState(r, [v.getFloat32(o + 4, true), v.getFloat32(o + 8, true), v.getFloat32(o + 12, true), v.getInt16(o + 16, true) / 600, v.getUint8(o + 18) / 12, f & 1, (f >> 1) & 1]);
+  }
+}
 function onNet(m) {
-  if (m.t === 'snap') { for (const s of m.p) { if (s[0] === Net.id) continue; const r = Net.remotes.get(s[0]); if (r) applyState(r, s.slice(1)); } }
-  else if (m.t === 'join') { addRemote(m); toast(m.nick + '님이 놀러 왔어요'); addLog(null, m.nick + '님이 놀러 왔어요'); updateCount(); Beam.call(m.id); }
+  if (m.t === 'join') { addRemote(m); toast(m.nick + '님이 놀러 왔어요'); addLog(null, m.nick + '님이 놀러 왔어요'); updateCount(); Beam.call(m.id); }
   else if (m.t === 'leave') { const r = Net.remotes.get(m.id); if (r) { toast(r.c.nick + '님이 돌아갔어요'); addLog(null, r.c.nick + '님이 돌아갔어요'); } removeRemote(m.id); updateCount(); { const pc = Beam.peers.get(m.id); if (pc) { try { pc.close(); } catch (e) {} Beam.peers.delete(m.id); } } }
   else if (m.t === 'screen') Beam.onScreen(m);
   else if (m.t === 'rtc') Beam.onRtc(m);
@@ -5929,10 +5967,32 @@ async function refreshChannels() {
   try { const res = await fetch('/api/channels', { cache: 'no-store' }); chData = await res.json(); if (chData.now) WX.off = chData.now - Date.now(); if (!joining && /서버에 연결할 수 없어요/.test($('status').textContent)) setStatus(''); }
   catch (e) { chData = null; setStatus('서버에 연결할 수 없어요. 서버가 켜져 있는지 확인해 주세요.'); }
   if (chData && chData.channels[selCh] >= chData.max) { const free = chData.channels.findIndex(n => n < chData.max); if (free >= 0) selCh = free; }
-  renderChannels();
+  renderChannels(); renderXmas();
+}
+/* the Christmas channel: one big button while it is open (all December, or ?xmas=1). The server puts you in the first one with room */
+const xmasAvail = () => XMAS_PREVIEW || !!(chData && chData.xmas);
+const selTheme = () => selMode === 'xmas' || (selMode === 'make' && $('xmasPrivIn').checked && xmasAvail()) ? 'xmas' : '';
+function renderXmas() {
+  const on = xmasAvail();
+  $('xmasRow').hidden = !on; $('xmasPriv').hidden = !on;
+  if (!on) { $('xmasPrivIn').checked = false; if (selMode === 'xmas') selMode = 'pub'; }
+  const n = chData && chData.xmas ? chData.xmas.reduce((a, b) => a + b, 0) : 0;
+  $('xmasN').textContent = n ? n + '명' : '';
+  $('bXmas').setAttribute('aria-pressed', selMode === 'xmas');
+  if (mode === 'select') setTheme(selTheme());
+}
+$('bXmas').addEventListener('click', () => {
+  Snd.pop(); selMode = 'xmas'; $('codeForm').hidden = true; renderPriv(); renderChannels(); renderXmas();
+  setStatus('함께 놀 친구를 고르면 크리스마스 마을로 들어가요 🎄');
+});
+$('xmasPrivIn').addEventListener('change', () => { Snd.pop(); renderXmas(); });
+function xmasBanner() {   // "Merry Mongle Christmas" and how many days are left
+  const kst = new Date(Date.now() + WX.off + 9 * 3600e3), d = kst.getUTCDate(), dec = kst.getUTCMonth() === 11;
+  const sub = !dec ? '크리스마스 미리보기' : d < 25 ? '크리스마스까지 D-' + (25 - d) : d === 25 ? '오늘은 크리스마스!' : '즐거운 연말 보내요';
+  zoneBanner('메리 몽글 크리스마스!'); setTimeout(() => toast(sub, 3200), 2600);
 }
 function renderChannels() {
-  if (mode === 'select') skyCh = selCh;
+  if (mode === 'select') skyCh = selMode === 'xmas' ? 0 : selCh;
   const wrap = $('channels'); wrap.innerHTML = '';
   for (let i = 0; i < 10; i++) {
     const n = chData ? chData.channels[i] : 0, max = chData ? chData.max : 20;
@@ -5942,7 +6002,7 @@ function renderChannels() {
     const cw = weatherAt(i), wn = !cw.type ? '' : cw.type === 'rain' ? (cw.storm ? '천둥' : '비') : '눈';
     b.title = '채널 ' + (i + 1) + ' · ' + sk.phase + ' ' + sk.time + (wn ? ' · ' + wn : '') + ' (' + n + '/' + max + '명)';
     b.innerHTML = '<i class="ph" data-phase="' + sk.phase + '" aria-hidden="true"></i>' + (wn ? '<em class="wx" data-w="' + cw.type + '">' + wn + '</em>' : '') + '<span class="n">' + (i + 1) + '</span><span class="c">' + n + '/' + max + '</span>';
-    b.addEventListener('click', () => { selCh = i; if (selMode !== 'pub') { selMode = 'pub'; renderPriv(); setStatus(''); } renderChannels(); Snd.pop(); });
+    b.addEventListener('click', () => { selCh = i; if (selMode !== 'pub') { selMode = 'pub'; renderPriv(); renderXmas(); setStatus(''); } renderChannels(); Snd.pop(); });
     wrap.appendChild(b);
   }
 }
@@ -5952,7 +6012,7 @@ function renderPriv() {
   $('bEnter').setAttribute('aria-pressed', selMode === 'code' || !$('codeForm').hidden);
 }
 $('bMake').addEventListener('click', () => {
-  Snd.pop(); selMode = 'make'; $('codeForm').hidden = true; renderPriv(); renderChannels();
+  Snd.pop(); selMode = 'make'; $('codeForm').hidden = true; renderPriv(); renderChannels(); renderXmas();
   setStatus('함께 놀 친구를 고르면 비공개 채널이 만들어져요 (하늘과 날씨는 채널 ' + (selCh + 1) + ' 그대로예요)');
 });
 $('bEnter').addEventListener('click', () => {
@@ -5964,7 +6024,7 @@ $('codeForm').addEventListener('submit', e => {
   e.preventDefault(); Snd.pop();
   const v = $('codeIn').value.toUpperCase().replace(/[^A-Z0-9]/g, '');
   if (v.length !== 6) { setStatus('코드는 6글자예요. 친구에게 받은 코드를 넣어 주세요.'); return; }
-  selMode = 'code'; selCode = v; renderPriv(); renderChannels(); $('codeIn').blur();
+  selMode = 'code'; selCode = v; renderPriv(); renderChannels(); renderXmas(); $('codeIn').blur();
   setStatus('이제 함께 놀 친구를 고르면 비공개 채널 ' + v + '에 들어가요');
 });
 setInterval(() => { if (mode === 'select' && !document.hidden) refreshChannels(); }, 3000);
@@ -5990,7 +6050,8 @@ function tickRemotes(dt) {
   if (player && Net.ws && (Net.sendT -= dt) <= 0) {
     Net.sendT = 0.1;
     const f = v => Math.round(v * 100) / 100;
-    netSend({ t: 's', x: f(player.pos.x), y: f(player.pos.y), z: f(player.pos.z), yaw: f(player.yaw), sp: f(player.speed), g: player.ground ? 1 : 0, sit: player.sitting ? 1 : 0 });
+    const st = { t: 's', x: f(player.pos.x), y: f(player.pos.y), z: f(player.pos.z), yaw: f(player.yaw), sp: f(player.speed), g: player.ground ? 1 : 0, sit: player.sitting ? 1 : 0 }, key = JSON.stringify(st);
+    if (key !== Net.lastSent) { Net.lastSent = key; netSend(st); }   // standing still sends nothing
   }
 }
 function placeBubble(c, dt) {
@@ -6600,7 +6661,7 @@ function strike() {   // lightning: a bolt somewhere ahead, a flash that flicker
   const near = 1 - (d - 180) / 240; setTimeout(() => Snd.thunder(0.55 + 0.45 * near), 250 + (d - 180) * 9);
 }
 function tickWeather(dt, T) {
-  const w = weatherAt(skyCh), inPlay = mode === 'play' && player;
+  const w = THEME === 'xmas' && !SKY_Q.has('w') ? xmasWeather() : weatherAt(skyCh), inPlay = mode === 'play' && player;
   wx.type = w.type; wx.p = w.p; wx.storm = w.storm;
   wx.rain += ((w.type === 'rain' ? w.k : 0) - wx.rain) * Math.min(1, dt * 0.7);
   wx.snowfall += ((w.type === 'snow' ? w.k : 0) - wx.snowfall) * Math.min(1, dt * 0.7);
