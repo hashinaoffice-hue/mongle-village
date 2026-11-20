@@ -106,6 +106,15 @@ button{font:inherit;color:inherit}
 .ch .ph[data-phase="밤"]{background:#2a3560}
 .ch[aria-pressed="true"]{background:var(--butter);box-shadow:0 3px 0 var(--ink)}
 .ch:disabled{opacity:.45;cursor:not-allowed}
+.ch.pv{flex-direction:row;font-family:var(--display);font-size:16px;padding:.3em .8em}
+.codeform{display:flex;gap:6px;align-items:center}
+.codeform input{width:7.2em;font:inherit;font-family:var(--display);font-size:17px;letter-spacing:.12em;text-transform:uppercase;padding:.2em .5em;border:2px solid var(--ink);border-radius:12px;background:#fff}
+.codeform .btn{font-size:14px;padding:.2em .8em;box-shadow:0 2px 0 var(--ink)}
+#bBeam.locked{opacity:.6}
+#pmenu{position:fixed;z-index:30;min-width:150px;display:flex;flex-direction:column;gap:6px;padding:10px 12px;background:var(--paper);border:2.5px solid var(--ink);border-radius:16px;box-shadow:0 4px 0 var(--ink);pointer-events:auto}
+#pmenu b{font-family:var(--display);font-weight:400;font-size:18px;color:var(--pink-deep);white-space:nowrap}
+#pmenu .btn{font-size:14px;padding:.25em .9em;box-shadow:0 2px 0 var(--ink)}
+#pmenu .btn.warn{background:#ffd3d3}
 .status{min-height:1.4em;margin:0;font-size:15px;color:var(--pink-deep);font-family:var(--display);text-align:center}
 .nametag{position:absolute;transform:translate(-50%,-100%);background:rgba(255,250,241,.92);border:2px solid var(--ink);border-radius:999px;padding:.05em .7em;font-size:13px;white-space:nowrap;opacity:0;transition:opacity .2s;pointer-events:none}
 .nametag.show{opacity:1}
@@ -249,6 +258,11 @@ button{font:inherit;color:inherit}
   <div id="pickStep" hidden>
   <div class="nickme">닉네임 <b id="nickShow"></b><button class="btn" type="button" id="bNick">바꾸기</button></div>
   <div class="chwrap"><span class="chlabel">채널</span><div class="channels" id="channels"></div></div>
+  <div class="chwrap"><span class="chlabel">비공개</span><div class="channels">
+    <button class="ch pv" type="button" id="bMake" aria-pressed="false" title="친구끼리만 노는 채널을 만들어요. 6글자 코드를 친구에게 알려 주세요">채널 만들기</button>
+    <button class="ch pv" type="button" id="bEnter" aria-pressed="false" title="친구에게 받은 6글자 코드로 들어가요">채널 입장</button>
+    <form id="codeForm" class="codeform" hidden autocomplete="off"><input id="codeIn" maxlength="6" placeholder="코드 6글자" aria-label="비공개 채널 코드" spellcheck="false" autocapitalize="characters" enterkeyhint="go"><button class="btn" type="submit">확인</button></form>
+  </div></div>
   <p class="lead">함께 산책할 친구를 골라 주세요</p>
   <div class="cards" id="cards"></div>
   <p class="status" id="status" role="status"></p>
@@ -265,6 +279,7 @@ button{font:inherit;color:inherit}
   <button class="btn snd" id="bMusic" aria-pressed="true" title="배경음악 켜기/끄기"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 15.5V4.5l9-2v10.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="5" cy="15.5" r="2.4" fill="currentColor"/><circle cx="14" cy="13" r="2.4" fill="currentColor"/></svg>음악</button>
   <button class="btn snd" id="bSfx" aria-pressed="true" title="효과음·목소리 켜기/끄기"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 8h3l4-3.5v11L6 12H3z" fill="currentColor"/><path d="M13 7.5a3.5 3.5 0 0 1 0 5M15.5 5a7 7 0 0 1 0 10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>효과음</button>
 </div>
+<div id="pmenu" hidden role="dialog" aria-label="친구 메뉴"><b id="pmNick"></b><button class="btn" type="button" id="pmReport">신고하기</button></div>
 <div id="iris" hidden></div>
 <div id="scope" hidden></div>
 <div id="loading">마을을 짓는 중…</div>
@@ -5375,17 +5390,34 @@ $('nickForm').addEventListener('submit', e => {
 $('bNick').addEventListener('click', () => { Snd.pop(); showNickStep(); });
 
 let joining = false;
+const selName = () => selMode === 'make' ? '새 비공개 채널' : selMode === 'code' ? '비공개 채널 ' + selCode : '채널 ' + (selCh + 1);
+// how long a ban has left, in words (left = 0 means for good)
+function banText(left, kicked) {
+  if (!left) return '신고가 많이 쌓여서 이 인터넷으로는 더 이상 마을에 들어올 수 없어요.';
+  const mins = Math.max(1, Math.ceil(left / 60000)), h = Math.floor(mins / 60), mm = mins % 60;
+  return (kicked ? '신고가 쌓여서 마을에서 내보내졌어요. ' : '신고가 쌓여서 지금은 들어올 수 없어요. ') + (h ? h + '시간 ' : '') + (mm ? mm + '분 ' : '') + '뒤에 다시 들어올 수 있어요.';
+}
+function joinErr(e) {
+  if (e && e.ban != null) return banText(e.ban);
+  if (e === 'full') return selName() + '은 꽉 찼어요. 다른 채널을 골라 주세요.';
+  if (e === 'fullrooms') return '지금은 비공개 채널을 더 만들 수 없어요. 잠시 뒤에 다시 해 주세요.';
+  if (e === 'nocode') return '「' + selCode + '」 비공개 채널을 찾을 수 없어요. 코드를 다시 확인해 주세요.';
+  if (e === 'slow') return '코드를 너무 많이 틀렸어요. 잠시 뒤에 다시 해 주세요.';
+  return '서버에 연결할 수 없어요. 서버가 켜져 있는지 확인해 주세요.';
+}
 async function start(i) {
   if (joining || myNick === null) return;
-  joining = true; setStatus('채널 ' + (selCh + 1) + '에 들어가는 중…');
+  joining = true; setStatus(selMode === 'make' ? '비공개 채널을 만드는 중…' : selName() + '에 들어가는 중…');
   Snd.init();
-  try { await connect(selCh, CHARS[i].id, myNick); }
+  const where = selMode === 'make' ? { make: 1, sky: selCh } : selMode === 'code' ? { code: selCode } : { ch: selCh };
+  try { await connect(where, CHARS[i].id, myNick); }
   catch (e) {
     joining = false;
-    if (e === 'taken') { setStatus(''); showNickStep('채널 ' + (selCh + 1) + '에 이미 「' + myNick + '」 친구가 있어요. 다른 이름을 골라 주세요.'); return; }
-    setStatus(e === 'full' ? '채널 ' + (selCh + 1) + '은 꽉 찼어요. 다른 채널을 골라 주세요.' : '서버에 연결할 수 없어요. 서버가 켜져 있는지 확인해 주세요.');
+    if (e === 'taken') { setStatus(''); showNickStep(selName() + '에 이미 「' + myNick + '」 친구가 있어요. 다른 이름을 골라 주세요.'); return; }
+    setStatus(joinErr(e));
     refreshChannels(); return;
   }
+  if (Net.code) { selMode = 'code'; selCode = Net.code; $('codeIn').value = Net.code; renderPriv(); }   // "change friend" brings you back to the same private channel
   joining = false; setStatus('');
   if (!myNick) myNick = Net.nick;                    // keep the random one for the rest of this visit
   player = critters[i];
@@ -5399,18 +5431,19 @@ async function start(i) {
   ufoSet(Net.ufo ? 'crashed' : null);
   if (Net.shower > 1500) { startShower(Net.shower / 1000); setTimeout(() => toast('지금 이 채널에 별똥별이 쏟아지고 있어요!', 3500), 1200); }
   setTimeout(() => setMap(MAP.open), 0);
-  $('select').hidden = true; $('hud').hidden = false; $('bSwap').hidden = false; $('bMap').hidden = false; $('bBeam').hidden = !Beam.can;
+  $('select').hidden = true; $('hud').hidden = false; $('bSwap').hidden = false; $('bMap').hidden = false; $('bBeam').hidden = !Beam.can; Beam.lockUI();
   $('whoImg').src = thumbs[player.d.id]; $('whoName').textContent = player.d.name; $('whoNick').textContent = Net.nick;
   updateCount();
   canvas.focus();
-  toast(Net.nick + '(으)로 채널 ' + (Net.ch + 1) + '에 들어왔어요');
+  if (Net.made) { toast('비공개 채널을 만들었어요! 코드 ' + Net.code + ' 를 친구에게 알려 주세요', 6500); addLog(null, '비공개 채널 코드: ' + Net.code + ' (친구가 「채널 입장」에 넣으면 들어와요)'); }
+  else toast(Net.nick + '(으)로 ' + chLabel() + '에 들어왔어요');
   Snd.pop();
   const hi = ['가자~!', '산책 가자!', '좋아, 출발!'];
   setTimeout(() => player && player.talk(pick(hi), 1.8), 250);
 }
 function backToSelect() {
   Snd.pop();
-  closeChat(); $('chatlog').innerHTML = '';
+  closeChat(); closePM(); $('chatlog').innerHTML = '';
   promptPortal = null; promptKey = null; $('prompt').hidden = true;
   if (player) { player.zone = 'world'; player.sitting = null; player.obj.visible = player.blobShadow.visible = true; player.pos.set(6, terrain(6, 22), 22); }
   leaveServer(); ufoSet(null); stopShower();
@@ -5424,8 +5457,10 @@ function backToSelect() {
 
 /* ---------------- multiplayer ---------------- */
 const PHRASES = ['안녕~!', '반가워!', '같이 가자~', '고마워!'];
-const Net = { ws: null, id: 0, nick: '', ch: 0, max: 20, remotes: new Map(), sendT: 0 };
+const Net = { ws: null, id: 0, nick: '', ch: 0, code: '', pub: true, admin: false, made: false, kickMsg: '', max: 20, remotes: new Map(), sendT: 0 };
 let selCh = 0, chData = null;
+let selMode = 'pub', selCode = '';                   // pub: a public channel, make: a new private channel, code: a private channel by its code
+const chLabel = () => Net.code ? '비공개 채널 ' + Net.code : '채널 ' + (Net.ch + 1);
 /* ---------------- the beam projector: one person per channel can share their screen, and it hangs in the air like a hologram for everyone to watch together ----------------
    The picture and sound go straight from the sharer's browser to each viewer's (WebRTC); the server only says who is sharing where and passes the handshake along. */
 const Beam = { k: 1, host: 0, mine: false, pending: null, stream: null, peers: new Map(), video: null, tex: null, group: null, U: null, glow: null, cone: null, y0: 0, aspect: 16 / 9, needTap: false,
@@ -5528,6 +5563,7 @@ Beam.onRtc = async (m) => {
   } catch (e) {}
 };
 Beam.onScreen = (m) => {
+  if (m.locked) { if (Beam.pending) { Beam.pending.getTracks().forEach(t => t.stop()); Beam.pending = null; } toast(LOCKED_MSG, 4200); return; }
   if (m.busy) { if (Beam.pending) { Beam.pending.getTracks().forEach(t => t.stop()); Beam.pending = null; } toast('지금은 ' + (m.nick || '다른 친구') + '님이 화면을 띄우고 있어요', 3200); return; }
   if (m.off) { if (Beam.host) { toast(Beam.mine ? '화면 공유를 끝냈어요' : '화면 공유가 끝났어요', 2600); Beam.hide(); } return; }
   if (Beam.host && Beam.host !== m.id) Beam.hide();
@@ -5540,8 +5576,16 @@ Beam.onScreen = (m) => {
     toast(IS_TOUCH ? '화면을 허공에 띄웠어요 · 크기는 위쪽 －/＋로 바꿔요' : '화면을 허공에 띄웠어요 · 크기는 －/＋ (또는 [ ] 키)로 바꿔요', 4200);
   } else { toast((m.nick || '친구') + '님이 화면을 띄웠어요! 가까이 가서 같이 봐요', 4200); addLog(null, (m.nick || '친구') + '님이 화면을 띄웠어요'); }
 };
+// in the public channels only an admin may share; in a private channel anyone can
+Beam.locked = () => Net.pub && !Net.admin;
+Beam.lockUI = () => {
+  const b = $('bBeam'), l = Beam.locked(); b.classList.toggle('locked', l);
+  b.title = l ? '공용 채널에서는 화면 공유가 잠겨 있어요 (비공개 채널에서 할 수 있어요)' : '내 화면을 허공에 띄워 같이 봐요 (채널에 한 명씩)';
+};
+const LOCKED_MSG = '공용 채널에서는 화면 공유가 잠겨 있어요. 비공개 채널을 만들어 친구와 해 보세요';
 Beam.start = async () => {
   if (!Beam.can) { toast('이 기기에서는 화면을 공유할 수 없어요 (볼 수는 있어요)', 3600); return; }
+  if (Beam.locked()) { toast(LOCKED_MSG, 4200); return; }
   if (Beam.host) { toast('지금은 다른 친구가 화면을 띄우고 있어요', 3000); return; }
   if (Beam.pending || !player) return;
   let stream; try { stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: 24, max: 30 }, width: { max: 1280 }, height: { max: 720 } }, audio: true }); } catch (e) { return; }   // cancelled the picker
@@ -5748,19 +5792,21 @@ function tickBeam(dt, T) {
 }
 
 function setStatus(t) { $('status').textContent = t; }
-function updateCount() { $('chInfo').textContent = '채널 ' + (Net.ch + 1) + ' · ' + (Net.remotes.size + 1) + '명'; }
-function connect(ch, charId, nick) {
+function updateCount() { $('chInfo').textContent = (Net.code ? '비공개 ' + Net.code : '채널 ' + (Net.ch + 1)) + ' · ' + (Net.remotes.size + 1) + '명'; }
+function connect(where, charId, nick) {
   return new Promise((resolve, reject) => {
     let ws, settled = false;
     try { ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws'); }
     catch (e) { return reject('noserver'); }
-    ws.onopen = () => ws.send(JSON.stringify({ t: 'join', ch, char: charId, nick, stars: got === stars.length }))   // stars you've gathered count in every channel;
+    ws.onopen = () => ws.send(JSON.stringify({ t: 'join', ...where, char: charId, nick, stars: got === stars.length }))   // stars you've gathered count in every channel;
     ws.onmessage = ev => {
       let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
       if (!settled) {
-        if (m.t === 'welcome') { settled = true; Object.assign(Net, { ws, id: m.id, nick: m.nick, ch: m.ch, max: m.max, ufo: !!m.ufo, shower: m.shower || 0 }); if (m.now) WX.off = m.now - Date.now(); skyCh = m.ch; m.players.forEach(addRemote); if (m.screen) Beam.onScreen(m.screen); resolve(m); }
-        else if (m.t === 'full') { settled = true; reject('full'); }
+        if (m.t === 'welcome') { settled = true; Object.assign(Net, { ws, id: m.id, nick: m.nick, ch: m.ch, code: m.code || '', pub: !m.code, admin: false, made: !!m.made, kickMsg: '', max: m.max, ufo: !!m.ufo, shower: m.shower || 0 }); if (m.now) WX.off = m.now - Date.now(); skyCh = Number.isInteger(m.sky) ? m.sky : Math.max(0, m.ch); m.players.forEach(addRemote); if (m.screen) Beam.onScreen(m.screen); resolve(m); }
+        else if (m.t === 'full') { settled = true; reject(m.rooms ? 'fullrooms' : 'full'); }
         else if (m.t === 'taken') { settled = true; reject('taken'); }
+        else if (m.t === 'nocode') { settled = true; reject(m.slow ? 'slow' : 'nocode'); }
+        else if (m.t === 'banned') { settled = true; reject({ ban: m.left || 0 }); }
         return;
       }
       onNet(m);
@@ -5769,7 +5815,7 @@ function connect(ch, charId, nick) {
       if (!settled) { settled = true; reject('noserver'); return; }
       if (Net.ws !== ws) return;                       // we left on purpose
       Net.ws = null; clearRemotes(); Beam.hide();
-      if (mode === 'play') { backToSelect(); setStatus('서버와 연결이 끊어졌어요. 다시 골라 주세요.'); }
+      if (mode === 'play') { const why = Net.kickMsg; Net.kickMsg = ''; backToSelect(); setStatus(why || '서버와 연결이 끊어졌어요. 다시 골라 주세요.'); }
     };
   });
 }
@@ -5795,6 +5841,7 @@ function applyState(r, s, snap) {
 }
 function removeRemote(id) {
   const r = Net.remotes.get(id); if (!r) return;
+  if (PM.id === id) closePM();
   scene.remove(r.c.obj); scene.remove(r.c.blobShadow); r.c.el.remove(); r.tag.remove();
   Net.remotes.delete(id);
 }
@@ -5807,6 +5854,9 @@ function onNet(m) {
   else if (m.t === 'rtc') Beam.onRtc(m);
   else if (m.t === 'scr') Beam.onSize(m);
   else if (m.t === 'ufo') ufoArrive();
+  else if (m.t === 'admin') { if (!m.ok) toast('알 수 없는 명령이에요', 2200); else if (!Net.admin) { Net.admin = true; Beam.lockUI(); toast('관리자 모드가 켜졌어요', 3000); } }
+  else if (m.t === 'report') toast(m.dup ? '이미 신고한 친구예요' : (m.nick || '친구') + '님을 신고했어요', 2600);
+  else if (m.t === 'kicked') Net.kickMsg = banText(m.left || 0, true);
   else if (m.t === 'shower') {
     if (m.busy) { toast('지금은 유성우가 내리는 중이에요. 끝나면 다시 외쳐 보세요', 3200); return; }
     startShower(m.left / 1000);
@@ -5844,6 +5894,7 @@ function sendChat() {
     const now = performance.now();
     if (now - lastChatAt < 700) { toast('조금 천천히 보내 주세요', 1400); return; }
     lastChatAt = now;
+    if (text[0] === '/') { netSend({ t: 'admin', code: text.slice(1).trim() }); closeChat(); return; }   // a command, not chat: nobody else sees it
     sayChat(player, text); netSend({ t: 'c', text }); addLog(Net.nick, text, true);
   }
   closeChat();
@@ -5886,15 +5937,36 @@ function renderChannels() {
   for (let i = 0; i < 10; i++) {
     const n = chData ? chData.channels[i] : 0, max = chData ? chData.max : 20;
     const b = document.createElement('button'); b.className = 'ch'; b.id = 'ch-' + i;
-    b.disabled = !chData || n >= max; b.setAttribute('aria-pressed', i === selCh);
+    b.disabled = !chData || n >= max; b.setAttribute('aria-pressed', selMode === 'pub' && i === selCh);
     const sk = chSky(i);
     const cw = weatherAt(i), wn = !cw.type ? '' : cw.type === 'rain' ? (cw.storm ? '천둥' : '비') : '눈';
     b.title = '채널 ' + (i + 1) + ' · ' + sk.phase + ' ' + sk.time + (wn ? ' · ' + wn : '') + ' (' + n + '/' + max + '명)';
     b.innerHTML = '<i class="ph" data-phase="' + sk.phase + '" aria-hidden="true"></i>' + (wn ? '<em class="wx" data-w="' + cw.type + '">' + wn + '</em>' : '') + '<span class="n">' + (i + 1) + '</span><span class="c">' + n + '/' + max + '</span>';
-    b.addEventListener('click', () => { selCh = i; renderChannels(); Snd.pop(); });
+    b.addEventListener('click', () => { selCh = i; if (selMode !== 'pub') { selMode = 'pub'; renderPriv(); setStatus(''); } renderChannels(); Snd.pop(); });
     wrap.appendChild(b);
   }
 }
+/* private channels: "make" gets a fresh six-letter code from the server when you pick a friend; "enter" takes a friend's code */
+function renderPriv() {
+  $('bMake').setAttribute('aria-pressed', selMode === 'make');
+  $('bEnter').setAttribute('aria-pressed', selMode === 'code' || !$('codeForm').hidden);
+}
+$('bMake').addEventListener('click', () => {
+  Snd.pop(); selMode = 'make'; $('codeForm').hidden = true; renderPriv(); renderChannels();
+  setStatus('함께 놀 친구를 고르면 비공개 채널이 만들어져요 (하늘과 날씨는 채널 ' + (selCh + 1) + ' 그대로예요)');
+});
+$('bEnter').addEventListener('click', () => {
+  Snd.pop(); $('codeForm').hidden = false; renderPriv();
+  $('codeIn').focus(); $('codeIn').select();
+});
+$('codeIn').addEventListener('input', () => { const el = $('codeIn'), v = el.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6); if (v !== el.value) el.value = v; });
+$('codeForm').addEventListener('submit', e => {
+  e.preventDefault(); Snd.pop();
+  const v = $('codeIn').value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (v.length !== 6) { setStatus('코드는 6글자예요. 친구에게 받은 코드를 넣어 주세요.'); return; }
+  selMode = 'code'; selCode = v; renderPriv(); renderChannels(); $('codeIn').blur();
+  setStatus('이제 함께 놀 친구를 고르면 비공개 채널 ' + v + '에 들어가요');
+});
 setInterval(() => { if (mode === 'select' && !document.hidden) refreshChannels(); }, 3000);
 // remote players: glide toward the latest server position and animate like everyone else
 function tickRemotes(dt) {
@@ -5984,6 +6056,56 @@ addEventListener('keydown', e => {
 });
 addEventListener('keyup', e => { if (KEYMAP[e.code]) keys[KEYMAP[e.code]] = false; });
 addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
+
+/* right-click a friend (long-press on a phone): their name and a report button. Three reports from different people in a channel send them home */
+const PM = { id: 0, arm: false, lp: null };
+function remoteAt(x, y) {   // the nearest friend drawn under this point of the screen
+  let best = 0, bd = Infinity;
+  for (const [id, r] of Net.remotes) {
+    const c = r.c; if (!c.obj.visible) continue;
+    tmpV.copy(c.pos).project(camera); if (tmpV.z >= 1) continue;
+    const fx = (tmpV.x + 1) / 2 * innerWidth, fy = (1 - tmpV.y) / 2 * innerHeight;
+    tmpV.copy(c.pos); tmpV.y += 2.4; tmpV.project(camera);
+    const hy = (1 - tmpV.y) / 2 * innerHeight, h = Math.max(24, fy - hy);
+    if (y < hy - 10 || y > fy + 10 || Math.abs(x - fx) > h * 0.45 + 10) continue;
+    const d = c.pos.distanceToSquared(camera.position);
+    if (d < bd) { bd = d; best = id; }
+  }
+  return best;
+}
+function openPM(id, x, y) {
+  const r = Net.remotes.get(id), el = $('pmenu'); if (!r) return;
+  PM.id = id; PM.arm = false;
+  $('pmNick').textContent = r.c.nick; $('pmReport').textContent = '신고하기'; $('pmReport').classList.remove('warn');
+  el.hidden = false;
+  el.style.left = clamp(x + 8, 8, innerWidth - el.offsetWidth - 8) + 'px'; el.style.top = clamp(y + 8, 8, innerHeight - el.offsetHeight - 8) + 'px';
+  Snd.pop();
+}
+function closePM() { $('pmenu').hidden = true; PM.id = 0; PM.arm = false; }
+$('pmReport').addEventListener('click', () => {
+  if (!PM.id) return;
+  Snd.pop();
+  if (!PM.arm) { PM.arm = true; $('pmReport').textContent = '정말 신고할까요? 한 번 더 눌러요'; $('pmReport').classList.add('warn'); return; }   // two taps, so a slip of the finger doesn't report anyone
+  netSend({ t: 'report', id: PM.id }); closePM(); canvas.focus();
+});
+canvas.addEventListener('contextmenu', e => {
+  e.preventDefault();
+  if (mode !== 'play') return;
+  const id = remoteAt(e.clientX, e.clientY);
+  if (id) openPM(id, e.clientX, e.clientY); else closePM();
+});
+addEventListener('pointerdown', e => { if (PM.id && !$('pmenu').contains(e.target)) closePM(); }, true);
+addEventListener('keydown', e => { if (e.key === 'Escape' && PM.id) closePM(); });
+{
+  const stop = () => { if (PM.lp) { clearTimeout(PM.lp.t); PM.lp = null; } };
+  canvas.addEventListener('pointerdown', e => {
+    if (e.pointerType !== 'touch' || mode !== 'play') return;
+    stop(); const x = e.clientX, y = e.clientY;
+    PM.lp = { id: e.pointerId, x, y, t: setTimeout(() => { PM.lp = null; const id = remoteAt(x, y); if (id) openPM(id, x, y); }, 600) };
+  });
+  canvas.addEventListener('pointermove', e => { if (PM.lp && PM.lp.id === e.pointerId && Math.hypot(e.clientX - PM.lp.x, e.clientY - PM.lp.y) > 12) stop(); });
+  canvas.addEventListener('pointerup', stop); canvas.addEventListener('pointercancel', stop);
+}
 
 let drag = null;
 canvas.addEventListener('pointerdown', e => { drag = { id: e.pointerId, x: e.clientX, y: e.clientY }; canvas.setPointerCapture(e.pointerId); });
