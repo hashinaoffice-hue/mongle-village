@@ -371,6 +371,17 @@ function weatherAt(ch = skyCh, ms = Date.now() + WX.off) {
 /* ---- theme: the Christmas channel dresses the whole village up. Things that change with it register in THEME_HOOKS ---- */
 const XMAS_PREVIEW = SKY_Q.get('xmas') === '1';     // ?xmas=1: look inside the Christmas channel before December
 let THEME = '';
+const xshow = (g, list) => { g.visible = false; THEME_HOOKS.push(t => { const on = t === 'xmas'; g.visible = on; for (const so of list || []) { const i = solids.indexOf(so); if (on && i < 0) solids.push(so); else if (!on && i >= 0) solids.splice(i, 1); } }); };   // a Christmas-only group (and its colliders)
+const XICE = { spots: [], items: [], water: [], fall: { value: 0 } };   // water that freezes over in the Christmas channel (pools you can walk and slide on)
+{
+  const iceTex = (marks) => { const c = document.createElement('canvas'); c.width = c.height = 256; const x = c.getContext('2d');
+    x.fillStyle = '#cfe6f4'; x.fillRect(0, 0, 256, 256);
+    for (let i = 0; i < 9; i++) { x.strokeStyle = 'rgba(255,255,255,.55)'; x.lineWidth = 1.5; x.beginPath(); let px = Math.random() * 256, py = Math.random() * 256; x.moveTo(px, py); for (let k = 0; k < 4; k++) { px += (Math.random() - 0.5) * 70; py += (Math.random() - 0.5) * 70; x.lineTo(px, py); } x.stroke(); }
+    if (marks) for (let i = 0; i < 14; i++) { x.strokeStyle = 'rgba(255,255,255,.7)'; x.lineWidth = 2; x.beginPath(); x.arc(Math.random() * 256, Math.random() * 256, 30 + Math.random() * 80, Math.random() * 6, Math.random() * 6 + 1.5); x.stroke(); }
+    const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(0.18, 0.18); return t; };
+  XICE.mat = new THREE.MeshPhongMaterial({ color: 0xffffff, map: iceTex(false), specular: 0xffffff, shininess: 110 }); XICE.mat.isIce = true;
+  XICE.rinkMat = new THREE.MeshPhongMaterial({ color: 0xffffff, map: iceTex(true), specular: 0xffffff, shininess: 110 });
+}
 const THEME_HOOKS = [];
 function setTheme(t) { if (t === THEME) return; THEME = t; for (const f of THEME_HOOKS) f(t); }
 // stepping into (or out of) the Christmas village: the snow is simply there, no slow change of weather
@@ -1881,11 +1892,17 @@ let POND_TOP = 0;
   }
   scene.add(mk(LG.build(), vcMat, { outline: 0.02, shadow: false }));
   const wall = solid(x, z, r - 0.15, wy + 0.4); wall.water = true; wall.nocam = true;
+  XICE.spots.push({ x, z, r, y: wy });
 }
 
 // grandpa tree: a huge old tree with a little door and a lit window
 {
   const { x, z } = BIGTREE, y = terrain(x, z) - 0.3, g = new THREE.Group(); g.position.set(x, y, z); scene.add(g);
+  { // Christmas: strings of lights wound round the old trunk
+    const xg = new THREE.Group(); g.add(xg); const L = new Geo(), BC = [0xff5a6e, 0xffd447, 0x6fd2ff, 0x8dff9a];
+    for (const ph of [0, Math.PI]) for (let i = 0; i < 70; i++) { const t = i / 70, a = ph + t * Math.PI * 2 * 2.6, r = 3.45 - t * 1.25 + 0.12, h = 1.0 + t * 14.5; L.add(SPH_LO, BC[i % 4], [Math.sin(a) * r, h, Math.cos(a) * r], [0, 0, 0], 0.13); }
+    xg.add(new THREE.Mesh(L.build(), new THREE.MeshBasicMaterial({ vertexColors: true })));
+    xshow(xg); }
   const bigBark = TEX.bark.clone(); bigBark.repeat.set(6, 3); bigBark.needsUpdate = true;
   const tg = new THREE.CylinderGeometry(2.0, 3.3, 17, 32, 12), p = tg.attributes.position;
   for (let i = 0; i < p.count; i++) {
@@ -3541,6 +3558,28 @@ function makeWoodcutter() {
   for (const cx2 of [-1.1, -0.85, 1.0]) { const fl = new THREE.Sprite(glowMat.clone()); fl.scale.setScalar(0.5); fl.position.set(cx2, 2.38, 0.25); fp.add(fl); }
   lampLights.push({ p: new V3(x0 + 1.3, fy + 0.8, cz + 1.5), r: 9, kind: 'fire' });
   solid(x0 + 0.9, cz + 1.5, 1.2, fy + 1.2);
+  // Christmas: a stocking for each of the four friends on the mantel, and a little tree with presents in the corner by the bed
+  { const xg = new THREE.Group(); fp.add(xg); xg.visible = false;
+    const SK = [0xd8353f, 0x3f9d5a, 0xd8353f, 0x3f9d5a], G = new Geo();
+    CHARS.forEach((c, i) => {
+      const x = -1.2 + i * 0.8;
+      G.add(new THREE.CylinderGeometry(0.15, 0.14, 0.55, 10), SK[i], [x, 1.55, 0.66]);
+      G.add(SPH_LO, SK[i], [x + 0.12, 1.27, 0.66], [0, 0, 0], [0.24, 0.13, 0.15]);
+      G.add(new THREE.CylinderGeometry(0.17, 0.17, 0.16, 10), 0xfffaf2, [x, 1.86, 0.66]);
+      const tag = ((w, h, draw) => { const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d')); return new THREE.CanvasTexture(c); })(128, 48, (t) => { t.fillStyle = '#fffaf2'; t.fillRect(0, 0, 128, 48); t.fillStyle = '#4b3a35'; t.font = '30px Jua, "Malgun Gothic", sans-serif'; t.textAlign = 'center'; t.textBaseline = 'middle'; t.fillText(c.name, 64, 26); });
+      const tm = new THREE.Mesh(new THREE.PlaneGeometry(0.34, 0.13), new THREE.MeshBasicMaterial({ map: tag })); tm.position.set(x, 1.86, 0.84); xg.add(tm);
+    });
+    mk(G.build(), toon(0xffffff, { vc: true, soft: true }), { parent: xg, outline: 0.015, shadow: false });
+    const tg = new THREE.Group(); tg.position.set(x0 + 1.5, fy, z1 - 1.5); scene.add(tg); tg.visible = false;
+    const T = new Geo();
+    T.add(new THREE.CylinderGeometry(0.12, 0.14, 0.4, 8), 0x7a5238, [0, 0.2, 0]);
+    for (const [y, r, h] of [[0.35, 0.95, 1.1], [0.95, 0.75, 1.0], [1.5, 0.52, 0.9]]) T.add(new THREE.ConeGeometry(r, h, 14), 0x3f8a4c, [0, y + h / 2, 0]);
+    for (let i = 0; i < 14; i++) { const y = 0.5 + i * 0.12, r = 0.92 - y * 0.36, a = i * 2.4; T.add(SPH_LO, [0xd8353f, 0xf6c445, 0x7cc4f0][i % 3], [Math.sin(a) * r, y, Math.cos(a) * r], [0, 0, 0], 0.08); }
+    T.add(STAR_GEO, 0xffd23f, [0, 2.55, 0], [0, 0, 0], 0.22);
+    for (const [px, pz, w, c] of [[0.6, 0.5, 0.45, 0xd8353f], [-0.5, 0.65, 0.35, 0x5b8fe0], [0.1, 0.85, 0.3, 0xf6c445]]) { T.add(new THREE.BoxGeometry(w, w * 0.8, w), c, [px, w * 0.4, pz]); T.add(new THREE.BoxGeometry(w * 0.2, w * 0.82, w + 0.02), 0xfffaf2, [px, w * 0.4, pz]); }
+    mk(T.build(), toon(0xffffff, { vc: true, soft: true, rim: 0.12 }), { parent: tg, outline: 0.02 });
+    const ts = solid(x0 + 1.5, z1 - 1.5, 0.8, fy + 2.7); solids.splice(solids.indexOf(ts), 1);
+    THEME_HOOKS.push(t => { const on = t === 'xmas'; xg.visible = tg.visible = on; const i = solids.indexOf(ts); if (on && i < 0) solids.push(ts); else if (!on && i >= 0) solids.splice(i, 1); }); }
   // bed with a quilt along the north wall, a kitchen corner by the door, shelves, plants, hanging lamps
   const bed = new THREE.Group(); bed.position.set(cx - 5.5, fy, z1 - 1.05); scene.add(bed);
   mk(new THREE.BoxGeometry(3.0, 0.45, 1.7), 0x8a5a3c, { parent: bed, pos: [0, 0.25, 0], outline: 0.03 });
@@ -3748,7 +3787,9 @@ const falls = { mist: [], rainbow: null, base: new V3(), t: 0, top: 0, wy: 0, cz
       if (i < n) { const k = i * 2; idx.push(k, k + 2, k + 1, k + 1, k + 2, k + 3); }
     }
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(v, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx); g.computeVertexNormals();
-    const m = new THREE.Mesh(g, mat); m.receiveShadow = true; m.renderOrder = 1; scene.add(m); return pts;
+    const m = new THREE.Mesh(g, mat); m.receiveShadow = true; m.renderOrder = 1; scene.add(m);
+    if (!mat.isIce) { const ice = new THREE.Mesh(g.clone().translate(0, 0.02, 0), XICE.mat); ice.visible = false; ice.renderOrder = 1; scene.add(ice); XICE.items.push(ice); XICE.water.push(m); }   // the stream freezes at Christmas (the water under it is put away)
+    return pts;
   };
   const sPts = flatRibbon(sCurve, 1.3, () => TOP + 0.07, waterMaterial({ ribbon: true, W: 2.6, flow: 1.5 }));
   const nearStream = (x, z, d) => sPts.some(q => (q.x - x) ** 2 + (q.z - z) ** 2 < d * d);
@@ -3874,17 +3915,20 @@ const falls = { mist: [], rainbow: null, base: new V3(), t: 0, top: 0, wy: 0, cz
     signpost(STAIR.x + 3.0, STAIR.zA + 2.5, [{ text: '폭포 위 쉼터', to: [STAIR.x, STAIR.zB] }, { text: '몽글 산장', to: [CAB.x, CAB.z] }]); }
   // --- the falling water: streaks rushing down a sheet that curls over the lip, white where it lands
   const fallMat = new THREE.ShaderMaterial({
-    transparent: true, depthWrite: false, side: THREE.DoubleSide, uniforms: { uTime: U.uTime, uDay: U.uDay, uSpeed: { value: 1 } },
+    transparent: true, depthWrite: false, side: THREE.DoubleSide, uniforms: { uTime: U.uTime, uDay: U.uDay, uSpeed: { value: 1 }, uIce: XICE.fall },
     vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-    fragmentShader: `uniform float uTime, uDay, uSpeed; varying vec2 vUv;
+    fragmentShader: `uniform float uTime, uDay, uSpeed, uIce; varying vec2 vUv;
       float h(float n){ return fract(sin(n * 91.7) * 4375.5); }
       void main(){
         float cx = floor(vUv.x * 34.0), sp = (0.7 + h(cx) * 0.9) * uSpeed;
-        float v = fract(vUv.y * 2.2 + uTime * sp * 0.55 + h(cx + 3.1));
+        float v = fract(vUv.y * 2.2 + uTime * sp * 0.55 * (1.0 - uIce) + h(cx + 3.1));   // frozen: the streaks stand still
         float streak = smoothstep(0.0, 0.18, v) * (1.0 - smoothstep(0.45, 1.0, v));
         float edge = smoothstep(0.0, 0.14, vUv.x) * smoothstep(1.0, 0.86, vUv.x) * smoothstep(1.0, 0.955, vUv.y), foam = smoothstep(0.12, 0.0, vUv.y);
-        vec3 c = mix(vec3(0.55, 0.78, 0.93), vec3(1.0), clamp(streak * 0.85 + foam, 0.0, 1.0)) * mix(vec3(0.32, 0.38, 0.55), vec3(1.0), uDay);
-        gl_FragColor = vec4(c, edge * clamp(0.5 + 0.5 * streak + foam, 0.0, 1.0) * 0.92); }`
+        vec3 c = mix(vec3(0.55, 0.78, 0.93), vec3(1.0), clamp(streak * 0.85 + foam, 0.0, 1.0));
+        vec3 ice = mix(vec3(0.66, 0.84, 0.96), vec3(0.96, 0.99, 1.0), clamp(streak * 0.7 + foam + 0.25 * sin(vUv.y * 40.0 + cx), 0.0, 1.0));   // a pillar of blue-white ice
+        c = mix(c, ice, uIce) * mix(vec3(0.32, 0.38, 0.55), vec3(1.0), uDay);
+        float a = edge * clamp(0.5 + 0.5 * streak + foam, 0.0, 1.0) * 0.92;
+        gl_FragColor = vec4(c, mix(a, edge * 0.95, uIce)); }`
   });
   falls.mat = fallMat;
   // the stream ends at the lip; from there the water keeps its forward speed while it drops, so it arcs out (z grows with the square root of the drop)
@@ -3902,7 +3946,7 @@ const falls = { mist: [], rainbow: null, base: new V3(), t: 0, top: 0, wy: 0, cz
       if (k) for (let c = 0; c < C - 1; c++) { const a = (k - 1) * C + c, b = a + C; idx.push(a, b, a + 1, a + 1, b, b + 1); }
     });
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(v, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx); g.computeVertexNormals();
-    const m = fallMat.clone(); m.uniforms = { uTime: U.uTime, uDay: U.uDay, uSpeed: { value: sp } };
+    const m = fallMat.clone(); m.uniforms = { uTime: U.uTime, uDay: U.uDay, uSpeed: { value: sp }, uIce: XICE.fall };
     const sheet = new THREE.Mesh(g, m); sheet.renderOrder = 2; sheet.frustumCulled = false; scene.add(sheet);
   }
   // --- plunge pool with a foamy landing, rim stones and a soft bank
@@ -3917,7 +3961,7 @@ const falls = { mist: [], rainbow: null, base: new V3(), t: 0, top: 0, wy: 0, cz
   const RG = new Geo();
   for (let i = 0; i < 26; i++) { const a = i / 26 * Math.PI * 2 + rand(-0.08, 0.08); if (Math.abs(Math.atan2(Math.sin(a - outA), Math.cos(a - outA))) < 0.22) continue; RG.add(rocky(10), rockCol, [Math.cos(a) * (pr + 0.4), 0.05, Math.sin(a) * (pr + 0.4)], [0, rand(0, 6), 0], [rand(0.5, 0.95), rand(0.35, 0.6), rand(0.5, 0.85)]); }
   scene.add(mk(RG.build(), rockMat2, { pos: [fx, wy, pz], outline: 0.04 }));
-  const wall = solid(fx, pz, pr - 0.15, wy + 0.4); wall.water = true; wall.nocam = true;
+  const wall = solid(fx, pz, pr - 0.15, wy + 0.4); wall.water = true; wall.nocam = true; XICE.spots.push({ x: fx, z: pz, r: pr, y: wy });
   falls.base.set(fx, wy + 0.4, fallFoot);
   falls.streams = [{ pts: sPts, w: 1.3, y: () => TOP }];
   const cPts = flatRibbon(cCurve, 0.95, (x, z) => Math.max(terrain(x, z), x < fx + pr + 1 ? wy : -1e9) + 0.07, waterMaterial({ ribbon: true, W: 1.9, flow: 1.0 }), 70);
@@ -3939,8 +3983,9 @@ function tickFalls(dt, S) {
   const d = player ? player.pos.distanceTo(falls.base) : 999;
   // in the cave you still hear it, muffled, from the tunnel that leads back out under it
   Snd.setFalls(!player ? 0 : player.zone === 'cave' ? 0.5 * Math.pow(clamp(1 - Math.hypot(player.pos.x - CAVE.x - CAVE.door.x, player.pos.z - CAVE.z - CAVE.door.z) / 48, 0, 1), 1.6)
-    : Math.pow(clamp(1 - d / 85, 0, 1), 2) * (player.zone === 'cabin' ? 0.5 : player.zone === 'world' ? 1 : 0));
+    : Math.pow(clamp(1 - d / 85, 0, 1), 2) * (player.zone === 'cabin' ? 0.5 : player.zone === 'world' ? 1 : 0) * (THEME === 'xmas' ? 0.08 : 1));   // frozen falls only trickle
   if (d > 170) return;
+  if (THEME === 'xmas') { for (const m of falls.mist) m.s.material.opacity = 0; falls.rainbow.material.opacity = 0.12 * (1 - S.night); return; }   // no spray off the ice, just a glint of rainbow
   falls.rainbow.material.opacity = 0.2 * (1 - S.night) * S.shaft * (1 - wx.bad);
   for (const m of falls.mist) {
     m.age += dt;
@@ -4139,6 +4184,9 @@ function makeBat() {   // hangs by its toes, so everything is built the right wa
     const G = new THREE.BufferGeometry();
     G.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); G.setAttribute('aPh', new THREE.Float32BufferAttribute(PH, 1)); G.setAttribute('aAmp', new THREE.Float32BufferAttribute(AM, 1));
     G.setAttribute('aCol', new THREE.Float32BufferAttribute(CO, 3)); G.setAttribute('aSize', new THREE.Float32BufferAttribute(SZ, 1));
+    { // Christmas: the fireflies glow red, green and gold (the glow-worms on the roof stay blue)
+      const XC = CO.map((v, i) => { const k = i / 3 | 0; if (!AM[k]) return v; return [[1, 0.38, 0.38], [0.45, 1, 0.5], [1, 0.85, 0.35]][k % 3][i % 3]; });
+      THEME_HOOKS.push(t => { G.attributes.aCol.array.set(t === 'xmas' ? XC : CO); G.attributes.aCol.needsUpdate = true; }); }
     cave.pts = new THREE.Points(G, new THREE.ShaderMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, uniforms: cave.U,
       vertexShader: `attribute float aPh, aAmp, aSize; attribute vec3 aCol; uniform float uTime, uScale; varying vec3 vCol; varying float vA;
         void main(){ vec3 p = position; float t = uTime * 0.33 + aPh;
@@ -4221,6 +4269,13 @@ function makeMole() {
     mk(new THREE.CylinderGeometry(4.3, 4.3, 4.4, 36), 0xfff7ec, { parent: g, pos: [0, 3.5, 0], outline: 0.05 });
     mk(new THREE.CylinderGeometry(4.55, 4.55, 0.4, 36), 0x6f8fc0, { parent: g, pos: [0, 5.9, 0], outline: 0.04 });
     const dome = hill.dome = new THREE.Group(); dome.position.y = 6.1; dome.rotation.y = hill.domeYaw = skyYaw; g.add(dome);
+    { // Christmas: a ring of coloured bulbs round the dome and the wall top, and a star over the dome
+      const xg = new THREE.Group(); g.add(xg); const L = new Geo(), BC = [0xff5a6e, 0xffd447, 0x6fd2ff, 0x8dff9a];
+      for (const [ry, rr, n] of [[6.12, 4.62, 44], [5.72, 4.35, 40]]) for (let i = 0; i < n; i++) { const a = i / n * Math.PI * 2; L.add(SPH_LO, BC[i % 4], [Math.sin(a) * rr, ry - 0.05 * Math.abs(Math.sin(a * n / 4)), Math.cos(a) * rr], [0, 0, 0], 0.1); }
+      xg.add(new THREE.Mesh(L.build(), new THREE.MeshBasicMaterial({ vertexColors: true })));
+      const st = mk(STAR_GEO, gloss(0xffd23f, { emissive: 0x7a5200, shin: 90, spec: 0xffffff }), { parent: xg, pos: [0, 11.6, 0], scale: 0.9, outline: 0.05 }); hill.xstar = st;
+      xshow(xg);
+    }
     mk(new THREE.SphereGeometry(4.5, 36, 14, 0, Math.PI * 2, 0, Math.PI / 2), toon(0x9dbbe6, { rim: 0.2 }), { parent: dome, outline: 0.05 });
     const slit = new THREE.Mesh(new THREE.SphereGeometry(4.56, 8, 14, Math.PI / 2 - 0.17, 0.34, 0.1, 1.3), basic(0x1b2040)); dome.add(slit);
     { const el = 0.62, T = new THREE.Group(); T.position.set(0, 0.6, 1.2); T.rotation.x = Math.PI / 2 - el; dome.add(T);   // the great telescope, looking out of the slit
@@ -4446,6 +4501,27 @@ function tickHill(dt, T, S) {
   { const O = SPOTS.orchard, y = terrain(O.x, O.z);
     for (let i = 0; i < 7; i++) { const a = i / 7 * 6.283 + 0.3, r = rand(8.5, 10.5), x = O.x + Math.cos(a) * r, z = O.z + Math.sin(a) * r; roundTree(x, z, rand(1.25, 1.6), i % 3 ? 'blossom' : 'fruit'); avoid.push({ x, z, r: 3 }); }
     const g = new THREE.Group(); g.position.set(O.x, y, O.z); g.rotation.y = 0.4; scene.add(g);
+    { // Christmas: snowmen hill, five snowmen round the blanket, each a little different
+      const xg = new THREE.Group(); g.add(xg); const N = new Geo(), sl = [];
+      const SC = [0xd8353f, 0x3f9d5a, 0x5b8fe0, 0xf6c445, 0xf29bc0];
+      for (let i = 0; i < 5; i++) {
+        const a = i / 5 * Math.PI * 2 + 0.6, r = 5.4 + (i % 2) * 0.6, sx = Math.cos(a) * r, sz = Math.sin(a) * r, k = 0.85 + (i % 3) * 0.15, face = Math.atan2(-sx, -sz);
+        const at = (u, v, h) => [sx + u * Math.cos(face) + v * Math.sin(face), h, sz - u * Math.sin(face) + v * Math.cos(face)];
+        N.add(SPH_MED, 0xfbfdff, at(0, 0, 0.7 * k), [0, 0, 0], 0.78 * k); N.add(SPH_MED, 0xfbfdff, at(0, 0, 1.75 * k), [0, 0, 0], 0.55 * k); N.add(SPH_MED, 0xfbfdff, at(0, 0, 2.5 * k), [0, 0, 0], 0.4 * k);
+        for (const e of [-1, 1]) N.add(SPH_LO, 0x2b2220, at(e * 0.14 * k, 0.34 * k, 2.6 * k), [0, 0, 0], 0.05 * k);
+        N.add(new THREE.ConeGeometry(0.07 * k, 0.4 * k, 8), 0xf08a3c, at(0, 0.5 * k, 2.5 * k), [Math.PI / 2, face, 0]);
+        for (let b = 0; b < 3; b++) N.add(SPH_LO, 0x2b2220, at(0, 0.53 * k, (1.55 + b * 0.2) * k), [0, 0, 0], 0.05 * k);
+        N.add(new THREE.TorusGeometry(0.36 * k, 0.1 * k, 6, 16), SC[i], at(0, 0, 2.15 * k), [Math.PI / 2, 0, 0]);
+        N.add(new THREE.BoxGeometry(0.14 * k, 0.5 * k, 0.05 * k), SC[i], at(0.2 * k, 0.32 * k, 1.95 * k), [0.2, face, 0.15]);
+        if (i % 2) { N.add(new THREE.CylinderGeometry(0.28 * k, 0.3 * k, 0.4 * k, 14), 0x2b2220, at(0, 0, 3.0 * k)); N.add(new THREE.CylinderGeometry(0.44 * k, 0.44 * k, 0.05 * k, 16), 0x2b2220, at(0, 0, 2.82 * k)); }
+        else { N.add(new THREE.ConeGeometry(0.32 * k, 0.55 * k, 12), SC[i], at(0, 0, 3.05 * k)); N.add(SPH_LO, 0xffffff, at(0, 0, 3.35 * k), [0, 0, 0], 0.09 * k); }
+        for (const e of [-1, 1]) { const st = new THREE.CylinderGeometry(0.03, 0.04, 0.9 * k, 5); N.add(st, 0x7a5238, at(e * 0.75 * k, 0, 1.85 * k), [0, face, e * 1.0]); }
+        const wx0 = O.x + sx * Math.cos(0.4) + sz * Math.sin(0.4), wz0 = O.z - sx * Math.sin(0.4) + sz * Math.cos(0.4);
+        const so = solid(wx0, wz0, 0.75 * k, y + 2.9 * k); solids.splice(solids.indexOf(so), 1); sl.push(so);
+      }
+      mk(N.build(), toon(0xffffff, { vc: true, soft: true, rim: 0.2 }), { parent: xg, outline: 0.035 });
+      xshow(xg, sl);
+    }
     const bl = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.08, 3.2), toon(0xffffff, { map: gingham(0xe98aa0, [5, 4]) })); bl.position.y = 0.06; bl.receiveShadow = true; g.add(bl);
     mk(new THREE.CylinderGeometry(0.42, 0.36, 0.42, 14), toon(0xd9a066, { map: TEX.plank }), { parent: g, pos: [1.2, 0.3, -0.7], outline: 0.025 });           // a basket, a loaf and an apple
     mk(new THREE.TorusGeometry(0.36, 0.035, 6, 16, Math.PI), 0xb9834f, { parent: g, pos: [1.2, 0.5, -0.7], outline: 0.012 });
@@ -4468,7 +4544,7 @@ function tickHill(dt, T, S) {
     for (let i = 0; i < 16; i++) { const a = rand(0, 6.28), r = R + rand(-0.5, 0.3), h = rand(1.0, 1.7), x = Math.cos(a) * r, z = Math.sin(a) * r;                 // reeds and cat-tails round the rim
       LG.add(new THREE.CylinderGeometry(0.02, 0.03, h, 5), 0x6aa250, [x, h / 2, z], [rand(-0.08, 0.08), 0, rand(-0.08, 0.08)]); if (i % 2) LG.add(new THREE.CylinderGeometry(0.06, 0.06, 0.3, 7), 0x8a5a3c, [x, h - 0.1, z]); }
     mk(LG.build(), toon(0xffffff, { vc: true, soft: true }), { parent: g, outline: 0.012, shadow: false });
-    const ws = solid(L.x, L.z, R - 0.3, wy + 0.3); ws.water = true; ws.nocam = true;
+    const ws = solid(L.x, L.z, R - 0.3, wy + 0.3); ws.water = true; ws.nocam = true; XICE.spots.push({ x: L.x, z: L.z, r: R, y: wy, rink: true });
     const bx = L.x + (R + 3.2) * 0.75, bz = L.z - (R + 3.2) * 0.66, by = terrain(bx, bz), byaw = Math.atan2(L.x - bx, L.z - bz), b = new THREE.Group(); b.position.set(bx, by, bz); b.rotation.y = byaw; scene.add(b);
     mk(new THREE.BoxGeometry(2.4, 0.14, 0.7), woodMat, { parent: b, pos: [0, 0.55, 0], outline: 0.02 }); mk(new THREE.BoxGeometry(2.4, 0.6, 0.12), woodMat, { parent: b, pos: [0, 0.95, -0.34], outline: 0.02 });
     for (const sd of [-1, 1]) mk(new THREE.BoxGeometry(0.14, 0.55, 0.6), 0x8a5a3c, { parent: b, pos: [sd * 1.05, 0.27, 0], outline: 0.015 });
@@ -4489,6 +4565,18 @@ function tickHill(dt, T, S) {
     for (const [c, s, o] of [[0xff8a3c, 0.8, 0.85], [0xffc94a, 0.5, 0.9], [0xfff1b0, 0.28, 0.95]]) { const f = new THREE.Mesh(new THREE.ConeGeometry(0.42 * s, 1.2 * s, 10), new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: o, depthWrite: false })); f.position.y = 0.55 * s; fire.add(f); }
     { const fg = new THREE.Sprite(glowMat.clone()); fg.material.color.set(0xffa04a); fg.scale.setScalar(3.8); fg.position.y = 0.5; fire.add(fg); }
     lampLights.push({ p: new V3(C.x, y + 1.0, C.z), r: 11, kind: 'fire' });
+    { // Christmas: marshmallow camp, skewers leaning over the fire from each log, and a mug of cocoa on every seat
+      const xg = new THREE.Group(); g.add(xg); const M = new Geo();
+      for (const a of [0.5, 2.3, 4.3]) {
+        const lx = Math.sin(a) * 3.0, lz = Math.cos(a) * 3.0, tip = new V3(Math.sin(a) * 0.9, 0.95, Math.cos(a) * 0.9), foot = new V3(Math.sin(a) * 2.6, 0.05, Math.cos(a) * 2.6);
+        beam(M, foot, tip, 0.03, 0x8a5a3c, { round: true, seg: 5 });
+        const d = tip.clone().sub(foot).normalize(); for (let m = 0; m < 2; m++) { const q = tip.clone().addScaledVector(d, -0.12 - m * 0.24); M.add(new THREE.CylinderGeometry(0.1, 0.1, 0.18, 10), m ? 0xfff6ec : 0xe8c28a, [q.x, q.y, q.z], [Math.atan2(Math.hypot(d.x, d.z), d.y) * 0 + Math.PI / 2, a, 0]); }
+        for (const off of [-0.55, 0.55]) { const mx = lx + Math.cos(a) * off, mz = lz - Math.sin(a) * off;
+          M.add(new THREE.CylinderGeometry(0.13, 0.11, 0.24, 12), off < 0 ? 0xd8353f : 0x3f9d5a, [mx, 0.82, mz]); M.add(new THREE.CylinderGeometry(0.11, 0.11, 0.02, 12), 0x6b3f2a, [mx, 0.935, mz]); M.add(SPH_LO, 0xffffff, [mx, 0.95, mz], [0, 0, 0], [0.06, 0.04, 0.06]); }
+      }
+      mk(M.build(), toon(0xffffff, { vc: true, soft: true }), { parent: xg, outline: 0.015 });
+      xshow(xg);
+    }
     solid(C.x, C.z, 1.05, y + 0.9).nocam = true; solid(C.x - 3.6, C.z - 2.6, 1.9, y + 2.6);
     for (const a of [0.5, 2.3, 4.3]) {                                                            // logs facing the fire
       const lx = Math.sin(a) * 3.0, lz = Math.cos(a) * 3.0, yaw = a + Math.PI;
@@ -4755,12 +4843,32 @@ function tickBeach(dt, T, S) {
   beach.boat.position.y = y + 0.42 + 0.04 * Math.sin(T * 1.3); beach.boat.rotation.z = 0.05 * Math.sin(T * 0.9); beach.boat.rotation.x = 0.03 * Math.sin(T * 1.1 + 1);
   const n = smooth(0.25, 0.8, Math.max(S.night, wx.rain * 0.6));
   beach.beams.visible = n > 0.01; beach.beams.rotation.y = T * 0.45; beach.beamMat.opacity = 0.34 * n; beach.glow.material.opacity = 0.2 + 0.75 * n;
+  { const xc = THEME === 'xmas' ? (Math.floor(T * 0.45 / Math.PI) % 2 ? 0xff5060 : 0x60ff80) : 0xffffff; beach.beamMat.color.setHex(xc); beach.glow.material.color.setHex(THEME === 'xmas' ? xc : 0xffe9a8); }   // red and green turns at Christmas
   const d = player && player.pos.x < 1000 ? -seaward(player.pos.x, player.pos.z) : 999;
   Snd.setSea(player ? Math.pow(clamp(1 - d / 80, 0, 1), 1.6) * (player.zone === 'world' || player.zone === 'lighthouse' ? 1 : 0) : 0);
 }
 
+/* ---------------- Christmas: the ponds, the plunge pool and the creek freeze; you can walk out on the ice and slide about ----------------
+   The lily pond becomes a skating rink with skate marks on it. Plain (unpatched) material, so the snow doesn't settle on the ice */
+{
+  const XS = [];
+  for (const p of XICE.spots) {
+    const sh = new THREE.Shape(); for (let i = 0; i <= 48; i++) { const a = i / 48 * Math.PI * 2, rr = (p.r + 0.15) * (1 + 0.05 * Math.sin(a * 5 + 1)); i ? sh.lineTo(Math.cos(a) * rr, Math.sin(a) * rr) : sh.moveTo(Math.cos(a) * rr, Math.sin(a) * rr); }
+    const g = new THREE.ShapeGeometry(sh, 32); g.rotateX(-Math.PI / 2);
+    const m = new THREE.Mesh(g, p.rink ? XICE.rinkMat : XICE.mat); m.position.set(p.x, p.y + 0.09, p.z); m.visible = false; m.receiveShadow = true; scene.add(m); XICE.items.push(m);
+    const so = solid(p.x, p.z, p.r - 0.2, p.y + 0.1); so.ice = true; so.nocam = true; solids.splice(solids.indexOf(so), 1); XS.push(so);
+  }
+  THEME_HOOKS.push(t => {
+    const on = t === 'xmas'; XICE.fall.value = on ? 1 : 0;
+    for (const m of XICE.items) m.visible = on;
+    for (const m of XICE.water) m.visible = !on;
+    for (const s of XS) { const i = solids.indexOf(s); if (on && i < 0) solids.push(s); else if (!on && i >= 0) solids.splice(i, 1); }
+  });
+}
+
 /* ---------------- lamps along the paths that light up after dark ---------------- */
 const lampBulb = new THREE.MeshBasicMaterial({ color: 0xd9cfb0 });
+const LAMP_POS = [];   // where each path lamp stands (x, ground y, z), in order along the paths
 const lampGlow = new THREE.SpriteMaterial({ map: TEX.mote, color: 0xffd27a, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 });
 const lampStone = toon(0xcfc7b8, { map: TEX.stone });
 const lampFoot = new THREE.CylinderGeometry(0.2, 0.3, 0.24, 12);
@@ -4786,8 +4894,66 @@ const lampCage = (() => { const G = new Geo(); for (let i = 0; i < 4; i++) { con
     const s = new THREE.Sprite(lampGlow); s.position.y = 3.0; s.scale.setScalar(3.4); g.add(s);
     solid(x, z, 0.3, y + 2.8);
     lampLights.push({ p: new V3(x, y + 2.9, z), r: 9.5, kind: 'out' });
+    LAMP_POS.push([x, y, z]);
     n++;
   }
+}
+/* Christmas: the lamp posts turn into candy canes with a wreath, and strings of lights swing from one post to the next across the lane.
+   All of it is three meshes for the whole village (cheap), shown only in the Christmas channel */
+const XLAMP = { items: [], bulbs: null, glow: null, cols: [], t: 0 };
+{
+  const P = new Geo(), W = new Geo(), wreath = new THREE.TorusGeometry(0.24, 0.085, 6, 14), berry = new THREE.SphereGeometry(1, 5, 4);
+  for (const [x, y, z] of LAMP_POS) {
+    P.add(new THREE.CylinderGeometry(0.085, 0.115, 2.55, 10, 1, true), 0xffffff, [x, y + 1.36, z]);
+    W.add(wreath, 0x3f8a4c, [x, y + 2.2, z], [0, Math.atan2(x, z), 0]);
+    const a = Math.atan2(x, z), ox = Math.sin(a + Math.PI / 2), oz = Math.cos(a + Math.PI / 2);
+    for (let k = 0; k < 4; k++) { const b = k / 4 * Math.PI * 2 + 0.4; W.add(berry, 0xd8353f, [x + ox * Math.cos(b) * 0.24, y + 2.2 + Math.sin(b) * 0.24, z + oz * Math.cos(b) * 0.24], [0, 0, 0], 0.05); }
+    W.add(new THREE.ConeGeometry(0.09, 0.16, 6), 0xd8353f, [x + ox * 0.07, y + 1.96, z + oz * 0.07], [0, 0, 0.9]);
+    W.add(new THREE.ConeGeometry(0.09, 0.16, 6), 0xd8353f, [x - ox * 0.07, y + 1.96, z - oz * 0.07], [0, 0, -0.9]);
+  }
+  const st = TEX.stripe.clone(); st.repeat.set(1, 5); st.needsUpdate = true;
+  const pm = mk(P.build(), toon(0xffffff, { map: st, vc: true, rim: 0.12 }), { outline: 0.02 }), wm = mk(W.build(), toon(0xffffff, { vc: true, rim: 0.15 }), { outline: 0.02 });
+  for (const m of [pm, wm]) { m.userData.keep = true; m.visible = false; scene.add(m); XLAMP.items.push(m); }
+  // strings of lights between neighbouring posts
+  const pts = [], wire = [], BC = [0xff5a6e, 0xffd447, 0x6fd2ff, 0x8dff9a].map(c => col(c));
+  for (let i = 1; i < LAMP_POS.length; i++) {
+    const [ax, ay, az] = LAMP_POS[i - 1], [bx, by, bz] = LAMP_POS[i], d = Math.hypot(bx - ax, bz - az);
+    if (d < 3 || d > 22) continue;
+    const n = Math.max(4, Math.round(d / 1.4)), sag = 0.35 + d * 0.04;
+    let prev = null;
+    for (let k = 0; k <= n; k++) {
+      const t = k / n, q = new V3(ax + (bx - ax) * t, ay + 2.75 + (by - ay) * t - sag * 4 * t * (1 - t), az + (bz - az) * t);
+      if (prev) wire.push(prev.x, prev.y, prev.z, q.x, q.y, q.z);
+      if (k > 0 && k < n) pts.push(q.clone().setY(q.y - 0.07));
+      prev = q;
+    }
+  }
+  const lw = new THREE.BufferGeometry(); lw.setAttribute('position', new THREE.Float32BufferAttribute(wire, 3));
+  const wl = new THREE.LineSegments(lw, new THREE.LineBasicMaterial({ color: 0x2d4a33 })); wl.visible = false; wl.userData.keep = true; scene.add(wl); XLAMP.items.push(wl);
+  const im = XLAMP.bulbs = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 6, 4), new THREE.MeshBasicMaterial({ color: 0xffffff }), pts.length);
+  const m4 = new THREE.Matrix4();
+  pts.forEach((q, i) => { m4.makeScale(0.07, 0.09, 0.07).setPosition(q); im.setMatrixAt(i, m4); XLAMP.cols.push(BC[i % 4]); im.setColorAt(i, BC[i % 4]); });
+  im.frustumCulled = false; im.visible = false; im.userData.keep = true; scene.add(im); XLAMP.items.push(im);
+  const gp = new THREE.BufferGeometry(); gp.setAttribute('position', new THREE.Float32BufferAttribute(pts.flatMap(q => [q.x, q.y, q.z]), 3)); gp.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(pts.length * 3), 3));
+  const gl = XLAMP.glow = new THREE.Points(gp, new THREE.PointsMaterial({ map: TEX.mote, size: 0.8, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 }));
+  gl.frustumCulled = false; gl.visible = false; scene.add(gl); XLAMP.items.push(gl);
+}
+THEME_HOOKS.push(t => { for (const m of XLAMP.items) m.visible = t === 'xmas'; });
+const _lc = new THREE.Color();
+const XFIRE = { p: new V3(CAB.x - CAB.hw + 1.3, CAB.fy + 0.8, CAB.z + 1.5), t: 0 };
+function tickXmasFire(dt) {   // the cabin fire crackles while you are inside at Christmas
+  if (THEME !== 'xmas' || !player || player.zone !== 'cabin' || (XFIRE.t -= dt) > 0) return;
+  XFIRE.t = rand(0.08, 0.45);
+  Snd.crackle(clamp(1 - player.pos.distanceTo(XFIRE.p) / 16, 0, 1));
+}
+function tickXmasLamps(dt, T, S) {
+  if (THEME !== 'xmas' || (XLAMP.t -= dt) > 0) return; XLAMP.t = 0.12;
+  const n = smooth(0.2, 0.8, Math.max(S.night, wx.snowfall * 0.3)), cs = XLAMP.glow.geometry.attributes.color;
+  for (let i = 0; i < XLAMP.cols.length; i++) {
+    const b = 0.55 + 0.45 * Math.sin(T * 2.4 + i * 1.7);   // each bulb breathes at its own pace
+    _lc.copy(XLAMP.cols[i]).multiplyScalar((0.5 + 0.5 * n) * (0.5 + 0.5 * b)); XLAMP.bulbs.setColorAt(i, _lc); cs.setXYZ(i, _lc.r * b, _lc.g * b, _lc.b * b);
+  }
+  XLAMP.bulbs.instanceColor.needsUpdate = true; cs.needsUpdate = true; XLAMP.glow.material.opacity = 0.8 * n;
 }
 
 /* ---------------- time of day: drive sky, light, fog, clouds and night details from the real clock ---------------- */
@@ -5171,6 +5337,14 @@ const Snd = (() => {
     if (!on()) return; const f = mtof(pick([84, 86, 88, 91, 93, 96])), t = ctx.currentTime;
     tone({ t, f, d: 1.4, v: 0.028 }); tone({ t: t + 0.02, f: f * 2.01, d: 0.6, v: 0.008 });
   }
+  function crackle(k) {   // the fire: a dry pop or two, now and then a soft settling thump
+    if (!on() || k <= 0.02) return; const t = ctx.currentTime;
+    for (let i = 0, n = 1 + (Math.random() * 3 | 0); i < n; i++) hiss({ t: t + i * rand(0.02, 0.06), f: rand(1400, 4200), q: 3, d: rand(0.015, 0.04), v: rand(0.02, 0.05) * k });
+    if (Math.random() < 0.12) tone({ t, f: rand(90, 130), f2: 60, glide: 0.15, d: 0.18, v: 0.03 * k, lp: 300 });
+  }
+  function iceStep(fast) {   // a skate-ish scrape on the ice
+    if (!on()) return; hiss({ ft: 'highpass', f: rand(2600, 3400), d: fast ? 0.12 : 0.08, v: fast ? 0.05 : 0.035 }); tone({ f: rand(1500, 1900), f2: 1100, glide: 0.06, d: 0.07, v: 0.012 });
+  }
   function sleighBells(k, pan) {   // one shake of the harness bells: a little cluster of bright metal pings
     if (!on() || k <= 0.01) return; const t = ctx.currentTime;
     for (let i = 0; i < 4; i++) {
@@ -5299,7 +5473,7 @@ const Snd = (() => {
     tone({ f: 180, f2: 70, glide: 0.08, d: 0.12, v: 0.22 * k, pan }); hiss({ ft: 'bandpass', f: 1200, q: 2, d: 0.08, v: 0.12 * k, pan });
     tone({ t: t + 0.13, f: 520, f2: 380, glide: 0.05, d: 0.08, v: 0.06 * k, type: 'triangle', pan }); tone({ t: t + 0.2, f: 430, f2: 300, glide: 0.05, d: 0.08, v: 0.05 * k, type: 'triangle', pan });
   }
-  return { init, pop, step, jump, land, wobble, bloom, splash, door, drip, chop, setFalls, setForest, setSea, star, fanfare, twinkle, boom, splish, snowStep, setRain, thunder, chime, sleighBells, hoho, setCarol, speak, setMusic, setSfx, st };
+  return { init, pop, step, jump, land, wobble, bloom, splash, door, drip, chop, setFalls, setForest, setSea, star, fanfare, twinkle, boom, splish, snowStep, setRain, thunder, chime, sleighBells, hoho, setCarol, iceStep, crackle, speak, setMusic, setSfx, st };
 })();
 const tmpE = new V3();
 // loudness (0..1) and stereo pan of a sound at `pos`, heard from the player
@@ -5406,8 +5580,9 @@ class Critter {
     { const sg = sn >= 0;                                                    // each stride: a footstep for you, a puff of dust for anyone running
       if (sg !== this.lastSg && this.ground && this.speed > 0.6) {
         const fast = this.speed > this.d.speed * 1.15, wet = this.zone === 'world' || this.pos.x > 1000 ? onStream(this.pos.x, this.pos.y, this.pos.z) : null;
-        const snowy = wet == null && wx.snow > 0.45 && this.pos.x < 1000 && this.zone !== 'cabin';
-        if (this === player) wet != null ? Snd.splish(fast) : snowy ? Snd.snowStep(fast) : Snd.step(this.speed > this.d.speed * 1.2);
+        const icy = wet == null && this.supSolid && this.supSolid.ice, snowy = !icy && wet == null && wx.snow > 0.45 && this.pos.x < 1000 && this.zone !== 'cabin';
+        if (this === player) wet != null ? Snd.splish(fast) : icy ? Snd.iceStep(fast) : snowy ? Snd.snowStep(fast) : Snd.step(this.speed > this.d.speed * 1.2);
+        if (snowy && this.obj.visible) footprint(this.pos.x + Math.cos(this.yaw) * (sg ? 0.28 : -0.28), this.pos.y, this.pos.z - Math.sin(this.yaw) * (sg ? 0.28 : -0.28), this.yaw);
         else if (wet != null) { const [k, p] = ear(this.pos); Snd.splish(fast, k * 0.7, p); }
         if (!this.obj.visible) { /* nothing to show */ }
         else if (wet != null) {   // splish-splash: drops fly up from the foot that just came down, and a ring opens round it
@@ -5506,12 +5681,42 @@ let ripI = 0;
 function ripple(x, y, z, s = 1) { const r = ripples[ripI++ % ripples.length]; r.t = 0; r.s = s; r.m.position.set(x, y + 0.04, z); r.m.visible = true; }
 function tickRipples(dt) { for (const r of ripples) if (r.m.visible) { r.t += dt; const u = r.t / 1.1; r.m.scale.setScalar(r.s * (0.25 + u * 1.15)); r.m.material.opacity = 0.75 * (1 - u); if (u >= 1) r.m.visible = false; } }
 const dropTex = spriteTex(x => { x.fillStyle = 'rgba(232,248,255,0.95)'; x.strokeStyle = 'rgba(90,150,190,.7)'; x.lineWidth = 3; x.beginPath(); x.arc(32, 36, 15, 0, 7); x.fill(); x.stroke(); });
+/* footprints in deep snow: a little dent where each foot came down, for you and your friends, fading after a minute */
+const Prints = { n: 420, i: 0, born: new Float32Array(420).fill(-1e9), pos: [], im: null, t: 0, clock: 0 };
+{
+  const g = new THREE.CircleGeometry(1, 10); g.rotateX(-Math.PI / 2);
+  const im = Prints.im = new THREE.InstancedMesh(g, new THREE.MeshBasicMaterial({ color: 0xa3b1c8, transparent: true, opacity: 0.55, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }), Prints.n);
+  const z = new THREE.Matrix4().makeScale(0, 0, 0); for (let i = 0; i < Prints.n; i++) { im.setMatrixAt(i, z); Prints.pos.push([0, 0, 0, 0]); }
+  im.frustumCulled = false; im.renderOrder = 1; scene.add(im);
+}
+const _pm4 = new THREE.Matrix4(), _pq = new THREE.Quaternion(), _ps = new V3(), _pp = new V3(), _py = new V3(0, 1, 0);
+function printMat(i, k) {   // k: 1 fresh, shrinking to 0 as it fades
+  const [x, y, z, yaw] = Prints.pos[i];
+  _pq.setFromAxisAngle(_py, yaw); _ps.set(0.15 * k, 1, 0.23 * k); _pp.set(x, y + 0.03, z);
+  Prints.im.setMatrixAt(i, _pm4.compose(_pp, _pq, _ps));
+}
+function footprint(x, y, z, yaw) {
+  const i = Prints.i++ % Prints.n; Prints.pos[i] = [x, y, z, yaw]; Prints.born[i] = Prints.clock;
+  printMat(i, 1); Prints.im.instanceMatrix.needsUpdate = true;
+}
+function tickPrints(dt) {
+  Prints.clock += dt;
+  if ((Prints.t -= dt) > 0) return; Prints.t = 0.5;
+  let ch = false;
+  for (let i = 0; i < Prints.n; i++) {
+    const age = Prints.clock - Prints.born[i]; if (age < 45 || age > 70) continue;
+    printMat(i, age >= 60 ? 0 : 1 - (age - 45) / 15); ch = true;
+  }
+  Prints.im.visible = wx.snow >= 0.3;   // gone with the snow when it melts
+  if (ch) Prints.im.instanceMatrix.needsUpdate = true;
+}
+THEME_HOOKS.push(() => { Prints.born.fill(-1e9); const z = new THREE.Matrix4().makeScale(0, 0, 0); for (let i = 0; i < Prints.n; i++) Prints.im.setMatrixAt(i, z); Prints.im.instanceMatrix.needsUpdate = true; });
 const snowTex = spriteTex(x => { x.fillStyle = 'rgba(255,255,255,0.95)'; x.strokeStyle = 'rgba(150,170,200,.5)'; x.lineWidth = 3; x.beginPath(); x.arc(32, 32, 22, 0, 7); x.fill(); x.stroke(); });
 // is this spot in one of the brooks (and not up on a bridge over it)? returns the water's height, or null
 function onStream(x, y, z) {
   if (x > 1000) return z > 200 && y < CAVE.wy - 0.02 && Math.hypot(x - CAVE.x - CAVE.pond.x, z - CAVE.z - CAVE.pond.z) < CAVE.pond.r + 0.5 ? CAVE.wy : null;   // wading in the cave pond
   if (z < -140 && y < SEA_Y + 0.1 && seaward(x, z) > 0) return SEA_Y;   // wading in the sea
-  if (!falls.streams) return null;
+  if (!falls.streams || THEME === 'xmas') return null;   // frozen at Christmas
   for (const st of falls.streams) { const sy = st.y(x, z); if (Math.abs(y - sy) > 0.25) continue; const w2 = st.w * st.w * 0.85; for (const q of st.pts) if ((q.x - x) * (q.x - x) + (q.z - z) * (q.z - z) < w2) return sy; }
   return null;
 }
@@ -6588,6 +6793,13 @@ function greet() {
 }
 
 /* ---------------- input ---------------- */
+// on ice your speed changes slowly, so you glide, overshoot and slither to a stop; anywhere else you move exactly as the keys say
+const SLIDE = new V3();
+function slideMove(vx, vz, dt) {
+  if (player.ground && player.supSolid && player.supSolid.ice) { const k = Math.min(1, dt * 1.5); SLIDE.x += (vx - SLIDE.x) * k; SLIDE.z += (vz - SLIDE.z) * k; }
+  else SLIDE.set(vx, 0, vz);
+  if (Math.abs(SLIDE.x) + Math.abs(SLIDE.z) > 0.02) player.move(SLIDE.x * dt, SLIDE.z * dt);
+}
 const KEYMAP = { KeyW: 'f', ArrowUp: 'f', KeyS: 'b', ArrowDown: 'b', KeyA: 'l', ArrowLeft: 'l', KeyD: 'r', ArrowRight: 'r', ShiftLeft: 'run', ShiftRight: 'run' };
 addEventListener('keydown', e => {
   if (mode !== 'play' || chatOpen) return;
@@ -6761,7 +6973,10 @@ function zoneBanner(name) {
   const el = $('zoneTitle'); $('zoneName').textContent = name; $('zoneSub').textContent = ZONE_SUB[name] || '';
   el.classList.remove('show'); void el.offsetWidth; el.classList.add('show');
 }
-function zoneOf(x, z) {
+const XZONE = { '꽃동산': '눈사람 언덕', '연잎 연못': '얼음 스케이트장', '모닥불 야영지': '마시멜로 캠프', '무지개 폭포': '얼음 폭포', '몽글 마을': '크리스마스 광장' };
+Object.assign(ZONE_SUB, { '눈사람 언덕': '눈사람 친구들이 모여 사는 언덕', '얼음 스케이트장': '꽁꽁 언 연못에서 미끄러져 봐요', '마시멜로 캠프': '모닥불에 마시멜로를 구워요', '얼음 폭포': '꽁꽁 얼어붙은 폭포', '크리스마스 광장': '젤리 트리에 불이 반짝여요' });
+function zoneOf(x, z) { const n = zoneOf0(x, z); return THEME === 'xmas' && XZONE[n] || n; }
+function zoneOf0(x, z) {
   if (z < -100) { if (Math.hypot(x - ISLE.x, z - ISLE.z) < ISLE.r) return '등대 섬'; if (seaward(x, z) > 2 && pierDist(x, z) < 2) return '등대 부두'; if (sandK(x, z) > 0.5) return '몽글 해변'; }
   if (x > 96 && hillSDF(x, z) < 4) return Math.hypot(x - HILL.px, z - HILL.pz) < 15.5 ? '별빛 천문대' : '별빛 언덕';
   if (inPlat(x, z, 1)) return '폭포 위 쉼터';
@@ -6810,8 +7025,8 @@ function frame() {
       const fx = -Math.sin(camYaw), fz = -Math.cos(camYaw), rx = Math.cos(camYaw), rz = -Math.sin(camYaw);
       const dx = rx * ix + fx * iz, dz = rz * ix + fz * iz, dl = Math.hypot(dx, dz);
       player.yaw = Math.atan2(dx, dz); mv = sp;
-      player.move(dx / dl * sp * dt, dz / dl * sp * dt);
-    }
+      slideMove(dx / dl * sp, dz / dl * sp, dt);
+    } else slideMove(0, 0, dt);   // on ice you keep gliding after you let go
     player.speed += (mv - player.speed) * Math.min(1, dt * 10);
     if (player.sitting) { player.speed = 0; player.pos.copy(player.sitting.p); } else player.physics(dt);
     for (const s of stars) if (!s.got && s.m.position.distanceTo(tmpV.copy(player.pos).add(UP1)) < (s.gold ? 2.2 : 1.7)) {
@@ -6893,7 +7108,7 @@ function frame() {
     if (camPitch < 0) camera.lookAt(tmpV.copy(camTarget).add(new V3(0, -camPitch * 16, 0))); else camera.lookAt(camTarget);
     }
     if (camShake > 0) { camera.rotateX(rand(-1, 1) * camShake * 0.03); camera.rotateZ(rand(-1, 1) * camShake * 0.04); camShake = Math.max(0, camShake - dt * 1.4); }
-    if (player.zone === 'world' && (bloomTimer -= dt) <= 0) { spawnBloom(); bloomTimer = rand(2.5, 5.5); }
+    if (player.zone === 'world' && THEME !== 'xmas' && (bloomTimer -= dt) <= 0) { spawnBloom(); bloomTimer = rand(2.5, 5.5); }
     updatePrompt();
     const zn = player.zone === 'tower' ? '할아버지 나무 안' : player.zone === 'terrace' ? '나무 꼭대기 테라스' : player.zone === 'cabin' ? '나무꾼 오두막 안' : player.zone === 'lighthouse' ? '등대 전망대' : player.zone === 'cave' ? '반딧불 동굴' : zoneOf(player.pos.x, player.pos.z);
     if (zn !== curZone) { if ((zoneHold += dt) > 0.6) { curZone = zn; zoneHold = 0; zoneBanner(zn); } } else zoneHold = 0;
@@ -6963,6 +7178,9 @@ function frame() {
   tickBeam(dt, T);
   tickShip(dt, T, S);
   tickXmasTree(dt, T, S);
+  tickPrints(dt);
+  tickXmasLamps(dt, T, S);
+  tickXmasFire(dt);
   tickSleigh(dt, T, S);
   // indoors the light turns warm and soft, like lamplight inside a tree
   indoorAmb += ((player && player.zone === 'tower' ? 1 : player && player.zone === 'cabin' ? 0.35 : 0) - indoorAmb) * Math.min(1, dt * 3);
@@ -6993,7 +7211,7 @@ function frame() {
     if (Math.abs(ft - fovNow) > 0.02) { fovNow += (ft - fovNow) * Math.min(1, dt * 3.5); camera.fov = fovNow; camera.updateProjectionMatrix(); } }
   cull(focus);
   if (Meadow.mesh) {
-    const show = !player || player.zone === 'world'; Meadow.mesh.visible = show;
+    const show = (!player || player.zone === 'world') && THEME !== 'xmas'; Meadow.mesh.visible = show;   // the Christmas channel's grass lies under the snow
     if (show) {
       if (player) { camera.getWorldDirection(tmpV); tmpV.y = 0; const l = tmpV.length() || 1; Meadow.c.set(player.pos.x + tmpV.x / l * 9, 0, player.pos.z + tmpV.z / l * 9); }
       else Meadow.c.set(camera.position.x * 0.42, 0, camera.position.z * 0.42);
@@ -7208,11 +7426,41 @@ const WX_LINES = {
     crab: ['모래사장이 눈밭이 됐네!', '눈 위에 옆걸음 발자국, 딱딱'], gull: ['하얀 해변은 처음 봐, 끼룩!', '눈 덮인 부두는 미끄러워'],
     woodcutter: ['눈이 많이 쌓였구먼, 지붕 눈 좀 쓸어야겠어', '이런 날엔 벽난로 앞이 최고지'], squirrel: ['눈 덮인 도토리는 못 찾는단 말이야!'], owl: ['부엉… 눈 쌓인 밤엔 별이 더 밝단다'] },
 };
+// Christmas lines: what everyone says in the Christmas channel (most of the time; the weather still gets a word in)
+const XMAS_LINES = { any: ['메리 크리스마스!', '트리 꼭대기에 올라가 봤어?', '산타 할아버지 썰매 봤어?', '눈 오는 크리스마스, 최고야!'], in: ['메리 크리스마스! 따뜻하게 쉬다 가요', '창밖에 전구가 반짝반짝해요', '크리스마스엔 코코아죠!'],
+  mongsil: ['양말 걸어 뒀어? 나는 제일 큰 걸로!', '트리 꼭대기 별, 같이 보러 가자~'], tosil: ['썰매 따라 뛰어갈 거야!', '선물 상자 몰래 흔들어 봤어, 쉿!'],
+  haneul: ['반짝이는 트리, 찰칵!', '썰매 사진 찍으려고 기다리는 중이야'], leo: ['코코처럼 코가 빨개졌어!', '스케이트장에서 미끄러져 봤어?'],
+  fox: ['산타 할아버지도 나비 좋아하실까?', '눈사람 언덕에 친구가 다섯이나 생겼어!'], duck: ['아가들아, 얼음 위에선 뒤뚱뒤뚱 조심!', '꽥! 연못이 스케이트장이 됐어요'],
+  post: ['크리스마스 카드 배달 왔어요~', '올해는 편지가 산더미예요!'], turtle: ['허허, 크리스마스엔 나도 조금 빨리 걷는단다', '선물은 마음이 제일이란다'],
+  woodcutter: ['벽난로 옆 양말 봤니? 이름표도 달았단다', '오두막에 작은 트리도 세웠지'], crab: ['딱딱! 산타 할아버지 바다로도 오실까?', '집게로 선물 포장했어!'],
+  gull: ['끼룩! 썰매가 등대 위로 지나갔어!', '등대 불이 빨강, 초록으로 바뀌었어'], hedgehog: ['크리스마스엔 따뜻한 코코아가 최고예요', '가시에 반짝이 붙이고 왔어요'],
+  squirrel: ['도토리로 트리 장식 만들었지!'], owl: ['부엉… 크리스마스 밤엔 별이 더 반짝인단다'], chick: ['삐약! (산타 모자가 커서 앞이 안 보여요)'],
+  mole: ['망원경으로 산타 썰매를 봤단다!', '크리스마스 별은 오늘 밤 더 밝구나'] };
 function sayLine(lines, key) {
+  if (THEME === 'xmas' && key && Math.random() < 0.7) { const own = XMAS_LINES[key]; return pick(own && Math.random() < 0.7 ? own : WX_OUT.has(key) ? XMAS_LINES.any : XMAS_LINES.in); }
   const kind = wx.rain > 0.1 ? (wx.storm && wx.rain > 0.72 ? 'storm' : 'rain') : wx.snow > 0.5 ? 'deep' : wx.snowfall > 0.1 ? 'snow' : null;
   if (!kind || !key || Math.random() > 0.72) return pick(lines);
   const B = WX_LINES[kind], own = B[key];
   return pick(own && Math.random() < 0.8 ? own : WX_OUT.has(key) ? B.any : B.in);
+}
+
+/* Christmas: every animal friend wears a little Santa hat, sized to its own head */
+{
+  const H = new Geo();
+  H.add(new THREE.ConeGeometry(1, 1.5, 14), 0xd8353f, [0.12, 0.72, 0], [0, 0, -0.32]);
+  H.add(new THREE.TorusGeometry(0.95, 0.3, 8, 18), 0xfffaf2, [0, 0.05, 0], [Math.PI / 2, 0, 0]);
+  H.add(SPH_LO, 0xfffaf2, [0.55, 1.42, 0], [0, 0, 0], 0.32);
+  const hatGeo = H.build(), hatMat = toon(0xffffff, { vc: true, soft: true, rim: 0.15 }), hats = [], box = new THREE.Box3(), top = new V3();
+  scene.updateMatrixWorld(true);
+  for (const a of [...residents, ...wanderers]) {
+    const root = a.body || a.g; if (!root) continue;
+    box.setFromObject(root); if (box.isEmpty()) continue;
+    const w = Math.min(box.max.x - box.min.x, box.max.z - box.min.z), r = clamp(w * 0.2, 0.08, 0.42);
+    top.set((box.min.x + box.max.x) / 2, box.max.y - r * 0.25, (box.min.z + box.max.z) / 2);
+    const hat = mk(hatGeo, hatMat, { outline: 0.02, shadow: false }); root.worldToLocal(top); hat.position.copy(top);
+    hat.scale.setScalar(r / root.getWorldScale(new V3()).x); hat.visible = false; root.add(hat); hats.push(hat);
+  }
+  THEME_HOOKS.push(t => { for (const h of hats) h.visible = t === 'xmas'; });
 }
 
 /* ---------------- post-processing: the finishing coat over every frame ----------------
@@ -7344,7 +7592,8 @@ function cull(f) {
     const ol = d < L.outline; if (vis && ol !== k.ol) { for (const m of k.outlines) m.visible = ol; k.ol = ol; }
   }
   camera.updateMatrixWorld(); _pm.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse); _frus.setFromProjectionMatrix(_pm);
-  for (const g of grassChunks) { const s = g.userData.chunk; g.visible = Math.hypot(s.center.x - f.x, s.center.z - f.z) - s.radius < L.grass && _frus.intersectsSphere(s); }
+  const buried = THEME === 'xmas';
+  for (const g of grassChunks) { const s = g.userData.chunk; g.visible = !buried && Math.hypot(s.center.x - f.x, s.center.z - f.z) - s.radius < L.grass && _frus.intersectsSphere(s); }
 }
 function applyLevel() {
   const L = LEVELS[level];
