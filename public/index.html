@@ -5012,10 +5012,104 @@ const Snd = (() => {
   }
   let forest = 0;
   function cuckoo(t) { const p = rand(-0.7, 0.7); [76, 72].forEach((n, i) => tone({ t: t + i * 0.34, f: mtof(n), f2: mtof(n) * 0.97, glide: 0.25, a: 0.03, d: 0.3, v: 0.028, bus: musicBus, pan: p, lp: 1400 })); }
+  /* --- Christmas carols for the Christmas channel: old tunes everyone knows (all long out of copyright), arranged by the hour ---
+     day: bright and bouncy (sleigh-bell shaker, oom-pah chords, a xylophone tune); dusk: celesta and soft strings; night: a slow music box.
+     Indoors (the cabin, grandpa tree) only the music box plays; in the cave, just the tune, echoing. Each song is [midi or null, beats] notes
+     and one chord per bar; every note falls on an eighth-note grid. */
+  const C_ = (r, iv) => [r, iv], MAJ = [0, 4, 7], MIN = [0, 3, 7], DOM = [0, 4, 7, 10];
+  const C = C_(48, MAJ), F = C_(41, MAJ), G = C_(43, MAJ), G7 = C_(43, DOM), D7 = C_(38, DOM), E7 = C_(40, DOM), Am = C_(45, MIN);
+  const SONGS = {
+    jingle: { bpm: 132, bpb: 4, oct: 0, notes: [
+      [76, 1], [76, 1], [76, 2], [76, 1], [76, 1], [76, 2], [76, 1], [79, 1], [72, 1.5], [74, 0.5], [76, 4],
+      [77, 1], [77, 1], [77, 1.5], [77, 0.5], [77, 1], [76, 1], [76, 1], [76, 0.5], [76, 0.5], [76, 1], [74, 1], [74, 1], [76, 1], [74, 2], [79, 2],
+      [76, 1], [76, 1], [76, 2], [76, 1], [76, 1], [76, 2], [76, 1], [79, 1], [72, 1.5], [74, 0.5], [76, 4],
+      [77, 1], [77, 1], [77, 1.5], [77, 0.5], [77, 1], [76, 1], [76, 1], [76, 0.5], [76, 0.5], [79, 1], [79, 1], [77, 1], [74, 1], [72, 4]],
+      chords: [C, C, C, C, F, C, D7, G7, C, C, C, C, F, C, G7, C] },
+    deck: { bpm: 116, bpb: 4, oct: 0, notes: [
+      [79, 1.5], [77, 0.5], [76, 1], [74, 1], [72, 1], [74, 1], [76, 1], [72, 1], [74, 0.5], [76, 0.5], [77, 0.5], [74, 0.5], [76, 1.5], [74, 0.5], [72, 1], [71, 1], [72, 2],
+      [79, 1.5], [77, 0.5], [76, 1], [74, 1], [72, 1], [74, 1], [76, 1], [72, 1], [74, 0.5], [76, 0.5], [77, 0.5], [74, 0.5], [76, 1.5], [74, 0.5], [72, 1], [71, 1], [72, 2],
+      [74, 1.5], [76, 0.5], [77, 1], [74, 1], [76, 1.5], [77, 0.5], [79, 1], [74, 1], [76, 0.5], [78, 0.5], [79, 1], [81, 0.5], [83, 0.5], [84, 1], [83, 1], [81, 1], [79, 2],
+      [79, 1.5], [77, 0.5], [76, 1], [74, 1], [72, 1], [74, 1], [76, 1], [72, 1], [81, 0.5], [81, 0.5], [81, 0.5], [81, 0.5], [79, 1.5], [77, 0.5], [76, 1], [74, 1], [72, 2]],
+      chords: [C, C, G7, C, C, C, G7, C, G, G, D7, G, C, C, F, C] },
+    wish: { bpm: 144, bpb: 3, oct: 0, notes: [
+      [null, 2], [67, 1],
+      [72, 1], [72, 0.5], [74, 0.5], [72, 0.5], [71, 0.5], [69, 1], [69, 1], [69, 1],
+      [74, 1], [74, 0.5], [76, 0.5], [74, 0.5], [72, 0.5], [71, 1], [67, 1], [67, 1],
+      [76, 1], [76, 0.5], [77, 0.5], [76, 0.5], [74, 0.5], [72, 1], [69, 1], [67, 0.5], [67, 0.5],
+      [69, 1], [74, 1], [71, 1], [72, 2], [null, 1]],
+      chords: [G, C, F, D7, G, E7, Am, F, C] },
+    silent: { bpm: 72, bpb: 3, oct: 12, notes: [
+      [67, 1.5], [69, 0.5], [67, 1], [64, 3], [67, 1.5], [69, 0.5], [67, 1], [64, 3],
+      [74, 2], [74, 1], [71, 3], [72, 2], [72, 1], [67, 3],
+      [69, 2], [69, 1], [72, 1.5], [71, 0.5], [69, 1], [67, 1.5], [69, 0.5], [67, 1], [64, 3],
+      [69, 2], [69, 1], [72, 1.5], [71, 0.5], [69, 1], [67, 1.5], [69, 0.5], [67, 1], [64, 3],
+      [74, 2], [74, 1], [77, 1.5], [74, 0.5], [71, 1], [72, 3], [76, 3],
+      [72, 1.5], [67, 0.5], [64, 1], [67, 1.5], [65, 0.5], [62, 1], [60, 3], [null, 3]],
+      chords: [C, C, C, C, G, G, C, C, F, F, C, C, F, F, C, C, G, G, C, C, C, G7, C, C] },
+  };
+  // lay each song out on its eighth-note grid once
+  for (const k in SONGS) {
+    const sg = SONGS[k]; let b = 0; sg.at = new Map();
+    for (const [n, len] of sg.notes) { if (n != null) sg.at.set(Math.round(b * 2), { n: n + sg.oct, len }); b += len; }
+    sg.steps = Math.round(b * 2); sg.e8 = 60 / sg.bpm / 2;
+  }
+  const PLAYLIST = { day: ['jingle', 'deck', 'wish'], dusk: ['wish', 'silent', 'deck'], night: ['silent'] };
+  const carol = { on: false, style: 'day', place: 'out', want: 'day', list: 'day', i: 0, song: 'jingle', step: 0, gap: 0 };
+  function setCarol(style, place) {   // style: null (back to the village lullaby), 'day', 'dusk' or 'night'; place: 'out', 'in' or 'cave'
+    carol.place = place || 'out';
+    if (!style) { carol.on = false; return; }
+    carol.want = style;
+    if (!carol.on) { carol.on = true; carol.list = style; carol.i = 0; carol.song = PLAYLIST[style][0]; carol.step = 0; carol.gap = 0; }
+  }
+  function nextSong() {   // the hour may have changed while the last one played: carry on from the right list
+    if (carol.list !== carol.want) { carol.list = carol.want; carol.i = 0; } else carol.i = (carol.i + 1) % PLAYLIST[carol.list].length;
+    carol.song = PLAYLIST[carol.list][carol.i]; carol.step = 0; carol.gap = 4;   // a short breath between songs
+  }
+  function bellTone(t, n, v) {   // a soft, far-off church bell
+    const f = mtof(n); tone({ t, f, d: 2.6, v, bus: musicBus }); tone({ t, f: f * 2.76, d: 1.2, v: v * 0.35, bus: musicBus }); tone({ t, f: f * 5.4, d: 0.5, v: v * 0.15, bus: musicBus });
+  }
+  function carolStep(t) {   // plays one eighth note of the current song; returns how long that eighth lasts
+    let sg = SONGS[carol.song];
+    if (carol.gap > 0) { carol.gap--; return sg.e8; }
+    if (carol.step >= sg.steps) { nextSong(); return SONGS[carol.song].e8; }
+    const s = carol.step++, perBar = sg.bpb * 2, bar = Math.floor(s / perBar) % sg.chords.length, slot = s % perBar, beat = slot >> 1, onBeat = !(slot & 1);
+    const [root, iv] = sg.chords[bar], style = carol.list, place = carol.place, barLen = sg.e8 * perBar, m = sg.at.get(s);
+    const inside = place === 'in', cave = place === 'cave', calm = style !== 'day' || inside;
+    // the tune
+    if (m) {
+      const f = mtof(m.n), d = Math.min(calm ? 2.2 : 1.1, m.len * sg.e8 * 2 + (calm ? 0.6 : 0.2));
+      if (style === 'night' || inside) {   // music box
+        tone({ t, f, a: 0.004, d, v: 0.06, bus: musicBus, pan: -0.15 }); tone({ t, f: f * 2, a: 0.004, d: d * 0.5, v: 0.016, bus: musicBus, pan: -0.15 }); tone({ t, f: f * 3.01, a: 0.002, d: 0.15, v: 0.007, bus: musicBus });
+      } else if (style === 'dusk' || cave) {   // celesta
+        tone({ t, f, a: 0.005, d, v: 0.058, bus: musicBus, pan: -0.1 }); tone({ t, f: f * 4, a: 0.003, d: d * 0.3, v: 0.012, bus: musicBus, pan: -0.1 });
+      } else {   // xylophone with a glockenspiel sparkle on top
+        tone({ t, f, a: 0.003, d, v: 0.07, bus: musicBus, pan: -0.12 }); tone({ t, f: f * 2, a: 0.003, d: d * 0.4, v: 0.02, bus: musicBus, pan: -0.12 }); tone({ t, f: f * 4, a: 0.002, d: 0.18, v: 0.012, bus: musicBus, pan: 0.2 });
+      }
+    }
+    if (cave) { if (slot === 0) for (const k of [1, 2]) tone({ t, f: mtof(root + 12 + iv[k]), type: 'triangle', a: 0.9, d: barLen + 0.4, v: 0.01, lp: 700, bus: musicBus }); return sg.e8; }
+    // the bed underneath
+    if (calm) {
+      if (slot === 0) {
+        for (const k of [0, 1, 2]) for (const dt of [-6, 6]) tone({ t, f: mtof(root + 12 + iv[k]), type: 'triangle', a: 0.7, d: barLen + 0.5, v: inside ? 0.012 : 0.018, lp: 900, detune: dt, bus: musicBus });
+        if (!inside) tone({ t, f: mtof(root), type: 'triangle', a: 0.02, d: barLen * 0.9, v: 0.09, lp: 450, bus: musicBus });
+        if (style === 'night' && !inside && bar % 8 === 0) bellTone(t, root + 36, 0.018);
+      }
+      if (onBeat && beat > 0) tone({ t, f: mtof(root + 12 + iv[beat % iv.length]), type: 'triangle', a: 0.006, d: 0.5, v: 0.016, lp: 2000, bus: musicBus, pan: 0.2 });
+    } else {
+      if (onBeat && (beat === 0 || (sg.bpb === 4 && beat === 2))) tone({ t, f: mtof(root + (beat ? 7 : 0)), type: 'triangle', a: 0.01, d: 0.45, v: 0.12, lp: 500, bus: musicBus });   // oom
+      if (onBeat && beat > 0 && !(sg.bpb === 4 && beat === 2)) for (const k of [1, 2]) tone({ t, f: mtof(root + 12 + iv[k]), type: 'triangle', a: 0.004, d: 0.16, v: 0.024, lp: 2200, bus: musicBus, pan: 0.25 });   // pah
+      hiss({ t, ft: 'highpass', f: 7000, d: 0.045, v: onBeat ? 0.012 : 0.008, bus: musicBus, pan: 0.35 });   // sleigh-bell shaker
+      if (!onBeat) tone({ t, f: rand(2900, 3200), a: 0.002, d: 0.07, v: 0.005, bus: musicBus, pan: 0.35 });
+    }
+    return sg.e8;
+  }
   function schedule() {
     if (!st.music || ctx.state !== 'running') { music.next = Math.max(music.next, ctx.currentTime + 0.1); return; }
     if (music.next < ctx.currentTime) music.next = ctx.currentTime + 0.05;
-    while (music.next < ctx.currentTime + 0.5) { playStep(music.step, music.next); music.next += E8 * (music.step % 2 ? 0.94 : 1.06); music.step++; }
+    while (music.next < ctx.currentTime + 0.5) {
+      if (carol.on) { music.next += carolStep(music.next); continue; }   // the Christmas channel plays carols instead
+      playStep(music.step, music.next); music.next += E8 * (music.step % 2 ? 0.94 : 1.06); music.step++;
+    }
   }
 
   /* --- sound effects --- */
@@ -5205,7 +5299,7 @@ const Snd = (() => {
     tone({ f: 180, f2: 70, glide: 0.08, d: 0.12, v: 0.22 * k, pan }); hiss({ ft: 'bandpass', f: 1200, q: 2, d: 0.08, v: 0.12 * k, pan });
     tone({ t: t + 0.13, f: 520, f2: 380, glide: 0.05, d: 0.08, v: 0.06 * k, type: 'triangle', pan }); tone({ t: t + 0.2, f: 430, f2: 300, glide: 0.05, d: 0.08, v: 0.05 * k, type: 'triangle', pan });
   }
-  return { init, pop, step, jump, land, wobble, bloom, splash, door, drip, chop, setFalls, setForest, setSea, star, fanfare, twinkle, boom, splish, snowStep, setRain, thunder, chime, sleighBells, hoho, speak, setMusic, setSfx, st };
+  return { init, pop, step, jump, land, wobble, bloom, splash, door, drip, chop, setFalls, setForest, setSea, star, fanfare, twinkle, boom, splish, snowStep, setRain, thunder, chime, sleighBells, hoho, setCarol, speak, setMusic, setSfx, st };
 })();
 const tmpE = new V3();
 // loudness (0..1) and stereo pan of a sound at `pos`, heard from the player
@@ -6883,6 +6977,9 @@ function frame() {
   }
   U.uLampTint.value.set(1.0, 0.8, 0.52).lerp(CAVE_TINT, cave.amb);
   Snd.setForest(forestAmb * (1 - S.night));
+  // in the Christmas channel the music turns to carols: bouncy by day, gentle at dusk, a music box at night; quieter indoors and in the cave
+  Snd.setCarol(THEME === 'xmas' ? (S.night > 0.7 ? 'night' : S.night > 0.25 ? 'dusk' : 'day') : null,
+    !player ? 'out' : player.zone === 'cave' ? 'cave' : player.zone === 'cabin' || player.zone === 'tower' ? 'in' : 'out');
   for (const s of forestBits.shafts) s.m.opacity = s.base * (0.7 + 0.3 * Math.sin(T * 0.5 + s.ph)) * S.shaft;
   TEX.water.offset.set(T * 0.012, T * 0.007);
   tickBlooms(dt);
