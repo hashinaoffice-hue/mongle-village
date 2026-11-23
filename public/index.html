@@ -282,6 +282,7 @@ button{font:inherit;color:inherit}
   <div id="clock" class="chip clock" title="지금 시간에 맞춰 하늘이 바뀌어요 (채널마다 1시간씩 늦어요)"><i aria-hidden="true"></i><span id="clockPh">낮</span><span id="clockT"></span><em id="clockW"></em></div>
   <button class="btn" id="bSwap" hidden>친구 바꾸기</button>
   <button class="btn snd" id="bMap" hidden aria-pressed="true" aria-controls="map" title="지도 펴기/접기 (M)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M2.5 5l5-2 5 2 5-2v12l-5 2-5-2-5 2z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M7.5 3v12M12.5 5v12" stroke="currentColor" stroke-width="1.6"/></svg>지도</button>
+  <button class="btn" id="bBB" hidden title="광장 대형 전광판에 내 화면을 띄워요 (관리자)">전광판 공유</button>
   <button class="btn" id="bBeam" hidden aria-pressed="false" title="내 화면을 허공에 띄워 같이 봐요 (채널에 한 명씩)">화면 공유</button>
   <div id="beamSize" class="seg" hidden role="group" aria-label="공유 화면 크기"><span>크기</span><button type="button" data-d="-1" title="작게 ([ 키)" aria-label="작게">－</button><b id="beamK" style="font-weight:normal;min-width:3.2em;text-align:center">100%</b><button type="button" data-d="1" title="크게 (] 키)" aria-label="크게">＋</button></div>
   <div id="gfx" class="seg" role="group" aria-label="그래픽 설정"><span>화질</span><button type="button" data-l="2">낮음</button><button type="button" data-l="1">중간</button><button type="button" data-l="0">높음</button></div>
@@ -6025,7 +6026,7 @@ function backToSelect() {
   leaveServer(); ufoSet(null); stopShower(); LOST.state = null; LOST.g.visible = false; setTheme(selTheme());
   mode = 'select'; player = null;
   showPickStep();
-  $('select').hidden = false; $('hud').hidden = true; $('bSwap').hidden = true; $('bMap').hidden = true; $('bBeam').hidden = true; $('map').hidden = true;
+  $('select').hidden = false; $('hud').hidden = true; $('bSwap').hidden = true; $('bMap').hidden = true; $('bBeam').hidden = true; $('bBB').hidden = true; $('map').hidden = true;
   for (const k in keys) keys[k] = false;
   joy.x = joy.y = 0;
   refreshChannels();
@@ -6080,8 +6081,9 @@ Beam.layout = () => {   // fit the screen to the picture's shape: about 5.4 m ta
   const top = -h / 2 - 0.1, len = Math.max(0.5, top - (gy + 0.5)); Beam.cone.scale.set(w * 0.42, len, 0.5); Beam.cone.position.set(0, gy + 0.5 + len / 2, 0);
 };
 Beam.show = (s) => {
-  Beam.host = s.id; Beam.mine = s.id === Net.id; Beam.k = s.k || 1; Beam.gy = baseY(s.x, s.z); Beam.U.uOn.value = 0;
-  Beam.group.position.set(s.x, s.y, s.z); Beam.group.rotation.y = s.yaw; Beam.group.visible = true; Beam.layout();
+  Beam.host = s.id; Beam.mine = s.id === Net.id; Beam.k = s.k || 1; Beam.gy = baseY(s.x, s.z); Beam.U.uOn.value = 0; Beam.bb = !!s.bb;
+  Beam.group.position.set(s.x, s.y, s.z); Beam.group.rotation.y = s.yaw; Beam.group.visible = !Beam.bb; Beam.layout();   // on the big screen there is no hologram
+  $('bBB').textContent = Beam.mine && Beam.bb ? '전광판 공유 끝내기' : '전광판 공유';
   $('bBeam').setAttribute('aria-pressed', Beam.mine); $('bBeam').textContent = Beam.mine ? '공유 끝내기' : '화면 공유';
   Beam.sizeUI();
 };
@@ -6089,7 +6091,7 @@ Beam.play = (stream) => {
   const v = Beam.video; v.srcObject = stream; v.muted = Beam.mine;                                 // you don't hear your own screen back
   const p = v.play(); if (p && p.catch) p.catch(() => { v.muted = true; v.play().catch(() => {}); if (!Beam.mine) { Beam.needTap = true; toast('화면을 한 번 누르면 소리가 켜져요', 4000); } });
 };
-Beam.sizeUI = () => { $('beamSize').hidden = !Beam.mine; $('beamK').textContent = Math.round(Beam.k * 100) + '%'; };
+Beam.sizeUI = () => { $('beamSize').hidden = !Beam.mine || Beam.bb; $('beamK').textContent = Math.round(Beam.k * 100) + '%'; };
 Beam.resize = (dir) => {   // only the sharer: one step bigger or smaller, for everyone
   if (!Beam.mine) return;
   let i = BEAM_SIZES.findIndex(v => v >= Beam.k - 1e-3); if (i < 0) i = BEAM_SIZES.length - 1;
@@ -6100,6 +6102,7 @@ Beam.onSize = (m) => { if (!Beam.host || Beam.mine || typeof m.k !== 'number') r
 document.querySelectorAll('#beamSize button').forEach(b => b.addEventListener('click', () => { Beam.resize(+b.dataset.d); Snd.pop(); canvas.focus(); }));
 Beam.closePeers = () => { for (const pc of Beam.peers.values()) try { pc.close(); } catch (e) {} Beam.peers.clear(); };
 Beam.hide = () => {   // the screen goes dark for everyone here
+  Beam.bb = false; $('bBB').textContent = '전광판 공유';
   Beam.closePeers(); Beam.host = 0; Beam.mine = false; Beam.k = 1; $('beamSize').hidden = true; Beam.group.visible = false; Beam.U.uOn.value = 0; Beam.needTap = false;
   Beam.video.pause(); Beam.video.srcObject = null;
   if (Beam.stream) { Beam.stream.getTracks().forEach(t => t.stop()); Beam.stream = null; }
@@ -6155,13 +6158,13 @@ Beam.onScreen = (m) => {
 // in the public channels only an admin may share; in a private channel anyone can
 Beam.locked = () => Net.pub && !Net.admin;
 Beam.lockUI = () => {
-  const b = $('bBeam'), l = Beam.locked(); b.classList.toggle('locked', l);
+  const b = $('bBeam'), l = Beam.locked(); b.classList.toggle('locked', l); $('bBB').hidden = !(Net.admin && Beam.can && mode === 'play');
   b.title = l ? '공용 채널에서는 화면 공유가 잠겨 있어요 (비공개 채널에서 할 수 있어요)' : '내 화면을 허공에 띄워 같이 봐요 (채널에 한 명씩)';
 };
 const LOCKED_MSG = '공용 채널에서는 화면 공유가 잠겨 있어요. 비공개 채널을 만들어 친구와 해 보세요';
-Beam.start = async () => {
+Beam.start = async (bb) => {   // bb: onto the big screen on the square (admins only)
   if (!Beam.can) { toast('이 기기에서는 화면을 공유할 수 없어요 (볼 수는 있어요)', 3600); return; }
-  if (Beam.locked()) { toast(LOCKED_MSG, 4200); return; }
+  if (bb ? !Net.admin : Beam.locked()) { toast(bb ? '전광판 공유는 관리자만 할 수 있어요' : LOCKED_MSG, 4200); return; }
   if (Beam.host) { toast('지금은 다른 친구가 화면을 띄우고 있어요', 3000); return; }
   if (Beam.pending || !player) return;
   let stream; try { stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: 24, max: 30 }, width: { max: 1280 }, height: { max: 720 } }, audio: true }); } catch (e) { return; }   // cancelled the picker
@@ -6170,11 +6173,13 @@ Beam.start = async () => {
   stream.getVideoTracks().forEach(t => { t.contentHint = 'motion'; t.addEventListener('ended', () => Beam.stop()); });   // "stop sharing" in the browser's own bar ends it too
   // it appears a few steps in front of you, facing you, its lower edge well over everyone's head
   const fx = Math.sin(player.yaw), fz = Math.cos(player.yaw), x = player.pos.x + fx * 8, z = player.pos.z + fz * 8;
-  netSend({ t: 'screen', x, y: Math.max(player.pos.y, baseY(x, z)) + 5.4, z, yaw: player.yaw + Math.PI });
+  if (bb) netSend({ t: 'screen', x: BB.center.x, y: BB.center.y, z: BB.center.z, yaw: BB.yaw || 0, bb: 1 });
+  else netSend({ t: 'screen', x, y: Math.max(player.pos.y, baseY(x, z)) + 5.4, z, yaw: player.yaw + Math.PI });
   setTimeout(() => { if (Beam.pending === stream) { stream.getTracks().forEach(t => t.stop()); Beam.pending = null; toast('화면을 띄우지 못했어요. 다시 해 보세요', 3000); } }, 6000);
 };
 Beam.stop = () => { if (Beam.mine || Beam.pending) { netSend({ t: 'screen', off: 1 }); if (!Beam.mine && Beam.pending) { Beam.pending.getTracks().forEach(t => t.stop()); Beam.pending = null; } } };
 $('bBeam').addEventListener('click', () => { Snd.pop(); canvas.focus(); Beam.mine ? Beam.stop() : Beam.start(); });
+$('bBB').addEventListener('click', () => { Snd.pop(); canvas.focus(); Beam.mine ? Beam.stop() : Beam.start(true); });
 /* ---------------- the airship: a big blimp that circles high over the village all day long, with a screen on each side showing what the operator has put up ----------------
    The operator drops pictures and videos into public/airship and lists them in public/airship/playlist.json. Everyone's clock agrees with the server's,
    so everyone sees the airship in the same place and the same slide at the same moment. */
@@ -6355,8 +6360,190 @@ function tickShip(dt, T, S) {
   // a video is copied onto the screen about 20 times a second, and only when someone could see it
   if (SHIP.kind === 'video' && SHIP.ready && SHIP.el && (SHIP.drawT -= dt) <= 0) {
     const f = player ? player.pos : camera.position;
-    if (Math.hypot(f.x - g.position.x, f.z - g.position.z) < 420 && !(player && (player.zone === 'tower' || player.zone === 'cave' || player.zone === 'cabin'))) { SHIP.drawT = 0.05; shipFit(SHIP.el, SHIP.el.videoWidth || 1024, SHIP.el.videoHeight || 512); }
+    if ((Math.hypot(f.x - g.position.x, f.z - g.position.z) < 420 || Math.hypot(f.x - BB.x, f.z - BB.z) < 260) && !(player && (player.zone === 'tower' || player.zone === 'cave' || player.zone === 'cabin'))) { SHIP.drawT = 0.05; shipFit(SHIP.el, SHIP.el.videoWidth || 1024, SHIP.el.videoHeight || 512); }
   }
+}
+
+/* ---------------- the big screen on the square: a 32 m LED billboard on two pillars, facing the plaza ----------------
+   Normally it shows the operator's slides (the same playlist as the airship). An admin can put their screen share up on it.
+   In the Christmas channel it is a giant digital clock counting down to Christmas, and it cheers when midnight comes. */
+const BB = { x: 30, z: 31, w: 32, h: 18, base: 8, src: null, cv: null, cx: null, tex: null, drawT: 0, U: null, center: new V3(), on: 0, last: '' };
+{
+  const y0 = terrain(BB.x, BB.z) - 0.1, yaw = Math.atan2(0 - BB.x, 8 - BB.z), W = BB.w, H = BB.h, B = BB.base;
+  BB.yaw = yaw;
+  const g = BB.g = new THREE.Group(); g.position.set(BB.x, y0, BB.z); g.rotation.y = yaw; g.userData.keep = true; scene.add(g);
+  const frameM = gloss(0x2e2a3a, { shin: 60, spec: 0x6a6a88, rim: 0.15 }), goldM = gloss(0xf2c14e, { shin: 110, spec: 0xfff2c0, rim: 0.2 });
+  const F = new Geo();
+  for (const sx of [-1, 1]) {
+    F.add(new THREE.BoxGeometry(1.5, B + 1, 1.5), 0x34304a, [sx * 11, (B + 1) / 2, -0.3]);
+    F.add(new THREE.BoxGeometry(2.8, 0.6, 2.8), 0xb9b0a0, [sx * 11, 0.3, -0.3]);
+    for (const yy of [2.5, 5.5]) F.add(new THREE.BoxGeometry(1.6, 0.18, 1.6), 0xf2c14e, [sx * 11, yy, -0.3]);
+  }
+  F.add(new THREE.BoxGeometry(W + 1.8, H + 1.8, 1.0), 0x2e2a3a, [0, B + H / 2, -0.25]);
+  F.add(new THREE.BoxGeometry(W + 2.2, 0.35, 1.3), 0xf2c14e, [0, B - 0.15, -0.2]); F.add(new THREE.BoxGeometry(W + 2.2, 0.35, 1.3), 0xf2c14e, [0, B + H + 0.15, -0.2]);
+  F.add(new THREE.BoxGeometry(14, 2.6, 0.9), 0x2e2a3a, [0, B + H + 2.1, -0.25]);   // the name board on top
+  mk(F.build(), toon(0xffffff, { vc: true, rim: 0.12 }), { parent: g, outline: 0.06 });
+  { const c = document.createElement('canvas'); c.width = 1024; c.height = 192; const x = c.getContext('2d');
+    x.fillStyle = '#2e2a3a'; x.fillRect(0, 0, 1024, 192); x.fillStyle = '#ffd98a'; x.textAlign = 'center'; x.textBaseline = 'middle';
+    x.font = '96px Jua, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif'; x.fillText('몽글 전광판', 512, 100);
+    const t = new THREE.CanvasTexture(c); const sign = new THREE.Mesh(new THREE.PlaneGeometry(13.2, 2.4), new THREE.MeshBasicMaterial({ map: t })); sign.position.set(0, B + H + 2.1, 0.22); g.add(sign);
+    if (document.fonts) document.fonts.ready.then(() => { x.fillStyle = '#2e2a3a'; x.fillRect(0, 0, 1024, 192); x.fillStyle = '#ffd98a'; x.font = '96px Jua, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif'; x.fillText('몽글 전광판', 512, 100); t.needsUpdate = true; }); }
+  // the LED face: letterboxes whatever it is given, with a fine grid of pixels over it
+  BB.U = { map: { value: null }, uSrcA: { value: 2 }, uOn: { value: 1 } };
+  const scr = new THREE.Mesh(new THREE.PlaneGeometry(W, H), new THREE.ShaderMaterial({ uniforms: BB.U, fog: false, extensions: { derivatives: true },
+    vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: `uniform sampler2D map; uniform float uSrcA, uOn; varying vec2 vUv;
+      void main(){
+        float scrA = ${(W / H).toFixed(4)}; vec2 uv = vUv - 0.5;
+        if (uSrcA > scrA) uv.y *= uSrcA / scrA; else uv.x *= scrA / uSrcA;
+        uv += 0.5;
+        vec3 c = (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) ? vec3(0.02, 0.02, 0.035) : texture2D(map, uv).rgb;
+        c *= mix(0.12, 1.0, uOn);
+        vec2 g = vUv * vec2(384.0, 216.0), px = fract(g);
+        float led = smoothstep(0.0, 0.18, px.x) * smoothstep(1.0, 0.82, px.x) * smoothstep(0.0, 0.18, px.y) * smoothstep(1.0, 0.82, px.y);
+        float near = 1.0 - smoothstep(0.25, 0.7, max(fwidth(g.x), fwidth(g.y)));   // the pixel grid only shows up close; from afar it would turn into moire
+        gl_FragColor = vec4(c * mix(1.0, 0.74 + 0.34 * led, near), 1.0); }` }));
+  scr.position.set(0, B + H / 2, 0.27); g.add(scr); BB.scr = scr;
+  // bulbs round the frame: warm white, red-green-gold at Christmas
+  const bulb = new THREE.SphereGeometry(1, 6, 4), mkBulbs = (cols) => { const L = new Geo(); let i = 0;
+    const put = (x, y) => L.add(bulb, cols[i++ % cols.length], [x, y, 0.32], [0, 0, 0], 0.17);
+    for (let x = -W / 2 - 0.6; x <= W / 2 + 0.61; x += 1.2) { put(x, B - 0.55); put(x, B + H + 0.55); }
+    for (let y = B + 0.6; y <= B + H - 0.5; y += 1.2) { put(-W / 2 - 0.55, y); put(W / 2 + 0.55, y); }
+    const m = new THREE.Mesh(L.build(), new THREE.MeshBasicMaterial({ vertexColors: true })); g.add(m); return m; };
+  BB.bulbs = mkBulbs([0xfff1c4]); BB.xbulbs = mkBulbs([0xff5a6e, 0x8dff9a, 0xffd447]); BB.xbulbs.visible = false;
+  for (const sx of [-1, 1]) { const lx = sx * 11, lz = -0.3, s = solid(BB.x + lx * Math.cos(yaw) + lz * Math.sin(yaw), BB.z - lx * Math.sin(yaw) + lz * Math.cos(yaw), 1.2, y0 + B); s.nocam = true; }
+  avoid.push({ x: BB.x, z: BB.z, r: 6 });
+  g.updateMatrixWorld(true); scr.getWorldPosition(BB.center);
+  // the countdown face (Christmas)
+  BB.cv = document.createElement('canvas'); BB.cv.width = 1024; BB.cv.height = 576; BB.cx = BB.cv.getContext('2d');
+  BB.tex = new THREE.CanvasTexture(BB.cv); BB.tex.minFilter = THREE.LinearFilter; BB.tex.generateMipmaps = false;
+}
+THEME_HOOKS.push(t => { BB.bulbs.visible = t !== 'xmas'; BB.xbulbs.visible = t === 'xmas'; BB.last = ''; });
+// seven-segment digits, like a big LED clock: lit segments glow red, the unlit ones stay faintly visible
+const SEG7 = ['abcdef', 'bc', 'abdeg', 'abcdg', 'bcfg', 'acdfg', 'acdefg', 'abc', 'abcdefg', 'abcdfg'];
+function seg7(x, cx, cy, w, h, ch, on, off) {
+  const t = w * 0.2, hh = (h - t) / 2;
+  const hs = (x0, y0, len) => { x.beginPath(); x.moveTo(x0, y0); x.lineTo(x0 + t / 2, y0 - t / 2); x.lineTo(x0 + len - t / 2, y0 - t / 2); x.lineTo(x0 + len, y0); x.lineTo(x0 + len - t / 2, y0 + t / 2); x.lineTo(x0 + t / 2, y0 + t / 2); x.closePath(); };
+  const vs = (x0, y0, len) => { x.beginPath(); x.moveTo(x0, y0); x.lineTo(x0 + t / 2, y0 + t / 2); x.lineTo(x0 + t / 2, y0 + len - t / 2); x.lineTo(x0, y0 + len); x.lineTo(x0 - t / 2, y0 + len - t / 2); x.lineTo(x0 - t / 2, y0 + t / 2); x.closePath(); };
+  const S = { a: () => hs(cx + 2, cy + t / 2, w - 4), g: () => hs(cx + 2, cy + t / 2 + hh, w - 4), d: () => hs(cx + 2, cy + t / 2 + hh * 2, w - 4),
+    f: () => vs(cx + t / 2, cy + t / 2 + 2, hh - 4), b: () => vs(cx + w - t / 2, cy + t / 2 + 2, hh - 4), e: () => vs(cx + t / 2, cy + t / 2 + hh + 2, hh - 4), c: () => vs(cx + w - t / 2, cy + t / 2 + hh + 2, hh - 4) };
+  const lit = ch >= '0' && ch <= '9' ? SEG7[+ch] : '';
+  for (const k of 'abcdefg') { S[k](); const l = lit.includes(k); x.fillStyle = l ? on : off; x.shadowColor = l ? on : 'transparent'; x.shadowBlur = l ? w * 0.25 : 0; x.fill(); }
+  x.shadowBlur = 0;
+}
+function seg7Text(x, s, cx, cy, w, h, gap, on, off, blink) {   // digits and colons, centred on cx
+  const cw = ch => ch === ':' ? w * 0.4 : w; let tot = 0; for (const ch of s) tot += cw(ch) + gap; tot -= gap;
+  let px = cx - tot / 2;
+  for (const ch of s) {
+    if (ch === ':') { x.fillStyle = blink ? on : off; x.shadowColor = on; x.shadowBlur = blink ? w * 0.25 : 0; for (const k of [0.3, 0.7]) { x.beginPath(); x.arc(px + w * 0.2, cy + h * k, w * 0.09, 0, 7); x.fill(); } x.shadowBlur = 0; }
+    else seg7(x, px, cy, w, h, ch, on, off);
+    px += cw(ch) + gap;
+  }
+}
+function drawCountdown() {
+  const x = BB.cx, W = 1024, H = 576, now = eveNow(), mid = eveMidnight(now), left = mid - now, kst = new Date(now + 9 * 3600e3);
+  const sec = Math.max(0, Math.ceil(left / 1000)), blink = (left % 1000) > 500 || left <= 0, xmasDay = kst.getUTCMonth() === 11 && kst.getUTCDate() === 25;
+  let key;
+  if (left > 0) key = 'c' + sec + (blink ? 1 : 0); else key = (xmasDay ? 'm' : 'y') + Math.floor(now / 250);
+  if (key === BB.last) return; BB.last = key;
+  const bg = x.createLinearGradient(0, 0, 0, H); bg.addColorStop(0, '#0b1030'); bg.addColorStop(1, '#1a0f2e'); x.fillStyle = bg; x.fillRect(0, 0, W, H);
+  for (let i = 0; i < 70; i++) { const sx = (i * 197) % W, sy = (i * 131 + Math.floor(now / 90) * (i % 3 + 1)) % H; x.fillStyle = 'rgba(255,255,255,' + (0.15 + (i % 4) * 0.08) + ')'; x.beginPath(); x.arc(sx, sy, 1.5 + (i % 3), 0, 7); x.fill(); }   // drifting snow
+  const ON = '#ff3b4e', OFF = 'rgba(255,59,78,0.10)', font = n => n + 'px Jua, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif';
+  x.textAlign = 'center'; x.textBaseline = 'middle';
+  if (left > 0) {
+    if (sec <= 10) {   // the last ten seconds: one huge digit, beating
+      const k = 1 + 0.12 * (1 - (left % 1000) / 1000);
+      x.fillStyle = '#8dff9a'; x.font = font(56); x.fillText('크리스마스까지', W / 2, 60);
+      seg7Text(x, String(sec), W / 2, H / 2 - 190 * k + 20, 230 * k, 380 * k, 30, ON, OFF, true);
+    } else {
+      const d = Math.floor(sec / 86400), h = Math.floor(sec / 3600) % 24, m = Math.floor(sec / 60) % 60, s2 = sec % 60, p = n => String(n).padStart(2, '0');
+      x.fillStyle = '#8dff9a'; x.font = font(60); x.fillText('🎄 크리스마스까지', W / 2, 74);
+      if (d > 0) {
+        seg7Text(x, p(d) + ':' + p(h) + ':' + p(m) + ':' + p(s2), W / 2, 170, 92, 170, 16, ON, OFF, blink);
+        x.fillStyle = '#ffd98a'; x.font = font(40); ['일', '시간', '분', '초'].forEach((l, i) => x.fillText(l, W / 2 + (i - 1.5) * 238, 395));
+      } else seg7Text(x, (h ? p(h) + ':' : '') + p(m) + ':' + p(s2), W / 2, h ? 160 : 140, h ? 120 : 160, h ? 220 : 280, 20, ON, OFF, blink);
+      x.fillStyle = 'rgba(255,255,255,.75)'; x.font = font(38); x.fillText('12월 25일 0시, 광장에서 함께 맞아요!', W / 2, 500);
+    }
+  } else {   // midnight has come
+    const tw = 0.6 + 0.4 * Math.sin(now / 160);
+    for (let i = 0; i < 26; i++) { const sx = (i * 389) % W, sy = 60 + (i * 211) % (H - 120), r = 6 + (i % 4) * 4; x.fillStyle = 'rgba(255,230,140,' + (0.3 + 0.7 * Math.abs(Math.sin(now / 300 + i))) + ')'; x.beginPath(); for (let k = 0; k < 10; k++) { const a = -Math.PI / 2 + k * Math.PI / 5, rr = k % 2 ? r * 0.45 : r; x.lineTo(sx + Math.cos(a) * rr, sy + Math.sin(a) * rr); } x.fill(); }
+    x.shadowColor = '#ff5a6e'; x.shadowBlur = 40 * tw; x.fillStyle = '#ffffff'; x.font = font(xmasDay ? 150 : 110);
+    x.fillText(xmasDay ? '메리 크리스마스!' : '즐거운 연말 보내요!', W / 2, H / 2 - 30); x.shadowBlur = 0;
+    x.fillStyle = '#8dff9a'; x.font = font(54); x.fillText(xmasDay ? 'MERRY CHRISTMAS' : 'SEE YOU NEXT CHRISTMAS', W / 2, H / 2 + 110);
+  }
+  BB.tex.needsUpdate = true;
+}
+function tickBillboard(dt, T) {
+  const view = player ? player.pos : camera.position, near = Math.hypot(view.x - BB.x, view.z - BB.z) < 260 && !(player && player.zone !== 'world');
+  let src, a = 2, on = 1;
+  if (Beam.host && Beam.bb) { src = Beam.tex; a = Beam.aspect; on = Beam.U.uOn.value; }
+  else if (THEME === 'xmas') { src = BB.tex; a = 16 / 9; if (near && (BB.drawT -= dt) <= 0) { BB.drawT = 0.12; drawCountdown(); } }
+  else { src = SHIP.tex; a = 2; }
+  if (BB.U.map.value !== src) BB.U.map.value = src;
+  BB.U.uSrcA.value = a; BB.U.uOn.value = on;
+}
+
+/* ---------------- Christmas midnight: a ring of big rockets from all round the edge of the village, glitter falling out of the sky,
+   and Santa's laugh rolling over the village ("허허허~ 메리 크리스마스~"). If the operator puts public/airship/santa-laugh.mp3 in place it plays that;
+   otherwise a deep ho-ho-ho is synthesised and the browser says the words in a low voice ---------------- */
+const SKYG = { N: 2600, head: 0, until: 0, acc: 0 };
+{
+  const N = SKYG.N; SKYG.pos = new Float32Array(N * 3); SKYG.vel = new Float32Array(N * 3); SKYG.birth = new Float32Array(N).fill(-99); SKYG.seed = new Float32Array(N).map(() => Math.random());
+  const gg = new THREE.BufferGeometry();
+  gg.setAttribute('position', new THREE.BufferAttribute(SKYG.pos, 3)); gg.setAttribute('aVel', new THREE.BufferAttribute(SKYG.vel, 3));
+  gg.setAttribute('aBirth', new THREE.BufferAttribute(SKYG.birth, 1)); gg.setAttribute('aSeed', new THREE.BufferAttribute(SKYG.seed, 1));
+  SKYG.m = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, uniforms: { uTime: { value: 0 }, uPR: { value: 1 } },
+    vertexShader: `attribute vec3 aVel; attribute float aBirth, aSeed; uniform float uTime, uPR; varying float vA, vS;
+      void main() {
+        float age = uTime - aBirth, life = 14.0;
+        if (age < 0.0 || age > life) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); gl_PointSize = 0.0; vA = 0.0; vS = 0.0; return; }
+        vec3 p = position + aVel * age + vec3(sin(age * 0.9 + aSeed * 30.0), 0.0, cos(age * 0.7 + aSeed * 20.0)) * 1.2;
+        vec4 mv = modelViewMatrix * vec4(p, 1.0); gl_Position = projectionMatrix * mv;
+        float tw = 0.45 + 0.55 * sin(uTime * (6.0 + aSeed * 9.0) + aSeed * 50.0);
+        vA = smoothstep(0.0, 1.0, age) * (1.0 - smoothstep(life - 2.0, life, age)) * (0.3 + 0.7 * tw); vS = aSeed;
+        gl_PointSize = (0.35 + aSeed * 0.45) * (0.6 + 0.6 * tw) * (320.0 / -mv.z) * uPR; }`,
+    fragmentShader: `varying float vA, vS;
+      void main() { vec2 c = gl_PointCoord - 0.5; float r = length(c);
+        float core = smoothstep(0.5, 0.0, r); core *= core * core;
+        float rays = (max(0.0, 1.0 - abs(c.x) * 14.0) * smoothstep(0.5, 0.05, abs(c.y)) + max(0.0, 1.0 - abs(c.y) * 14.0) * smoothstep(0.5, 0.05, abs(c.x))) * 0.8;
+        float a = (core + rays) * vA; if (a < 0.01) discard;
+        vec3 col = vS < 0.33 ? vec3(1.0, 0.85, 0.45) : vS < 0.66 ? vec3(1.0, 0.97, 0.92) : vec3(0.75, 0.9, 1.0);
+        gl_FragColor = vec4(col * a * 1.4, a); }` });
+  SKYG.pts = new THREE.Points(gg, SKYG.m); SKYG.pts.frustumCulled = false; SKYG.pts.userData.keep = true; scene.add(SKYG.pts);
+}
+function tickSkyGlitter(dt, T) {
+  SKYG.m.uniforms.uTime.value = T; SKYG.m.uniforms.uPR.value = renderer.getPixelRatio();
+  if (T > SKYG.until) return;
+  SKYG.acc += dt * 170; const n = Math.min(80, SKYG.acc | 0); SKYG.acc -= n;
+  const c = player ? player.pos : camera.position;
+  for (let k = 0; k < n; k++) {
+    const i = SKYG.head++ % SKYG.N, a = rand(0, Math.PI * 2), r = Math.sqrt(Math.random()) * 95;
+    SKYG.pos[i * 3] = c.x + Math.cos(a) * r; SKYG.pos[i * 3 + 1] = c.y + rand(30, 55); SKYG.pos[i * 3 + 2] = c.z + Math.sin(a) * r;
+    SKYG.vel[i * 3] = rand(-0.4, 0.4); SKYG.vel[i * 3 + 1] = -rand(2.6, 4.2); SKYG.vel[i * 3 + 2] = rand(-0.4, 0.4); SKYG.birth[i] = T;
+  }
+  const A = SKYG.pts.geometry.attributes; A.position.needsUpdate = A.aVel.needsUpdate = A.aBirth.needsUpdate = true;
+}
+function santaLaugh() {
+  if (!Snd.st.sfx) return;
+  const fallback = () => {
+    [0, 0.95, 1.9].forEach((dt, i) => setTimeout(() => Snd.hoho(1.6 * [1, 0.55, 0.3][i], [0, -0.4, 0.4][i]), dt * 1000));   // ho-ho-ho, echoing off the hills
+    if (window.speechSynthesis) setTimeout(() => {
+      try {
+        const u = new SpeechSynthesisUtterance('허허허~ 메리 크리스마스~!'); u.lang = 'ko-KR'; u.pitch = 0.2; u.rate = 0.82; u.volume = 1;
+        const v = speechSynthesis.getVoices().find(v => /^ko/i.test(v.lang)); if (v) u.voice = v;
+        speechSynthesis.speak(u);
+      } catch (e) {}
+    }, 1400);
+  };
+  try { const a = new Audio('/airship/santa-laugh.mp3'); a.volume = 1; a.play().catch(fallback); } catch (e) { fallback(); }
+}
+function xmasFinale() {   // midnight: every rocket round the edge of the village goes up at once, then twice more
+  for (let w = 0; w < 3; w++) for (let i = 0; i < 24; i++) {
+    const a = i / 24 * Math.PI * 2 + w * 0.13, r = 150 + (i % 3) * 12, x = Math.cos(a) * r, z = Math.sin(a) * r;
+    setTimeout(() => { if (THEME === 'xmas') fireworkAt(new V3(x, terrain(x, z), z), false, { h: rand(55, 80), v: 46, n: 300, sp: 24 }); }, w * 2600 + i * 45);
+  }
+  SKYG.until = clock.elapsedTime + 75;
+  setTimeout(santaLaugh, 1500);
 }
 
 /* ---------------- Christmas: instead of the airship, Santa's sleigh flies a figure of eight over the village, crossing right over the jelly tree ----------------
@@ -6742,19 +6929,19 @@ function fwBurst(at, n, sp, cols) {   // n sparks thrown out round a sphere
   }
   const A = FW.pts.geometry.attributes; A.position.needsUpdate = A.aVel.needsUpdate = A.aCol.needsUpdate = A.aBirth.needsUpdate = true;
 }
-function fireworkAt(pos, small) {   // a rocket climbs from here and bursts overhead
-  const h = small ? rand(9, 13) : rand(26, 40), cols = [pick(FW_COLS), pick(FW_COLS)];
-  FW.queue.push({ p: pos.clone().add(new V3(rand(-1, 1), 1, rand(-1, 1))), y1: pos.y + h, t: 0, n: small ? 110 : 220, sp: small ? 9 : 16, cols });
+function fireworkAt(pos, small, o = {}) {   // a rocket climbs from here and bursts overhead (o: h height, v climb speed, n sparks, sp burst speed)
+  const h = o.h || (small ? rand(9, 13) : rand(26, 40)), cols = [pick(FW_COLS), pick(FW_COLS)];
+  FW.queue.push({ p: pos.clone().add(new V3(rand(-1, 1), 1, rand(-1, 1))), y1: pos.y + h, t: 0, n: o.n || (small ? 110 : 220), sp: o.sp || (small ? 9 : 16), v: o.v || 24, far: !small, cols });
 }
 function tickFireworks(dt, T) {
   FW.m.uniforms.uTime.value = T; FW.m.uniforms.uPR.value = renderer.getPixelRatio();
   for (let i = FW.queue.length - 1; i >= 0; i--) {
-    const q = FW.queue[i]; q.t += dt; q.p.y += dt * 24;
+    const q = FW.queue[i]; q.t += dt; q.p.y += dt * q.v;
     if ((q.trail = (q.trail || 0) - dt) <= 0) { q.trail = 0.04; emit(sparkTex, q.p, 1, { size: 0.35, spread: 0.2, up: -0.5, life: 0.5, g: 2 }); }
     if (q.p.y >= q.y1) {
       FW.queue.splice(i, 1); fwBurst(q.p, q.n, q.sp, q.cols);
       const d = player ? q.p.distanceTo(player.pos) : 80; _sc.copy(q.p).project(camera);
-      Snd.firework(clamp(1 - d / 160, 0.05, 1), clamp(_sc.x, -1, 1) * 0.6);
+      Snd.firework(clamp(1 - d / (q.far ? 420 : 160), 0.05, 1), clamp(_sc.x, -1, 1) * 0.6);
     }
   }
 }
@@ -6946,7 +7133,8 @@ function tickEve(dt) {
   if (counting) { const sec = Math.ceil(left / 1000); $('eveT').textContent = Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0'); if (sec <= 10 && sec !== EVE.last) { EVE.last = sec; Snd.chime(); } }
   if (!on) return;
   const since = now - mid;
-  if (since >= 0 && since < 2000 && !EVE.done) { EVE.done = true; zoneBanner('메리 크리스마스!'); Snd.fanfare(); toast('12월 25일이 되었어요! 메리 크리스마스!', 5000); }
+  // within 20 s of midnight, so a tab that was briefly asleep still gets the show
+  if (since >= 0 && since < 20000 && !EVE.done) { EVE.done = true; zoneBanner('메리 크리스마스!'); Snd.fanfare(); toast('12월 25일이 되었어요! 메리 크리스마스!', 5000); xmasFinale(); }
   if (since < 0 || since > 180e3) return;
   // the show: each second, the same few rockets for everyone (picked from the clock), going up round the tree
   const slot = Math.floor(since / 1000);
@@ -6954,8 +7142,9 @@ function tickEve(dt) {
     EVE.slot = slot;
     const n = 1 + Math.floor(wxHash(slot * 7 + 3) * (since > 160e3 ? 5 : 3));
     for (let i = 0; i < n; i++) {
-      const a = wxHash(slot * 13 + i * 5 + 1) * Math.PI * 2, r = 22 + wxHash(slot * 17 + i * 3 + 2) * 28, x = PUD.x + Math.cos(a) * r, z = PUD.z + Math.sin(a) * r;
-      setTimeout(() => { if (THEME === 'xmas') fireworkAt(new V3(x, terrain(x, z), z), false); }, wxHash(slot * 31 + i) * 900);
+      const edge = wxHash(slot * 19 + i * 7) < 0.5, a = wxHash(slot * 13 + i * 5 + 1) * Math.PI * 2, r = edge ? 150 + wxHash(slot * 17 + i * 3 + 2) * 25 : 22 + wxHash(slot * 17 + i * 3 + 2) * 28;
+      const x = (edge ? 0 : PUD.x) + Math.cos(a) * r, z = (edge ? 0 : PUD.z) + Math.sin(a) * r;   // half from round the tree, half from the edge of the village
+      setTimeout(() => { if (THEME === 'xmas') fireworkAt(new V3(x, terrain(x, z), z), false, edge ? { h: rand(50, 70), v: 44, n: 280, sp: 22 } : {}); }, wxHash(slot * 31 + i) * 900);
     }
   }
 }
@@ -6969,6 +7158,7 @@ function tickBeam(dt, T) {
   Beam.group.position.y = Beam.y0 + Math.sin(T * 0.9) * 0.07; Beam.dev.position.y = Beam.gy - Beam.group.position.y;
   Beam.glow.material.opacity = 0.26 + 0.07 * Math.sin(T * 1.7); Beam.cone.material.opacity = 0.085 + 0.03 * Math.sin(T * 2.3);
   // the sound is loudest in front of the screen and fades as you walk away
+  if (player && !Beam.mine && Beam.bb) { const d = player.pos.distanceTo(BB.center); v.volume = Snd.st.sfx === false ? 0 : Math.pow(clamp(1 - (d - 30) / 170, 0, 1), 1.4); return; }   // the big screen is heard all over the square
   if (player && !Beam.mine) { const d = player.pos.distanceTo(Beam.group.position); v.volume = Snd.st.sfx === false ? 0 : Math.pow(clamp(1 - (d - 10 * Beam.k) / (70 + 30 * Beam.k), 0, 1), 1.6); }   // a bigger screen carries further }
 }
 
@@ -7668,6 +7858,8 @@ function frame() {
   tickAurora(dt);
   tickLostDeer(dt, T);
   tickEve(dt);
+  tickBillboard(dt, T);
+  tickSkyGlitter(dt, T);
   if (GIFTS.cool > 0) GIFTS.cool -= dt;
   // indoors the light turns warm and soft, like lamplight inside a tree
   indoorAmb += ((player && player.zone === 'tower' ? 1 : player && player.zone === 'cabin' ? 0.35 : 0) - indoorAmb) * Math.min(1, dt * 3);
