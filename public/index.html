@@ -1298,7 +1298,7 @@ function tickXmasTree(dt, T, S) {
   // reaching the top
   if (player && !X.topped && player.supSolid === X.topSolid && player.ground) {
     X.topped = true;
-    toast('트리 꼭대기 정복! 메리 몽글 크리스마스!', 3600); Snd.star(true);
+    toast('트리 꼭대기 정복! 메리 크리스마스!', 3600); Snd.star(true);
     emit(sparkTex, X.star.getWorldPosition(_xv), 26, { size: 0.7, spread: 4, up: 3, life: 1.4, g: 5 });
   }
 }
@@ -6343,7 +6343,7 @@ function tickShip(dt, T, S) {
    Everyone is jointed: the reindeer gallop leg by leg (hip, knee, hoof), nod, flick their ears and swish their tails; Santa holds the reins,
    waves with a bending elbow, looks about and laughs from the belly; his hat tip swings behind him. Fine glitter streams off the runners and hooves. */
 const SLEIGH = { lap: 110, A: 95, B: 130, H: 38, group: null, deer: [], santa: null, banner: null, bannerText: '', noseGlow: null, bellT: 0, hoT: 8, met: false, ban: null, laugh: 0, wave: 0, reins: null, rp: null, glit: null, lantern: null };
-const SLEIGH_BANNER = '메리 몽글 크리스마스!';
+const SLEIGH_BANNER = '메리 크리스마스!';
 {
   const g = SLEIGH.group = new THREE.Group(); g.userData.keep = true; g.visible = false; g.scale.setScalar(2.4); scene.add(g);   // built at reindeer size, flown big
   const RED = 0xc8202e, GOLD = 0xf2c14e, WHITE = 0xfffaf2, SKIN = 0xf6c9a8, INKC = 0x2b2220, FUR = 0x8a5a38, FUR2 = 0xa2704a, PALE = 0xf2e0c6, GREEN = 0x2f7d4a, ANT = 0x8b6a4a;
@@ -6857,7 +6857,7 @@ $('xmasPrivIn').addEventListener('change', () => { Snd.pop(); renderXmas(); });
 function xmasBanner() {   // "Merry Mongle Christmas" and how many days are left
   const kst = new Date(Date.now() + WX.off + 9 * 3600e3), d = kst.getUTCDate(), dec = kst.getUTCMonth() === 11;
   const sub = !dec ? '크리스마스 미리보기' : d < 25 ? '크리스마스까지 D-' + (25 - d) : d === 25 ? '오늘은 크리스마스!' : '즐거운 연말 보내요';
-  zoneBanner('메리 몽글 크리스마스!'); setTimeout(() => toast(sub, 3200), 2600);
+  zoneBanner('메리 크리스마스!'); setTimeout(() => toast(sub, 3200), 2600);
 }
 function renderChannels() {
   if (mode === 'select') skyCh = selMode === 'xmas' ? 0 : selCh;
