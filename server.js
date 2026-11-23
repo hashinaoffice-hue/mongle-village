@@ -18,7 +18,7 @@ const FAR_EVERY = 5;
 const MAX_PLAYERS = Number(process.env.MAX_PLAYERS) || 2000;     // 서버 전체 동시 접속 상한 (넘으면 「잠시 뒤에 와 주세요」)
 const MAX_PER_IP = Number(process.env.MAX_PER_IP) || 10;         // 한 IP에서 동시에 열 수 있는 접속 수 (학교·카페는 IP를 같이 써서 넉넉히)
 const CHAR_IDS = new Set(['mongsil', 'tosil', 'haneul', 'leo']);
-const PHRASE_COUNT = 4;
+const PHRASE_COUNT = 5;   // 다섯 번째(메리 크리스마스!)는 크리스마스 선물에서 나와요
 const CHAT_MAX = 60;       // 채팅 최대 글자 수
 const CHAT_GAP_MS = 700;   // 채팅 최소 간격
 const NICK_MAX = 12;       // 닉네임 최대 글자 수
@@ -140,7 +140,7 @@ function newCode() {
 
 // 유성우는 채널 모두가 같이 봐요. 한 채널에는 한 번에 하나만, 끝나고 조금 쉰 뒤에 다음 유성우를 부를 수 있어요
 const SHOWER_MS = 36000, SHOWER_GAP_MS = 3000;
-const SHOUT = '별똥별이다';                                         // 별사탕을 다 모은 사람이 채팅으로 외치면 유성우가 다시 내려요
+const SHOUT = '별똥별이다', XMAS_SHOUT = '메리크리스마스';   // 크리스마스 채널에서는 「메리 크리스마스!」도 돼요                                         // 별사탕을 다 모은 사람이 채팅으로 외치면 유성우가 다시 내려요
 function callShower(me, why) {
   const now = Date.now(), room = me.room;
   if (now < room.showerEnd) { if (why === 'shout') send(me.ws, { t: 'shower', busy: 1 }); return false; }   // 별사탕을 막 다 모았다면 이미 내리는 유성우를 같이 보면 돼요
@@ -250,7 +250,7 @@ const server = http.createServer((req, res) => {
 const out = (ws, data) => { if (ws.readyState !== 1) return; ws.send(data); stats.out += data.length || data.byteLength || 0; };
 const send = (ws, obj) => out(ws, JSON.stringify(obj));
 const broadcast = (players, obj, except) => { const s = JSON.stringify(obj); for (const p of players.values()) if (p !== except) out(p.ws, s); };
-const info = p => ({ id: p.id, nick: p.nick, char: p.char, s: p.s });
+const info = p => ({ id: p.id, nick: p.nick, char: p.char, s: p.s, look: p.look });
 const num = (v, lo, hi) => (typeof v === 'number' && Number.isFinite(v)) ? Math.max(lo, Math.min(hi, v)) : 0;
 const r2 = v => Math.round(v * 100) / 100;
 // 제어 문자와 방향 바꾸는 보이지 않는 문자를 지우고 공백을 하나로 모아요
@@ -396,6 +396,22 @@ wss.on('connection', (ws, req) => {
       me.admin = true;
       send(ws, { t: 'admin', ok: 1 });
       console.log(`[${label(room)}] ${me.nick} 관리자 모드`);
+    } else if (m.t === 'look') {
+      // 크리스마스 꾸미기 (산타 모자, 순록 뿔, 반짝이 발자국): 켜고 끄는 값만 받아서 같은 채널에 알려요
+      const look = { h: m.h ? 1 : 0, a: m.a ? 1 : 0, f: m.f ? 1 : 0 };
+      me.look = look; broadcast(room.players, { t: 'look', id: me.id, look }, me);
+    } else if (m.t === 'fx') {
+      // 폭죽: 1초에 한 번까지
+      if (m.k !== 'fw' || now - (me.lastFx || 0) < 1000) return; me.lastFx = now;
+      broadcast(room.players, { t: 'fx', id: me.id, k: 'fw' }, me);
+    } else if (m.t === 'ball') {
+      // 눈덩이: 던진 자리와 빠르기만 같은 채널에 전해요. 0.4초에 한 번까지
+      if (room.theme !== 'xmas' || now - (me.lastBall || 0) < 400) return; me.lastBall = now;
+      broadcast(room.players, { t: 'ball', id: me.id, x: r2(num(m.x, -2000, 2000)), y: r2(num(m.y, -50, 150)), z: r2(num(m.z, -2000, 2000)), vx: r2(num(m.vx, -40, 40)), vy: r2(num(m.vy, -40, 40)), vz: r2(num(m.vz, -40, 40)) }, me);
+    } else if (m.t === 'ufoBye') {
+      // 크리스마스의 길 잃은 순록: 누군가 말을 걸면 썰매로 돌아가요 (모두에게서 사라져요)
+      if (room.theme !== 'xmas' || !room.ufo) return;
+      room.ufo = null; broadcast(room.players, { t: 'ufo', bye: 1, id: me.id, nick: me.nick });
     } else if (m.t === 'report') {
       report(me, m);
     } else if (m.t === 'c') {
@@ -405,7 +421,8 @@ wss.on('connection', (ws, req) => {
       if (!text || text.startsWith('/')) return;                    // 「/」로 시작하는 건 명령이라 채팅으로 퍼뜨리지 않아요
       me.lastChat = now;
       broadcast(room.players, { t: 'c', id: me.id, text }, me);
-      if (me.starsDone && text.replace(/[\s!~.?,…]+/g, '') === SHOUT && callShower(me, 'shout')) rollUfo(me);
+      const said = text.replace(/[\s!~.?,…]+/g, '');
+      if (me.starsDone && (said === SHOUT || (room.theme === 'xmas' && said === XMAS_SHOUT)) && callShower(me, 'shout')) rollUfo(me);
     }
   });
 
