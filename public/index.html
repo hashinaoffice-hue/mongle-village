@@ -632,17 +632,17 @@ const GRAD = gradMap([158, 212, 240, 255]);
 const GRAD_SOFT = gradMap([172, 200, 224, 242, 255], true);
 const cache = {};
 function toon(color, o = {}) {
-  const k = ['T', color, o.soft ? 1 : 0, o.map ? o.map.uuid : '', o.vc ? 1 : 0, o.side || 0, o.rim || 0, o.wind || 0, o.push ? 1 : 0, o.cloud === false ? 0 : 1, o.transparent ? 1 : 0, o.lift ? 1 : 0].join();
+  const k = ['T', color, o.soft ? 1 : 0, o.map ? o.map.uuid : '', o.vc ? 1 : 0, o.side || 0, o.rim || 0, o.wind || 0, o.push ? 1 : 0, o.cloud === false ? 0 : 1, o.transparent ? 1 : 0, o.lift ? 1 : 0, o.snow === false ? 0 : 1].join();
   if (cache[k]) return cache[k];
   const m = new THREE.MeshToonMaterial({ color, gradientMap: o.soft ? GRAD_SOFT : GRAD, map: o.map || null, vertexColors: !!o.vc, side: o.side || THREE.FrontSide, transparent: !!o.transparent });
-  patch(m, { rim: o.rim, wind: o.wind, push: o.push, cloud: o.cloud, lift: o.lift });
+  patch(m, { rim: o.rim, wind: o.wind, push: o.push, cloud: o.cloud, lift: o.lift, snow: o.snow });
   return cache[k] = m;
 }
 function gloss(color, o = {}) {
-  const k = ['G', color, o.vc ? 1 : 0, o.shin || 60, o.spec || 0, o.emissive || 0, o.rim || 0].join();
+  const k = ['G', color, o.vc ? 1 : 0, o.shin || 60, o.spec || 0, o.emissive || 0, o.rim || 0, o.cloud === false ? 0 : 1, o.snow === false ? 0 : 1].join();
   if (cache[k]) return cache[k];
   const m = new THREE.MeshPhongMaterial({ color, specular: o.spec != null ? o.spec : 0x5a5048, shininess: o.shin || 60, vertexColors: !!o.vc, emissive: o.emissive || 0 });
-  patch(m, { rim: o.rim != null ? o.rim : 0.15 });
+  patch(m, { rim: o.rim != null ? o.rim : 0.15, cloud: o.cloud, snow: o.snow });
   return cache[k] = m;
 }
 function basic(color) { const k = 'b' + color; return cache[k] || (cache[k] = new THREE.MeshBasicMaterial({ color })); }
@@ -1298,7 +1298,7 @@ function tickXmasTree(dt, T, S) {
   // reaching the top
   if (player && !X.topped && player.supSolid === X.topSolid && player.ground) {
     X.topped = true;
-    toast('트리 꼭대기 정복! 메리 몽글 크리스마스!', 3600); Snd.star(true);
+    toast('트리 꼭대기 정복! 메리 크리스마스!', 3600); Snd.star(true);
     emit(sparkTex, X.star.getWorldPosition(_xv), 26, { size: 0.7, spread: 4, up: 3, life: 1.4, g: 5 });
   }
 }
@@ -6339,104 +6339,230 @@ function tickShip(dt, T, S) {
 
 /* ---------------- Christmas: instead of the airship, Santa's sleigh flies a figure of eight over the village, crossing right over the jelly tree ----------------
    Four reindeer pull it: Coco at the front with the glowing red nose, Somi beside him, Bangul and Byeoli behind. Like the airship it runs on the
-   server's clock, so everyone in the channel sees it in the same place. A banner trails behind with the operator's line ("banner" in playlist.json). */
-const SLEIGH = { lap: 110, A: 95, B: 130, H: 36, group: null, deer: [], santaArm: null, banner: null, bannerText: '', noseGlow: null, trailT: 0, bellT: 0, hoT: 8, met: false, ban: null };
-const SLEIGH_BANNER = '메리 몽글 크리스마스!';
+   server's clock, so everyone in the channel sees it in the same place. A banner trails behind with the operator's line ("banner" in playlist.json).
+   Everyone is jointed: the reindeer gallop leg by leg (hip, knee, hoof), nod, flick their ears and swish their tails; Santa holds the reins,
+   waves with a bending elbow, looks about and laughs from the belly; his hat tip swings behind him. Fine glitter streams off the runners and hooves. */
+const SLEIGH = { lap: 110, A: 95, B: 130, H: 38, group: null, deer: [], santa: null, banner: null, bannerText: '', noseGlow: null, bellT: 0, hoT: 8, met: false, ban: null, laugh: 0, wave: 0, reins: null, rp: null, glit: null, lantern: null };
+const SLEIGH_BANNER = '메리 크리스마스!';
 {
-  const g = SLEIGH.group = new THREE.Group(); g.userData.keep = true; g.visible = false; g.scale.setScalar(1.8); scene.add(g);   // built at reindeer size, flown big enough to see from the ground
-  const RED = 0xd8353f, GOLD = 0xf2c14e, WHITE = 0xfffaf2, SKIN = 0xf6c9a8, INKC = 0x3a2a22, FUR = 0x9a6a45, PALE = 0xe9d4b4;
-  // the sled: a red tub with a tall curled front, a padded seat, gold trim and long curling runners
-  const S = new Geo();
-  S.add(new THREE.BoxGeometry(2.4, 1.0, 3.4), RED, [0, 0.9, 0]);
-  S.add(new THREE.BoxGeometry(2.45, 1.25, 0.45), RED, [0, 1.55, -1.5]);
-  S.add(new THREE.BoxGeometry(2.0, 0.35, 1.6), 0x3f9d5a, [0, 1.48, -0.45]);
-  S.add(new THREE.TorusGeometry(0.55, 0.2, 8, 20, Math.PI * 1.25), RED, [0, 1.55, 1.55], [0, Math.PI / 2, 0]);
-  for (const sx of [-1, 1]) {
-    S.add(new THREE.BoxGeometry(0.12, 0.12, 3.5), GOLD, [sx * 1.24, 1.42, 0]);
-    S.add(new THREE.TubeGeometry(new THREE.CatmullRomCurve3([new V3(sx * 0.95, 0, -2.0), new V3(sx * 0.95, -0.05, 1.4), new V3(sx * 0.95, 0.35, 2.3), new V3(sx * 0.95, 0.95, 2.35), new V3(sx * 0.95, 1.05, 1.95)]), 30, 0.09, 6), GOLD);
-    for (const z of [-1.2, 1.0]) S.add(new THREE.CylinderGeometry(0.06, 0.06, 0.5, 6), GOLD, [sx * 0.95, 0.2, z]);
-  }
-  S.add(new THREE.BoxGeometry(2.5, 0.12, 0.12), GOLD, [0, 1.42, 1.72]);
-  // Santa: round red coat, black belt, white beard, a floppy hat with a pompom
-  S.add(SPH_MED, RED, [0, 1.95, -0.6], [0, 0, 0], [0.82, 0.85, 0.72]);
-  S.add(new THREE.TorusGeometry(0.78, 0.1, 8, 24), INKC, [0, 1.78, -0.6], [Math.PI / 2, 0, 0], [1, 0.88, 1]);
-  S.add(new THREE.BoxGeometry(0.3, 0.24, 0.08), GOLD, [0, 1.78, 0.05]);
-  S.add(new THREE.BoxGeometry(0.22, 0.9, 0.1), WHITE, [0, 2.05, 0.06], [-0.12, 0, 0]);
-  S.add(SPH_MED, SKIN, [0, 2.95, -0.5], [0, 0, 0], 0.46);
-  S.add(SPH_MED, WHITE, [0, 2.68, -0.2], [0, 0, 0], [0.5, 0.55, 0.34]);
-  for (const sx of [-1, 1]) {
-    S.add(SPH_LO, WHITE, [sx * 0.16, 2.84, -0.07], [0, 0, sx * 0.4], [0.2, 0.09, 0.1]);
-    S.add(SPH_LO, INKC, [sx * 0.16, 3.05, -0.1], [0, 0, 0], [0.06, 0.08, 0.04]);
-    S.add(SPH_LO, 0xf3a0a0, [sx * 0.3, 2.9, -0.15], [0, 0, 0], [0.1, 0.07, 0.04]);
-  }
-  S.add(SPH_LO, 0xf0a888, [0, 2.92, -0.05], [0, 0, 0], 0.09);
-  S.add(new THREE.TorusGeometry(0.42, 0.13, 8, 22), WHITE, [0, 3.25, -0.5], [Math.PI / 2 - 0.15, 0, 0]);
-  S.add(new THREE.ConeGeometry(0.44, 1.0, 16), RED, [0, 3.7, -0.72], [-0.5, 0, 0]);
-  S.add(SPH_LO, WHITE, [0, 4.05, -1.25], [0, 0, 0], 0.2);
-  S.add(new THREE.CylinderGeometry(0.17, 0.17, 0.9, 8), RED, [-0.62, 2.0, -0.15], [1.1, 0, 0.2]);   // the left arm holds the reins
-  S.add(SPH_LO, WHITE, [-0.6, 1.75, 0.3], [0, 0, 0], 0.19);
-  // the sack of presents behind him
-  S.add(SPH_MED, 0x8a5a3a, [0.1, 1.95, -2.15], [0, 0, 0], [0.95, 1.05, 0.85]);
-  S.add(new THREE.CylinderGeometry(0.28, 0.4, 0.35, 10), 0x8a5a3a, [0.1, 3.0, -2.15]);
-  for (const [x, y, z, c, r] of [[-0.25, 3.15, -2.0, 0x5b8fe0, 0.4], [0.4, 3.05, -2.3, 0xf6c445, -0.3], [0.05, 3.35, -2.35, 0xe8455a, 0.7]]) S.add(new THREE.BoxGeometry(0.5, 0.42, 0.5), c, [x, y, z], [0.2, r, 0.1]);
-  mk(S.build(), toon(0xffffff, { vc: true, rim: 0.15 }), { parent: g, outline: 0.05 });
-  // the right arm waves now and then
-  const arm = SLEIGH.santaArm = new THREE.Group(); arm.position.set(0.62, 2.35, -0.6); g.add(arm);
-  mk(new THREE.CylinderGeometry(0.17, 0.17, 0.9, 8), toon(RED), { parent: arm, pos: [0, 0.4, 0], outline: 0.04 });
-  mk(SPH_LO, toon(WHITE, { soft: true }), { parent: arm, pos: [0, 0.9, 0], scale: 0.2, outline: 0.03 });
-  arm.rotation.z = -0.5;
+  const g = SLEIGH.group = new THREE.Group(); g.userData.keep = true; g.visible = false; g.scale.setScalar(2.4); scene.add(g);   // built at reindeer size, flown big
+  const RED = 0xc8202e, GOLD = 0xf2c14e, WHITE = 0xfffaf2, SKIN = 0xf6c9a8, INKC = 0x2b2220, FUR = 0x8a5a38, FUR2 = 0xa2704a, PALE = 0xf2e0c6, GREEN = 0x2f7d4a, ANT = 0x8b6a4a;
+  const goldM = gloss(GOLD, { shin: 120, spec: 0xfff2c0, rim: 0.25, cloud: false, snow: false }), redM = gloss(RED, { shin: 70, spec: 0xffb0b0, rim: 0.2, cloud: false, snow: false }), velvet = toon(0xd23040, { soft: true, rim: 0.15, cloud: false, snow: false });
+  const whiteM = toon(WHITE, { soft: true, rim: 0.2, cloud: false, snow: false }), vcM = toon(0xffffff, { vc: true, soft: true, rim: 0.15, cloud: false, snow: false }), vcG = gloss(0xffffff, { vc: true, shin: 90, spec: 0xffffff, rim: 0.2, cloud: false, snow: false });
+  const piv = (parent, x, y, z) => { const p = new THREE.Group(); p.position.set(x, y, z); parent.add(p); return p; };
+  const limb = (parent, len, r0, r1, mat, ol = 0.02) => { const gg = new THREE.CylinderGeometry(r0, r1, len, 10); gg.translate(0, -len / 2, 0); return mk(gg, mat, { parent, outline: ol }); };
+  const tube = (pts, r, seg = 40, rs = 8) => new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts.map(p => new V3(...p))), seg, r, rs);
 
-  // the reindeer, facing +z; each one's legs swing on their own
-  const antler = (G, sx) => {
-    G.add(new THREE.TubeGeometry(new THREE.CatmullRomCurve3([new V3(sx * 0.12, 2.6, 1.2), new V3(sx * 0.32, 3.0, 1.05), new V3(sx * 0.55, 3.35, 1.1)]), 10, 0.05, 5), 0x7a5a3a);
-    G.add(new THREE.TubeGeometry(new THREE.CatmullRomCurve3([new V3(sx * 0.3, 2.95, 1.06), new V3(sx * 0.3, 3.25, 1.25)]), 6, 0.04, 5), 0x7a5a3a);
-  };
-  const legGeo = new THREE.CylinderGeometry(0.09, 0.07, 1.05, 7); legGeo.translate(0, -0.52, 0);
-  const NAMES = ['코코', '솜이', '방울', '별이'];
-  [[-0.95, 9.4], [0.95, 9.4], [-0.95, 5.4], [0.95, 5.4]].forEach(([x, z], i) => {
-    const d = new THREE.Group(); d.position.set(x, 0, z); g.add(d);
-    const coco = i === 0, G = new Geo();
-    G.add(SPH_MED, FUR, [0, 1.35, 0], [0, 0, 0], [0.5, 0.52, 0.95]);
-    G.add(SPH_LO, PALE, [0, 1.18, 0.1], [0, 0, 0], [0.4, 0.38, 0.75]);
-    beam(G, new V3(0, 1.55, 0.65), new V3(0, 2.25, 1.05), 0.2, FUR, { round: true, seg: 8 });
-    G.add(SPH_MED, FUR, [0, 2.4, 1.25], [0, 0, 0], [0.3, 0.3, 0.42]);
-    G.add(SPH_LO, PALE, [0, 2.3, 1.58], [0, 0, 0], [0.19, 0.16, 0.2]);
-    if (!coco) G.add(SPH_LO, INKC, [0, 2.32, 1.77], [0, 0, 0], 0.08);
+  /* ---- the sleigh: swan-necked side panels, gold trim and scrolls, curled runners, a velvet seat, a garland of bells, a lantern, presents ---- */
+  const side = new THREE.Shape();
+  side.moveTo(-2.0, 0.35); side.lineTo(1.4, 0.35); side.quadraticCurveTo(2.3, 0.4, 2.35, 1.25); side.quadraticCurveTo(2.4, 1.95, 1.95, 2.0);
+  side.quadraticCurveTo(1.6, 2.0, 1.65, 1.72); side.quadraticCurveTo(1.7, 1.55, 1.5, 1.4); side.quadraticCurveTo(1.1, 1.15, 0.2, 1.15); side.lineTo(-1.2, 1.15);
+  side.quadraticCurveTo(-1.6, 1.2, -1.7, 2.05); side.quadraticCurveTo(-1.75, 2.45, -2.1, 2.3); side.quadraticCurveTo(-2.25, 1.6, -2.0, 0.35);
+  const sg = new THREE.ExtrudeGeometry(side, { depth: 0.12, bevelEnabled: true, bevelThickness: 0.04, bevelSize: 0.04, bevelSegments: 2, curveSegments: 16 }); sg.rotateY(-Math.PI / 2);
+  const outline = side.getSpacedPoints(160);
+  for (const sx of [-1, 1]) {
+    mk(sg, redM, { parent: g, pos: [sx > 0 ? 1.27 : -1.15, 0, 0], outline: 0.035 });
+    const ox = sx * 1.29;
+    mk(tube(outline.map(p => [ox, p.y, p.x]), 0.045, 200, 6), goldM, { parent: g, outline: 0 });
+    for (const [cu, cv, r0, turns, dir] of [[0.35, 0.75, 0.32, 2.2, 1], [-1.05, 0.78, 0.3, 2.0, -1], [1.95, 1.62, 0.17, 1.6, 1]]) {   // gold scrolls on the panel
+      const pts = []; for (let k = 0; k <= 60; k++) { const t = k / 60, a = dir * t * turns * Math.PI * 2, r = r0 * (1 - t * 0.85); pts.push([ox + sx * 0.03, cv + Math.sin(a) * r, cu + Math.cos(a) * r]); }
+      mk(tube(pts, 0.022, 60, 5), goldM, { parent: g, outline: 0 });
+    }
+    // the runner, curling up at the front, on gold struts
+    mk(tube([[sx * 0.95, 0.05, -2.25], [sx * 0.95, -0.22, -1.9], [sx * 0.95, -0.25, 1.6], [sx * 0.95, -0.05, 2.45], [sx * 0.95, 0.5, 2.8], [sx * 0.95, 0.95, 2.62], [sx * 0.95, 0.88, 2.32], [sx * 0.95, 0.66, 2.38]], 0.07, 80, 8), goldM, { parent: g, outline: 0.02 });
+    for (const z of [-1.4, 0, 1.25]) mk(new THREE.CylinderGeometry(0.045, 0.06, 0.62, 8), goldM, { parent: g, pos: [sx * 0.95, 0.07, z], outline: 0.012 });
+  }
+  const B = new Geo();
+  B.add(new THREE.BoxGeometry(2.4, 0.14, 3.5), RED, [0, 0.38, -0.25]);
+  B.add(new THREE.BoxGeometry(2.4, 0.95, 0.1), RED, [0, 0.82, 1.32]);
+  B.add(new THREE.BoxGeometry(2.4, 1.7, 0.12), RED, [0, 1.2, -1.85]);
+  B.add(new THREE.BoxGeometry(2.25, 0.32, 1.35), 0xd23040, [0, 0.6, -1.05]);   // the seat
+  B.add(lumpy(1, 14, 10, 0.08, 2), 0xd23040, [0, 1.45, -1.68], [0, 0, 0], [1.05, 0.5, 0.18]);   // padded back
+  B.add(new THREE.BoxGeometry(1.9, 0.5, 0.06), 0xf6d27a, [0, 1.0, 1.38]);   // a gold plaque on the dashboard
+  mk(B.build(), vcM, { parent: g, outline: 0.03 });
+  // the garland along each side with gold bells and red berries
+  const GA = new Geo(), GB = new Geo();
+  for (const sx of [-1, 1]) {
+    const x = sx * 1.32;
+    for (let k = 0; k <= 26; k++) { const z = -1.25 + k * 0.105, y = 1.2 + 0.06 * Math.sin(k * 0.9); GA.add(lumpy(1, 8, 6, 0.3, 3), GREEN, [x, y, z], [0, rand(0, 6), 0], [0.11, 0.09, 0.09]); if (k % 3 === 1) GA.add(SPH_LO, 0xd8353f, [x + sx * 0.06, y + 0.05, z], [0, 0, 0], 0.045); }
+    for (let k = 0; k < 7; k++) { const z = -1.1 + k * 0.42; GB.add(SPH_LO, GOLD, [x + sx * 0.04, 1.03, z], [0, 0, 0], [0.085, 0.1, 0.085]); GB.add(new THREE.CylinderGeometry(0.02, 0.02, 0.1, 5), GOLD, [x + sx * 0.04, 1.14, z]); }
+  }
+  mk(GA.build(), vcM, { parent: g, outline: 0.012 }); mk(GB.build(), vcG, { parent: g, outline: 0.01 });
+  // a lantern on a little crook at the front
+  { mk(tube([[-1.15, 1.15, 1.35], [-1.15, 2.05, 1.4], [-1.05, 2.3, 1.6], [-0.95, 2.2, 1.78]], 0.035, 20, 6), goldM, { parent: g, outline: 0.01 });
+    const L = SLEIGH.lantern = piv(g, -0.95, 2.0, 1.8);
+    mk(new THREE.CylinderGeometry(0.11, 0.13, 0.26, 6), new THREE.MeshBasicMaterial({ color: 0xffd27a }), { parent: L, outline: 0.015 });
+    mk(new THREE.ConeGeometry(0.16, 0.12, 6), goldM, { parent: L, pos: [0, 0.18, 0], outline: 0.01 }); mk(new THREE.CylinderGeometry(0.15, 0.15, 0.04, 6), goldM, { parent: L, pos: [0, -0.15, 0], outline: 0.01 });
+    const lg = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX.mote, color: 0xffc86a, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 })); lg.scale.setScalar(1.6); L.add(lg); L.glow = lg; }
+  // the sack and a pile of presents behind the seat
+  { const S = new Geo();
+    S.add(lumpy(1, 16, 12, 0.12, 2), 0x8a5a3a, [0.1, 1.75, -2.45], [0, 0, 0], [0.95, 1.05, 0.8]);
+    S.add(new THREE.CylinderGeometry(0.26, 0.4, 0.3, 12), 0x8a5a3a, [0.1, 2.85, -2.45]); S.add(new THREE.TorusGeometry(0.28, 0.05, 6, 14), GOLD, [0.1, 2.78, -2.45], [Math.PI / 2, 0, 0]);
+    for (const [x, y, z, c, r, w] of [[-0.3, 3.05, -2.3, 0x5b8fe0, 0.4, 0.48], [0.45, 2.98, -2.55, 0xf6c445, -0.3, 0.42], [0.05, 3.3, -2.5, 0xe8455a, 0.7, 0.38], [0.85, 1.3, -2.1, 0x3f9d5a, 0.2, 0.5], [-0.8, 1.25, -2.15, 0xf29bc0, -0.4, 0.46]]) {
+      S.add(new THREE.BoxGeometry(w, w * 0.85, w), c, [x, y, z], [0.15, r, 0.1]); S.add(new THREE.BoxGeometry(w * 0.2, w * 0.87, w + 0.02), WHITE, [x, y, z], [0.15, r, 0.1]); S.add(new THREE.BoxGeometry(w + 0.02, w * 0.87, w * 0.2), WHITE, [x, y, z], [0.15, r, 0.1]);
+    }
+    mk(S.build(), vcM, { parent: g, outline: 0.03 }); }
+
+  /* ---- Santa: a round red coat with fur trim, a white beard and moustache, little gold glasses, a floppy hat in three joints, arms with elbows ---- */
+  const sa = SLEIGH.santa = { root: piv(g, 0, 0.78, -0.95) };
+  { const R = sa.root;
+    for (const sx of [-1, 1]) {   // legs: thighs forward along the seat, boots down in front
+      const th = piv(R, sx * 0.3, 0.12, 0.1); th.rotation.x = -Math.PI / 2 + 0.08; limb(th, 0.62, 0.2, 0.17, redM);
+      const kn = piv(th, 0, -0.62, 0); kn.rotation.x = Math.PI / 2 - 0.15; limb(kn, 0.45, 0.16, 0.14, redM);
+      mk(lumpy(1, 12, 8, 0.06, 2), toon(INKC, { rim: 0.2, cloud: false, snow: false }), { parent: kn, pos: [0, -0.5, 0.08], scale: [0.17, 0.13, 0.27], outline: 0.02 });
+      mk(new THREE.TorusGeometry(0.15, 0.05, 6, 14), whiteM, { parent: kn, pos: [0, -0.36, 0], rot: [Math.PI / 2, 0, 0], outline: 0.012 });
+    }
+    const T = sa.torso = piv(R, 0, 0.1, 0);
+    mk(new THREE.LatheGeometry([[0.01, 0], [0.62, 0.02], [0.76, 0.3], [0.79, 0.6], [0.71, 0.95], [0.55, 1.2], [0.33, 1.36], [0.01, 1.4]].map(p => new THREE.Vector2(p[0], p[1])), 32), velvet, { parent: T, outline: 0.04 });
+    const TG = new Geo();
+    TG.add(new THREE.TorusGeometry(0.66, 0.1, 8, 28), WHITE, [0, 0.05, 0], [Math.PI / 2, 0, 0]);
+    TG.add(new THREE.BoxGeometry(0.2, 1.05, 0.12), WHITE, [0, 0.72, 0.7], [-0.18, 0, 0]);
+    TG.add(new THREE.TorusGeometry(0.78, 0.075, 6, 28), INKC, [0, 0.45, 0], [Math.PI / 2, 0, 0]);
+    TG.add(new THREE.BoxGeometry(0.28, 0.22, 0.06), GOLD, [0, 0.45, 0.8]); TG.add(new THREE.BoxGeometry(0.14, 0.1, 0.07), INKC, [0, 0.45, 0.81]);
+    TG.add(new THREE.TorusGeometry(0.36, 0.09, 8, 20), WHITE, [0, 1.3, 0], [Math.PI / 2, 0, 0]);   // fur collar
+    mk(TG.build(), vcM, { parent: T, outline: 0.02 });
+    // the head: rosy face, round gold glasses, bushy brows, a big beard and moustache, hair puffing out under the hat
+    const H = sa.head = piv(T, 0, 1.36, 0.02);
+    const HG = new Geo();
+    HG.add(SPH_MED, SKIN, [0, 0.34, 0.06], [0, 0, 0], 0.36);
+    HG.add(SPH_LO, 0xf3a0a0, [0.2, 0.3, 0.3], [0, 0, 0], [0.09, 0.07, 0.05]); HG.add(SPH_LO, 0xf3a0a0, [-0.2, 0.3, 0.3], [0, 0, 0], [0.09, 0.07, 0.05]);
+    HG.add(SPH_LO, 0xf0a888, [0, 0.31, 0.42], [0, 0, 0], 0.085);
     for (const sx of [-1, 1]) {
-      G.add(SPH_LO, INKC, [sx * 0.17, 2.5, 1.48], [0, 0, 0], [0.05, 0.065, 0.04]);
-      G.add(new THREE.ConeGeometry(0.1, 0.32, 6), FUR, [sx * 0.3, 2.6, 1.18], [0, 0, sx * -1.1], [1, 1, 0.5]);
-      antler(G, sx);
+      HG.add(SPH_LO, INKC, [sx * 0.13, 0.42, 0.34], [0, 0, 0], [0.045, 0.06, 0.03]); HG.add(SPH_LO, WHITE, [sx * 0.12, 0.44, 0.365], [0, 0, 0], 0.014);
+      HG.add(new THREE.TorusGeometry(0.085, 0.014, 6, 16), GOLD, [sx * 0.13, 0.42, 0.38]);
+      HG.add(lumpy(1, 8, 6, 0.25, 3), WHITE, [sx * 0.14, 0.54, 0.33], [0, 0, sx * 0.25], [0.11, 0.045, 0.05]);
+      HG.add(lumpy(1, 10, 8, 0.2, 3), WHITE, [sx * 0.14, 0.23, 0.39], [0, sx * -0.3, sx * 0.35], [0.16, 0.07, 0.07]);   // moustache
+      HG.add(lumpy(1, 10, 8, 0.2, 3), WHITE, [sx * 0.33, 0.42, 0.0], [0, 0, 0], [0.12, 0.17, 0.16]);   // hair
     }
-    G.add(SPH_LO, PALE, [0, 1.55, -0.95], [0, 0, 0], 0.16);
-    G.add(new THREE.TorusGeometry(0.52, 0.08, 6, 18), RED, [0, 1.35, 0.4]);
-    for (const a of [-0.9, 0, 0.9]) G.add(SPH_LO, GOLD, [Math.sin(a) * 0.55, 1.35 - Math.cos(a) * 0.55, 0.45], [0, 0, 0], 0.1);
-    const body = mk(G.build(), toon(0xffffff, { vc: true, rim: 0.15 }), { parent: d, outline: 0.04 });
-    const legs = [[-0.25, 0.55], [0.25, 0.55], [-0.25, -0.55], [0.25, -0.55]].map(([lx, lz]) => {
-      const l = mk(legGeo, toon(FUR), { parent: d, pos: [lx, 1.15, lz], outline: 0.03 });
-      mk(SPH_LO, toon(INKC), { parent: l, pos: [0, -1.05, 0], scale: [0.1, 0.07, 0.12], outline: 0 });
-      return l;
+    HG.add(new THREE.CylinderGeometry(0.012, 0.012, 0.06, 4), GOLD, [0, 0.42, 0.39], [0, 0, Math.PI / 2]);
+    HG.add(lumpy(1, 16, 12, 0.16, 2.5), WHITE, [0, 0.08, 0.24], [0.2, 0, 0], [0.37, 0.42, 0.24]);   // the beard
+    HG.add(lumpy(1, 10, 8, 0.2, 3), WHITE, [0, -0.22, 0.27], [0.3, 0, 0], [0.22, 0.2, 0.14]);
+    mk(HG.build(), vcM, { parent: H, outline: 0.02 });
+    // the hat: a fur brim and a soft cone in three joints that sway behind him, a pompom on the end
+    mk(new THREE.TorusGeometry(0.34, 0.1, 8, 22), whiteM, { parent: H, pos: [0, 0.6, 0.02], rot: [Math.PI / 2 - 0.12, 0, 0], outline: 0.02 });
+    sa.hat = [];
+    let hp = piv(H, 0, 0.62, 0); hp.rotation.x = -0.25;
+    for (const [len, r0, r1] of [[0.34, 0.33, 0.25], [0.3, 0.25, 0.15], [0.3, 0.15, 0.05]]) {
+      const gg = new THREE.CylinderGeometry(r1, r0, len, 14); gg.translate(0, len / 2, 0); mk(gg, redM, { parent: hp, outline: 0.02 });
+      sa.hat.push(hp); hp = piv(hp, 0, len, 0); hp.rotation.x = -0.45;
+    }
+    mk(SPH_LO, whiteM, { parent: hp, scale: 0.12, outline: 0.015 });
+    // arms: shoulder → elbow → mitten, each a joint
+    sa.arms = [-1, 1].map(sx => {
+      const sh = piv(T, sx * 0.66, 1.02, 0.02);
+      limb(sh, 0.42, 0.17, 0.15, redM);
+      const el = piv(sh, 0, -0.42, 0);
+      limb(el, 0.36, 0.15, 0.13, redM);
+      mk(new THREE.TorusGeometry(0.13, 0.05, 6, 14), whiteM, { parent: el, pos: [0, -0.33, 0], rot: [Math.PI / 2, 0, 0], outline: 0.012 });
+      const hand = mk(SPH_MED, toon(WHITE, { soft: true, cloud: false, snow: false }), { parent: el, pos: [0, -0.46, 0.02], scale: [0.12, 0.14, 0.11], outline: 0.015 });
+      mk(SPH_LO, toon(WHITE, { soft: true, cloud: false, snow: false }), { parent: hand, pos: [0.7 * -sx, 0.2, 0.5], scale: 0.4, outline: 0 });
+      return { sh, el, hand, sx };
     });
-    let nose = null;
-    if (coco) {
-      nose = mk(SPH_LO, new THREE.MeshBasicMaterial({ color: 0xff2a3a }), { parent: d, pos: [0, 2.32, 1.8], scale: 0.11, outline: 0.02 });
-      const glow = SLEIGH.noseGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX.mote, color: 0xff4050, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 }));
-      glow.position.set(0, 2.32, 1.85); glow.scale.setScalar(2.6); d.add(glow);
+  }
+
+  /* ---- the reindeer: a jointed skeleton each (torso, neck, head, ears, tail, four legs of two joints and a hoof) ---- */
+  const NAMES = ['코코', '솜이', '방울', '별이'];
+  const furM = toon(FUR2, { soft: true, rim: 0.15, cloud: false, snow: false }), legM = toon(FUR, { soft: true, rim: 0.12, cloud: false, snow: false }), hoofM = toon(0x3a2a22, { rim: 0.2, cloud: false, snow: false }), paleM = toon(PALE, { soft: true, cloud: false, snow: false });
+  const antler = (G, sx) => {
+    const P = [[sx * 0.1, 0.24, 0.0], [sx * 0.3, 0.55, -0.06], [sx * 0.48, 0.88, 0.02], [sx * 0.55, 1.1, 0.18]];
+    G.add(tube(P, 0.04, 14, 6), ANT);
+    for (const [a, b] of [[[sx * 0.27, 0.5, -0.05], [sx * 0.2, 0.78, 0.18]], [[sx * 0.44, 0.8, 0.0], [sx * 0.38, 1.05, 0.2]], [[sx * 0.52, 1.0, 0.1], [sx * 0.72, 1.18, 0.12]], [[sx * 0.36, 0.66, -0.04], [sx * 0.62, 0.72, -0.12]]])
+      G.add(tube([a, [(a[0] + b[0]) / 2 + sx * 0.03, (a[1] + b[1]) / 2 + 0.03, (a[2] + b[2]) / 2], b], 0.028, 8, 5), ANT);
+  };
+  [[-0.95, 9.2], [0.95, 9.2], [-0.95, 5.5], [0.95, 5.5]].forEach(([x, z], i) => {
+    const coco = i === 0, d = piv(g, x, 0, z), r = { d, coco, name: NAMES[i], ph: [0, 0.13, 0.38, 0.51][i], earT: rand(1, 4) };
+    const T = r.torso = piv(d, 0, 1.4, 0);
+    const BG = new Geo();
+    BG.add(SPH_MED, FUR2, [0, 0.05, 0.45], [0, 0, 0], [0.5, 0.56, 0.6]);
+    BG.add(SPH_MED, FUR2, [0, 0, 0], [0, 0, 0], [0.48, 0.5, 0.8]);
+    BG.add(SPH_MED, FUR2, [0, 0.05, -0.55], [0, 0, 0], [0.5, 0.53, 0.55]);
+    BG.add(SPH_MED, FUR, [0, 0.28, -0.05], [0, 0, 0], [0.36, 0.25, 0.85]);   // darker back
+    BG.add(lumpy(1, 12, 10, 0.25, 3), PALE, [0, -0.05, 0.9], [0, 0, 0], [0.33, 0.42, 0.22]);   // fluffy white chest
+    BG.add(SPH_MED, PALE, [0, -0.27, 0.05], [0, 0, 0], [0.36, 0.24, 0.72]);
+    BG.add(lumpy(1, 10, 8, 0.25, 3), PALE, [0, 0.12, -1.05], [0, 0, 0], [0.18, 0.15, 0.12]);   // white rump patch
+    // harness: a red breast collar with a gold medallion, a green blanket edged in gold
+    BG.add(new THREE.TorusGeometry(0.56, 0.065, 8, 26), 0xc8202e, [0, 0.02, 0.48], [0.25, 0, 0]);
+    BG.add(new THREE.CylinderGeometry(0.1, 0.1, 0.04, 14), GOLD, [0, -0.1, 1.03], [Math.PI / 2 - 0.3, 0, 0]);
+    BG.add(new THREE.BoxGeometry(0.86, 0.05, 0.72), GREEN, [0, 0.52, -0.05], [0, 0, 0]);
+    BG.add(new THREE.BoxGeometry(0.9, 0.06, 0.06), GOLD, [0, 0.53, 0.31]); BG.add(new THREE.BoxGeometry(0.9, 0.06, 0.06), GOLD, [0, 0.53, -0.41]);
+    for (const sx of [-1, 1]) BG.add(new THREE.BoxGeometry(0.05, 0.36, 0.72), GREEN, [sx * 0.44, 0.36, -0.05], [0, 0, sx * -0.3]);
+    mk(BG.build(), vcM, { parent: T, outline: 0.03 });
+    r.ring = mk(new THREE.TorusGeometry(0.07, 0.02, 6, 10), goldM, { parent: T, pos: [0, 0.05, 1.04], outline: 0 });
+    r.bells = [-0.5, 0, 0.5].map(a => { const b = piv(T, Math.sin(a) * 0.55, -0.48, 0.48 + Math.cos(a) * 0.05); mk(SPH_LO, goldM, { parent: b, pos: [0, -0.08, 0], scale: [0.08, 0.09, 0.08], outline: 0.01 }); return b; });
+    // the tail
+    r.tail = piv(T, 0, 0.22, -1.05); mk(lumpy(1, 8, 6, 0.3, 3), paleM, { parent: r.tail, pos: [0, 0.04, -0.08], scale: [0.11, 0.16, 0.1], outline: 0.015 });
+    // the neck rises from the shoulders, the head sits on the end of it
+    r.neck = piv(T, 0, 0.25, 0.68); r.neck.rotation.x = 0.65;
+    { const ng = new THREE.CylinderGeometry(0.17, 0.24, 0.66, 12); ng.translate(0, 0.33, 0); mk(ng, furM, { parent: r.neck, outline: 0.025 }); mk(lumpy(1, 8, 6, 0.3, 3), paleM, { parent: r.neck, pos: [0, 0.22, 0.16], scale: [0.14, 0.24, 0.1], outline: 0.012 }); }
+    const H = r.head = piv(r.neck, 0, 0.64, 0); H.rotation.x = -0.45;
+    const HG = new Geo();
+    HG.add(SPH_MED, FUR2, [0, 0.1, 0.12], [0, 0, 0], [0.24, 0.24, 0.3]);
+    HG.add(SPH_MED, PALE, [0, 0.02, 0.4], [0, 0, 0], [0.17, 0.15, 0.21]);
+    HG.add(SPH_MED, FUR, [0, 0.17, 0.3], [0, 0, 0], [0.16, 0.1, 0.18]);
+    for (const sx of [-1, 1]) {
+      HG.add(SPH_LO, INKC, [sx * 0.15, 0.17, 0.3], [0, 0, 0], [0.05, 0.065, 0.045]); HG.add(SPH_LO, WHITE, [sx * 0.14, 0.19, 0.335], [0, 0, 0], 0.016);
+      HG.add(SPH_LO, INKC, [sx * 0.05, 0.03, 0.6], [0, 0, 0], [0.02, 0.025, 0.015]);   // nostrils
+      antler(HG, sx);
     }
-    SLEIGH.deer.push({ d, legs, body, ph: i * 0.9, name: NAMES[i] });
+    if (!coco) HG.add(SPH_LO, 0x3a2a22, [0, 0.07, 0.6], [0, 0, 0], [0.075, 0.06, 0.05]);
+    mk(HG.build(), vcM, { parent: H, outline: 0.02 });
+    r.ears = [-1, 1].map(sx => { const e = piv(H, sx * 0.2, 0.24, 0.05); e.rotation.z = sx * -1.0; const eg = new THREE.ConeGeometry(0.08, 0.3, 8); eg.translate(0, 0.15, 0); mk(eg, furM, { parent: e, scale: [1, 1, 0.5], outline: 0.012 }); return e; });
+    if (coco) {
+      mk(SPH_LO, new THREE.MeshBasicMaterial({ color: 0xff2a3a }), { parent: H, pos: [0, 0.07, 0.61], scale: 0.085, outline: 0.012 });
+      const glow = SLEIGH.noseGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX.mote, color: 0xff4050, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 }));
+      glow.position.set(0, 0.07, 0.66); glow.scale.setScalar(1.6); H.add(glow);
+    }
+    // legs: hip → knee (or hock) → hoof with a white fetlock tuft
+    r.legs = [[-0.24, -0.12, 0.5, 1], [0.24, -0.12, 0.5, 1], [-0.24, -0.1, -0.55, 0], [0.24, -0.1, -0.55, 0]].map(([lx, ly, lz, front], k) => {
+      const hip = piv(T, lx, ly, lz), up = front ? 0.5 : 0.55;
+      limb(hip, up, front ? 0.15 : 0.2, 0.1, legM);
+      const kn = piv(hip, 0, -up, 0);
+      limb(kn, 0.55, 0.085, 0.06, legM, 0.015);
+      mk(lumpy(1, 8, 6, 0.3, 3), paleM, { parent: kn, pos: [0, -0.5, 0], scale: [0.09, 0.08, 0.09], outline: 0.01 });
+      const hoof = mk(new THREE.CylinderGeometry(0.07, 0.09, 0.1, 10), hoofM, { parent: kn, pos: [0, -0.59, 0.02], outline: 0.01 });
+      return { hip, kn, hoof, front, off: [0, 0.08, 0.5, 0.58][k] };
+    });
+    SLEIGH.deer.push(r);
   });
-  // reins from Santa's hand to each harness
-  const rp = [];
-  for (const { d } of SLEIGH.deer) rp.push(-0.6, 1.8, 0.35, d.position.x, 1.45, d.position.z - 0.1);
-  for (const [a, b] of [[0, 2], [1, 3]]) { const p = SLEIGH.deer[a].d.position, q = SLEIGH.deer[b].d.position; rp.push(q.x, 1.4, q.z + 0.6, p.x, 1.4, p.z - 0.4); }
-  const rg = new THREE.BufferGeometry(); rg.setAttribute('position', new THREE.Float32BufferAttribute(rp, 3));
-  g.add(new THREE.LineSegments(rg, new THREE.LineBasicMaterial({ color: 0x7a2a2a })));
+  // reins and traces: drawn fresh every frame from Santa's hand to each harness, and from the back pair to the dashboard
+  const rg = new THREE.BufferGeometry(); SLEIGH.rp = new Float32Array(8 * 6); rg.setAttribute('position', new THREE.BufferAttribute(SLEIGH.rp, 3));
+  SLEIGH.reins = new THREE.LineSegments(rg, new THREE.LineBasicMaterial({ color: 0x6a2420 })); SLEIGH.reins.frustumCulled = false; g.add(SLEIGH.reins);
+
   // the banner trailing behind on two ropes, readable from either side
   const c = document.createElement('canvas'); c.width = 1024; c.height = 192; SLEIGH.ban = { c, x: c.getContext('2d'), tex: new THREE.CanvasTexture(c) };
   const bm = new THREE.MeshBasicMaterial({ map: SLEIGH.ban.tex, fog: false });
-  const bn = SLEIGH.banner = new THREE.Group(); bn.position.set(0, 1.6, -10.5); g.add(bn);
-  for (const side of [1, -1]) { const p = new THREE.Mesh(new THREE.PlaneGeometry(9, 1.7), bm); p.rotation.y = side * Math.PI / 2; p.position.x = side * 0.02; bn.add(p); }
-  const rl = new THREE.BufferGeometry(); rl.setAttribute('position', new THREE.Float32BufferAttribute([0.1, 2.0, -2.6, 0, 1.6 + 0.85, -10.5 + 4.5, 0.1, 1.7, -2.6, 0, 1.6 - 0.85, -10.5 + 4.5], 3));
+  const bn = SLEIGH.banner = new THREE.Group(); bn.position.set(0, 1.8, -11.5); g.add(bn);
+  for (const s of [1, -1]) { const p = new THREE.Mesh(new THREE.PlaneGeometry(9, 1.7), bm); p.rotation.y = s * Math.PI / 2; p.position.x = s * 0.02; bn.add(p); }
+  const rl = new THREE.BufferGeometry(); rl.setAttribute('position', new THREE.Float32BufferAttribute([0.1, 2.4, -3.1, 0, 2.65, -7.0, 0.1, 1.9, -3.1, 0, 0.95, -7.0], 3));
   g.add(new THREE.LineSegments(rl, new THREE.LineBasicMaterial({ color: 0xf4e6c8 })));
+}
+/* fine glitter: a ring of a few thousand tiny points written in world space as the sleigh goes, each twinkling as it drifts down and fades */
+{
+  const N = 1400, pos = new Float32Array(N * 3), vel = new Float32Array(N * 3), birth = new Float32Array(N).fill(-99), seed = new Float32Array(N);
+  for (let i = 0; i < N; i++) seed[i] = Math.random();
+  const gg = new THREE.BufferGeometry();
+  gg.setAttribute('position', new THREE.BufferAttribute(pos, 3)); gg.setAttribute('aVel', new THREE.BufferAttribute(vel, 3));
+  gg.setAttribute('aBirth', new THREE.BufferAttribute(birth, 1)); gg.setAttribute('aSeed', new THREE.BufferAttribute(seed, 1));
+  const m = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, uniforms: { uTime: { value: 0 }, uPR: { value: 1 }, uDay: U.uDay },
+    vertexShader: `attribute vec3 aVel; attribute float aBirth, aSeed; uniform float uTime, uPR; varying float vA, vSeed;
+      void main() {
+        float age = uTime - aBirth, life = 2.2 + aSeed * 1.6;
+        if (age < 0.0 || age > life) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); gl_PointSize = 0.0; vA = 0.0; vSeed = 0.0; return; }
+        vec3 p = position + aVel * age + vec3(sin(age * 1.7 + aSeed * 40.0), 0.0, cos(age * 1.3 + aSeed * 30.0)) * 0.3 * age - vec3(0.0, 0.22 * age * age, 0.0);
+        vec4 mv = modelViewMatrix * vec4(p, 1.0); gl_Position = projectionMatrix * mv;
+        float k = 1.0 - age / life, tw = 0.5 + 0.5 * sin(uTime * (14.0 + aSeed * 22.0) + aSeed * 60.0);
+        vA = k * (0.35 + 0.65 * tw); vSeed = aSeed;
+        gl_PointSize = (0.16 + aSeed * 0.26) * (0.45 + 0.55 * k) * (0.7 + 0.7 * tw) * (320.0 / -mv.z) * uPR; }`,
+    fragmentShader: `uniform float uDay; varying float vA, vSeed;
+      void main() {
+        vec2 c = gl_PointCoord - 0.5; float r = length(c);
+        float core = smoothstep(0.5, 0.0, r); core *= core * core;
+        float rays = (max(0.0, 1.0 - abs(c.x) * 16.0) * smoothstep(0.5, 0.05, abs(c.y)) + max(0.0, 1.0 - abs(c.y) * 16.0) * smoothstep(0.5, 0.05, abs(c.x))) * 0.7;
+        float a = (core + rays) * vA; if (a < 0.01) discard;
+        vec3 col = mix(vec3(1.0, 0.82, 0.4), vec3(1.0, 0.97, 0.9), fract(vSeed * 7.31)) * mix(1.6, 1.0, uDay);
+        gl_FragColor = vec4(col * a, a); }` });
+  const pts = new THREE.Points(gg, m); pts.frustumCulled = false; pts.visible = false; pts.userData.keep = true; scene.add(pts);
+  SLEIGH.glit = { pts, m, pos, vel, birth, N, head: 0, acc: 0 };
 }
 function sleighBanner(text) {   // cream cloth, red writing, a green and red border
   if (text === SLEIGH.bannerText) return; SLEIGH.bannerText = text;
@@ -6454,7 +6580,68 @@ function sleighAt(t, out) {   // the figure of eight, crossing over the tree, hi
   const th = t / SLEIGH.lap * Math.PI * 2, s = Math.sin(th);
   return out.set(PUD.x + SLEIGH.A * s, SLEIGH.H + 9 * s * s + Math.sin(t * 0.8) * 1.2, PUD.z + SLEIGH.B * s * Math.cos(th));
 }
-const _sa = new V3(), _sb = new V3(), _sc = new V3();
+const _sa = new V3(), _sb = new V3(), _sc = new V3(), _sd = new V3();
+function animSleigh(dt, T) {   // the joints
+  const TAU = Math.PI * 2;
+  for (const r of SLEIGH.deer) {
+    const p = T * 1.7 + r.ph;
+    for (const L of r.legs) {   // a flying gallop: front legs reach forward and fold at the knee, hind legs push back and flex at the hock
+      const s = Math.sin(TAU * (p + L.off)), c = Math.cos(TAU * (p + L.off));
+      if (L.front) { L.hip.rotation.x = -0.2 - 0.6 * s; L.kn.rotation.x = 0.15 + 1.1 * Math.max(0, c); }
+      else { L.hip.rotation.x = 0.35 - 0.55 * s; L.kn.rotation.x = -0.15 - 0.9 * Math.max(0, -c); }
+    }
+    const b = Math.sin(TAU * p * 2);
+    r.torso.position.y = 1.4 + 0.07 * Math.sin(TAU * p * 2 + 1); r.torso.rotation.x = 0.06 * b;
+    r.neck.rotation.x = 0.65 + 0.12 * Math.sin(TAU * p * 2 + 0.8); r.head.rotation.x = -0.45 - 0.09 * Math.sin(TAU * p * 2 + 0.8);
+    r.head.rotation.y = 0.12 * Math.sin(T * 0.4 + r.ph * 7);
+    r.tail.rotation.x = 0.35 + 0.25 * Math.sin(T * 6 + r.ph * 9); r.tail.rotation.z = 0.2 * Math.sin(T * 4.3 + r.ph);
+    for (const [k, bl] of r.bells.entries()) bl.rotation.x = 0.35 * Math.sin(TAU * p * 2 + k);
+    if ((r.earT -= dt) <= 0) r.earT = rand(1.5, 5);
+    const flick = r.earT < 0.25 ? Math.sin(r.earT / 0.25 * Math.PI) * 0.6 : 0;
+    r.ears[0].rotation.z = 1.0 - flick + 0.05 * Math.sin(T * 3); r.ears[1].rotation.z = -1.0 + flick * 0.6 - 0.05 * Math.sin(T * 3 + 1);
+  }
+  // Santa: looks about, holds the reins with a little tug, waves now and then with a bending elbow, laughs from the belly
+  const sa = SLEIGH.santa, lg = SLEIGH.laugh > 0 ? Math.sin(Math.min(1, SLEIGH.laugh) * Math.PI / 2) : 0;
+  SLEIGH.laugh = Math.max(0, SLEIGH.laugh - dt);
+  sa.torso.position.y = 0.1 + lg * Math.abs(Math.sin(T * 11)) * 0.06; sa.torso.rotation.x = -0.12 * lg + 0.02 * Math.sin(T * 1.7);
+  sa.head.rotation.x = -0.3 * lg + 0.05 * Math.sin(T * 1.3); sa.head.rotation.y = (1 - lg) * 0.45 * Math.sin(T * 0.37); sa.head.rotation.z = 0.06 * Math.sin(T * 0.9);
+  sa.hat.forEach((h, k) => { h.rotation.x = (k ? -0.45 : -0.25) - 0.12 * Math.sin(T * 2.6 - k * 0.7); h.rotation.z = 0.15 * Math.sin(T * 1.9 - k * 0.6); });
+  const [L, R] = sa.arms, tug = 0.08 * Math.sin(T * 3.2);
+  L.sh.rotation.set(-0.95 + tug, 0, -0.18); L.el.rotation.set(-0.85 - tug, 0, 0);
+  SLEIGH.wave += ((Math.sin(T * 0.45) > 0.35 ? 1 : 0) - SLEIGH.wave) * Math.min(1, dt * 3);
+  const w = SLEIGH.wave;
+  R.sh.rotation.set(-0.55 * (1 - w) - 0.25 * w, 0, 0.18 * (1 - w) + 2.35 * w);
+  R.el.rotation.set(-0.8 * (1 - w), 0, w * (-0.4 + 0.55 * Math.sin(T * 8)));
+  SLEIGH.lantern.rotation.z = 0.12 * Math.sin(T * 2.1); SLEIGH.lantern.rotation.x = 0.1 * Math.sin(T * 1.6);
+}
+function sleighReins() {   // re-string the reins between the hand and the harnesses as everything moves
+  const g = SLEIGH.group, rp = SLEIGH.rp, D = SLEIGH.deer; let o = 0;
+  g.updateMatrixWorld(true);
+  const local = (obj, v) => g.worldToLocal(obj.getWorldPosition(v));
+  local(SLEIGH.santa.arms[0].hand, _sa);
+  const put = (a, b) => { rp[o++] = a.x; rp[o++] = a.y; rp[o++] = a.z; rp[o++] = b.x; rp[o++] = b.y; rp[o++] = b.z; };
+  for (const r of D) { local(r.ring, _sb); put(_sa, _sb); }
+  for (const [a, b] of [[0, 2], [1, 3]]) { local(D[b].ring, _sb); local(D[a].torso, _sc); _sc.y -= 0.1; _sc.z -= 0.9; put(_sb, _sc); }
+  for (const k of [2, 3]) { local(D[k].torso, _sb); _sb.z -= 0.9; _sc.set(D[k].d.position.x * 0.9, 0.9, 1.4); put(_sb, _sc); }
+  SLEIGH.reins.geometry.attributes.position.needsUpdate = true;
+}
+function sleighGlitter(dt, T, near) {
+  const G = SLEIGH.glit; G.m.uniforms.uTime.value = T; G.m.uniforms.uPR.value = renderer.getPixelRatio();
+  if (!near) return;
+  G.acc += dt * 300;
+  const g = SLEIGH.group, n = Math.min(60, G.acc | 0); G.acc -= n;
+  for (let k = 0; k < n; k++) {
+    const i = G.head++ % G.N;
+    const q = Math.random();
+    if (q < 0.45) _sd.set(rand(-1.3, 1.3), rand(-0.3, 1.4), rand(-3.6, -2.7)).applyMatrix4(g.matrixWorld);   // off the back of the sleigh
+    else if (q < 0.7) _sd.set((Math.random() < 0.5 ? -0.95 : 0.95) + rand(-0.15, 0.15), rand(-0.4, -0.2), rand(-2.4, 2.6)).applyMatrix4(g.matrixWorld);   // along the runners
+    else SLEIGH.deer[(Math.random() * 4) | 0].legs[(Math.random() * 4) | 0].hoof.getWorldPosition(_sd);                   // and a little from every hoof
+    G.pos[i * 3] = _sd.x + rand(-0.3, 0.3); G.pos[i * 3 + 1] = _sd.y + rand(-0.3, 0.3); G.pos[i * 3 + 2] = _sd.z + rand(-0.3, 0.3);
+    G.vel[i * 3] = rand(-0.5, 0.5); G.vel[i * 3 + 1] = rand(-0.4, 0.3); G.vel[i * 3 + 2] = rand(-0.5, 0.5);
+    G.birth[i] = T;
+  }
+  const a = G.pts.geometry.attributes; a.position.needsUpdate = a.aVel.needsUpdate = a.aBirth.needsUpdate = true;
+}
 function tickSleigh(dt, T, S) {
   if (THEME !== 'xmas') return;
   const t = shipNow(), g = SLEIGH.group;
@@ -6463,35 +6650,26 @@ function tickSleigh(dt, T, S) {
   let turn = yaw - yaw0; turn = Math.atan2(Math.sin(turn), Math.cos(turn));
   const pitch = -Math.atan2(_sb.y - _sa.y, Math.hypot(_sb.x - _sa.x, _sb.z - _sa.z));
   g.rotation.set(pitch * 0.8, yaw, clamp(-turn * 6, -0.45, 0.45), 'YXZ');
-  // galloping legs and a little bob, Santa waving now and then
-  for (const r of SLEIGH.deer) {
-    const k = T * 7 + r.ph;
-    r.legs.forEach((l, i) => l.rotation.x = Math.sin(k + (i < 2 ? 0 : Math.PI)) * 0.7);
-    r.d.position.y = Math.sin(k * 2) * 0.12;
-  }
-  const wave = Math.max(0, Math.sin(T * 0.45)) ** 3;
-  SLEIGH.santaArm.rotation.z = -0.5 - wave * (1.6 + Math.sin(T * 9) * 0.35);
+  const view = player ? player.pos : camera.position, dist = g.position.distanceTo(view), near = dist < 320;
+  if (near) { animSleigh(dt, T); sleighReins(); }
   SLEIGH.banner.rotation.z = Math.sin(T * 2.3) * 0.06; SLEIGH.banner.rotation.y = Math.sin(T * 1.7) * 0.05;
   const night = smooth(0.2, 0.8, S.night);
   SLEIGH.noseGlow.material.opacity = (0.3 + 0.7 * night) * (0.8 + 0.2 * Math.sin(T * 4));
-  // a trail of starry glitter from the runners, only drawn when someone could see it
-  const view = player ? player.pos : camera.position, dist = g.position.distanceTo(view);
-  if (dist < 260 && (SLEIGH.trailT -= dt) <= 0) {
-    SLEIGH.trailT = 0.07;
-    _sc.set(rand(-1, 1), 0.1, -2.2).multiplyScalar(g.scale.x).applyQuaternion(g.quaternion).add(g.position);
-    emit(sparkTex, _sc, 1, { size: 1.4, spread: 0.8, up: -0.3, life: 2.6, g: 0.6 });
-  }
-  // the sound: harness bells while it is near, and a "ho ho ho" every so often
+  SLEIGH.lantern.glow.material.opacity = 0.15 + 0.75 * night;
+  sleighGlitter(dt, T, near);
+  // the sound: harness bells while it is near, and a "ho ho ho" every so often (he laughs whether or not you are close enough to hear)
+  if ((SLEIGH.hoT -= dt) <= 0) SLEIGH.laugh = 1.6;
   if (mode === 'play' && player) {
-    const k = clamp(1 - (dist - 30) / 110, 0, 1) ** 1.5;
+    const k = clamp(1 - (dist - 40) / 140, 0, 1) ** 1.5;
     _sc.copy(g.position).project(camera); const pan = clamp(_sc.x, -1, 1) * 0.6;
     if (k > 0 && (SLEIGH.bellT -= dt) <= 0) { SLEIGH.bellT = 0.24; Snd.sleighBells(k, pan); }
-    if ((SLEIGH.hoT -= dt) <= 0) { SLEIGH.hoT = 22; if (k > 0.15) Snd.hoho(k, pan); }
-    if (!SLEIGH.met && Math.hypot(g.position.x - player.pos.x, g.position.z - player.pos.z) < 60) { SLEIGH.met = true; toast('산타 썰매가 지나가요! 맨 앞은 빨간 코 순록 코코예요', 4200); }
+    if (SLEIGH.hoT <= 0 && k > 0.15) Snd.hoho(k, pan);
+    if (!SLEIGH.met && Math.hypot(g.position.x - player.pos.x, g.position.z - player.pos.z) < 70) { SLEIGH.met = true; toast('산타 썰매가 지나가요! 맨 앞은 빨간 코 순록 코코예요', 4200); }
   }
+  if (SLEIGH.hoT <= 0) SLEIGH.hoT = 22;
 }
 // the airship rests while the sleigh is out
-THEME_HOOKS.push(t => { const on = t === 'xmas'; SLEIGH.group.visible = on; SHIP.group.visible = !on; SLEIGH.met = false; });
+THEME_HOOKS.push(t => { const on = t === 'xmas'; SLEIGH.group.visible = SLEIGH.glit.pts.visible = on; SHIP.group.visible = !on; SLEIGH.met = false; });
 
 function tickBeam(dt, T) {
   if (!Beam.host) return;
@@ -6679,7 +6857,7 @@ $('xmasPrivIn').addEventListener('change', () => { Snd.pop(); renderXmas(); });
 function xmasBanner() {   // "Merry Mongle Christmas" and how many days are left
   const kst = new Date(Date.now() + WX.off + 9 * 3600e3), d = kst.getUTCDate(), dec = kst.getUTCMonth() === 11;
   const sub = !dec ? '크리스마스 미리보기' : d < 25 ? '크리스마스까지 D-' + (25 - d) : d === 25 ? '오늘은 크리스마스!' : '즐거운 연말 보내요';
-  zoneBanner('메리 몽글 크리스마스!'); setTimeout(() => toast(sub, 3200), 2600);
+  zoneBanner('메리 크리스마스!'); setTimeout(() => toast(sub, 3200), 2600);
 }
 function renderChannels() {
   if (mode === 'select') skyCh = selMode === 'xmas' ? 0 : selCh;
