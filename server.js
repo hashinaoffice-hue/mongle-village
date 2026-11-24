@@ -367,10 +367,10 @@ wss.on('connection', (ws, req) => {
     } else if (m.t === 'screen') {
       // 화면 공유 시작/끝: 공용 채널은 관리자만, 이미 다른 사람이 띄우고 있으면 못 띄워요
       if (m.off) return endScreen(room, me.id);
-      if (room.pub && !me.admin) return send(ws, { t: 'screen', locked: 1 });
+      if ((room.pub || m.bb) && !me.admin) return send(ws, { t: 'screen', locked: 1 });   // 광장 대형 전광판(bb)은 어느 채널이든 관리자만 띄워요
       const cur = room.screen;
       if (cur && cur.id !== me.id) return send(ws, { t: 'screen', busy: 1, nick: cur.nick });
-      room.screen = { id: me.id, nick: me.nick, x: r2(num(m.x, -2000, 2000)), y: r2(num(m.y, -50, 150)), z: r2(num(m.z, -2000, 2000)), yaw: r2(num(m.yaw, -50, 50)), k: 1 };
+      room.screen = { id: me.id, nick: me.nick, x: r2(num(m.x, -2000, 2000)), y: r2(num(m.y, -50, 150)), z: r2(num(m.z, -2000, 2000)), yaw: r2(num(m.yaw, -50, 50)), k: 1, bb: m.bb ? 1 : 0 };
       broadcast(room.players, { t: 'screen', ...room.screen });
       console.log(`[${label(room)}] ${me.nick} 화면 공유 시작`);
     } else if (m.t === 'scr') {
