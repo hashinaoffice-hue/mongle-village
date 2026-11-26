@@ -83,7 +83,7 @@ button{font:inherit;color:inherit}
 #bHelp{pointer-events:auto;width:40px;height:40px;padding:0;font-size:22px;line-height:1}
 #bHelp[aria-expanded="true"]{background:var(--butter)}
 #help kbd{font-family:var(--display);font-size:13px;border:1.5px solid var(--ink);border-bottom-width:3px;border-radius:6px;padding:0 5px;background:#fff}
-#toast{position:absolute;left:50%;top:calc(80px + env(safe-area-inset-top,0px));transform:translateX(-50%);font-family:var(--display);font-size:20px;padding:.4em 1.1em;white-space:nowrap;opacity:0;transition:opacity .3s, transform .3s}
+#toast{position:absolute;left:50%;top:calc(80px + env(safe-area-inset-top,0px));transform:translateX(-50%);font-family:var(--display);font-size:20px;padding:.4em 1.1em;width:max-content;max-width:calc(100vw - 32px);text-align:center;line-height:1.35;box-sizing:border-box;opacity:0;transition:opacity .3s, transform .3s}
 #toast.show{opacity:1;transform:translateX(-50%) translateY(4px)}
 #bubbles{position:fixed;inset:0;pointer-events:none;z-index:9}
 .bubble{position:absolute;transform:translate(-50%,-100%);background:var(--paper);border:2.5px solid var(--ink);border-radius:16px;padding:.3em .8em;font-size:15px;width:max-content;max-width:min(260px,70vw);text-align:center;word-break:keep-all;overflow-wrap:anywhere;opacity:0;transition:opacity .25s}
@@ -247,7 +247,7 @@ button{font:inherit;color:inherit}
   </form>
   <div id="touch">
     <div id="joy"><div id="knob"></div></div>
-    <div id="tbtns"><div id="emotes"><button class="btn" id="bChat" type="button">채팅</button><button class="btn" data-k="1">반가워</button><button class="btn" data-k="2">같이 가자</button><button class="btn" data-k="3">고마워</button><button class="btn" data-k="4" id="bMerry" hidden>메리 크리스마스</button></div><button class="btn" id="bBall" hidden>눈덩이</button><button class="btn" id="bWave">인사</button><button class="btn" id="bJump">점프</button></div>
+    <div id="tbtns"><div id="emotes"><button class="btn" id="bChat" type="button">채팅</button><button class="btn" data-k="1">반가워</button><button class="btn" data-k="2">같이 가자</button><button class="btn" data-k="3">고마워</button><button class="btn" data-k="4" id="bMerry" hidden>메리 크리스마스</button></div><button class="btn" id="bBall" hidden>눈덩이</button><button class="btn" id="bSnowman" hidden>눈사람</button><button class="btn" id="bWave">인사</button><button class="btn" id="bJump">점프</button></div>
   </div>
 </div>
 
@@ -5871,6 +5871,10 @@ function drawMap(T) {
     g.fillStyle = '#d8353f'; g.lineWidth = 1.2; g.strokeStyle = '#4b3a35'; g.beginPath(); g.roundRect ? g.roundRect(-4, -3, 7, 6, 2) : g.rect(-4, -3, 7, 6); g.fill(); g.stroke();
     g.fillStyle = '#9a6a45'; for (const [dx, dy] of [[6, -1.6], [6, 1.6], [9.5, -1.6], [9.5, 1.6]]) { g.beginPath(); g.arc(dx, dy, 1.4, 0, 7); g.fill(); }
     g.fillStyle = '#ff2a3a'; g.beginPath(); g.arc(11.2, -1.6, 0.9, 0, 7); g.fill(); g.restore(); }
+  if (THEME === 'xmas') for (const sl of DROP.slots) if (sl.g.visible) {   // a present coming down (or waiting on the snow)
+    const [a, b] = mapXY(sl.g.position.x, sl.g.position.z), s = 3.6 * (1 + 0.15 * Math.sin(T * 5));
+    g.fillStyle = '#e8455a'; g.lineWidth = 1.2; g.strokeStyle = '#4b3a35'; g.fillRect(a - s, b - s, s * 2, s * 2); g.strokeRect(a - s, b - s, s * 2, s * 2);
+    g.fillStyle = '#fff3c0'; g.fillRect(a - 0.8, b - s, 1.6, s * 2); g.fillRect(a - s, b - 0.8, s * 2, 1.6); }
   else { const p = SHIP.group.position, [a, b] = mapXY(p.x, p.z), yaw = SHIP.group.rotation.y;   // the airship, drifting round the square
     g.save(); g.translate(a, b); g.rotate(Math.atan2(-Math.cos(yaw), -Math.sin(yaw)));   // same reckoning as your own arrow
     g.beginPath(); g.ellipse(0, 0, 7, 3.2, 0, 0, 7); g.fillStyle = '#fff4e6'; g.fill(); g.lineWidth = 1.2; g.strokeStyle = '#4b3a35'; g.stroke();
@@ -6981,9 +6985,9 @@ function setLook(c, look) {   // what a character wears from the Christmas prese
 THEME_HOOKS.push(() => { if (player) setLook(player, MYLOOK); for (const r of Net.remotes.values()) setLook(r.c, r.c.look); });
 const GIFTS = { left: 3, cool: 0 };
 const GIFT_POOL = [['h', 25, '산타 모자가'], ['a', 25, '순록 뿔 머리띠가'], ['f', 18, '반짝이 발자국이'], ['fw', 16, '폭죽이'], ['merry', 16, '「메리 크리스마스!」 인사가']];
-function openGift(at) {
-  if (GIFTS.left <= 0 || GIFTS.cool > 0) return;
-  GIFTS.left--; GIFTS.cool = 1.2;
+function openGift(at, fromSky) {   // fromSky: a present the sleigh dropped (it does not count against the three under the tree)
+  if ((!fromSky && GIFTS.left <= 0) || GIFTS.cool > 0) return false;
+  if (!fromSky) GIFTS.left--; GIFTS.cool = 1.2;
   const pool = GIFT_POOL.filter(([k]) => k === 'fw' || !MYLOOK[k]), tot = pool.reduce((a, q) => a + q[1], 0);
   let r = Math.random() * tot, got = pool[0]; for (const q of pool) { if ((r -= q[1]) <= 0) { got = q; break; } }
   const [k, , name] = got;
@@ -6992,8 +6996,98 @@ function openGift(at) {
   else if (k === 'merry') { MYLOOK.merry = true; $('bMerry').hidden = false; }
   else { MYLOOK[k] = 1; setLook(player, MYLOOK); netSend({ t: 'look', h: MYLOOK.h, a: MYLOOK.a, f: MYLOOK.f }); }
   const how = k === 'merry' ? ' · 5번 키로 인사해요' : k === 'fw' ? ' · 펑!' : '';
-  toast('선물에서 ' + name + ' 나왔어요!' + how + (GIFTS.left ? ' (남은 선물 ' + GIFTS.left + ')' : ' (선물은 다 열었어요)'), 4200);
+  toast((fromSky ? '하늘에서 온 선물에서 ' : '선물에서 ') + name + ' 나왔어요!' + how + (fromSky ? '' : GIFTS.left ? ' (남은 선물 ' + GIFTS.left + ')' : ' (선물은 다 열었어요)'), 4200);
   player.talk(pick(['우와~!', '이거 갖고 싶었어!', '고마워요 산타 할아버지!']), 2.2);
+  return true;
+}
+/* ---------------- Christmas: once a lap the sleigh drops a present on a little red-and-white parachute. It is worked out from the server's clock,
+   so everyone in the channel sees the same box drift down to the same spot. Anyone who gets there can open it (each person once) ---------------- */
+const DROP = { fall: 22, stay: 65, spots: null, slots: [], opened: new Set(), told: -1 };
+{
+  const PAPER = [0xe8455a, 0x3f9d5a, 0x5b8fe0, 0xf6c445, 0x9b7be0], TIE = [0xffffff, 0xf6c445, 0xffffff, 0xe8455a, 0xf6c445];
+  const box = new THREE.BoxGeometry(1, 1, 1), loop = new THREE.TorusGeometry(0.22, 0.075, 6, 14);
+  DROP.geos = PAPER.map((paper, i) => { const B = new Geo(), t = TIE[i];
+    B.add(box, paper, [0, 0.42, 0], [0, 0, 0], [0.95, 0.84, 0.95]);
+    B.add(box, t, [0, 0.42, 0], [0, 0, 0], [0.18, 0.88, 0.99]); B.add(box, t, [0, 0.42, 0], [0, 0, 0], [0.99, 0.88, 0.18]);
+    B.add(loop, t, [-0.17, 0.96, 0], [0, 0, 0.6], 0.85); B.add(loop, t, [0.17, 0.96, 0], [0, 0, -0.6], 0.85);
+    return B.build(); });
+  const C = new Geo();
+  for (let i = 0; i < 8; i++) C.add(new THREE.SphereGeometry(1, 3, 6, i * Math.PI / 4, Math.PI / 4, 0, Math.PI / 2), i % 2 ? 0xfffaf2 : 0xd8353f);
+  const chuteG = C.build(), boxM = toon(0xffffff, { vc: true, soft: true, rim: 0.2, snow: false, cloud: false }), chuteM = toon(0xffffff, { vc: true, soft: true, rim: 0.15, snow: false, cloud: false, side: THREE.DoubleSide });
+  const R = 1.9, H = 2.4, rim = [];   // the cords run from the canopy's rim down to the top of the box
+  for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4; rim.push(0, 1.0, 0, Math.cos(a) * R, H, Math.sin(a) * R); }
+  const cordG = new THREE.BufferGeometry(); cordG.setAttribute('position', new THREE.Float32BufferAttribute(rim, 3));
+  for (let k = 0; k < 2; k++) {
+    const g = new THREE.Group(); g.visible = false; g.userData.keep = true; scene.add(g);
+    const bx = mk(DROP.geos[0], boxM, { parent: g, outline: 0.03 });
+    const ch = new THREE.Group(); g.add(ch);
+    mk(chuteG, chuteM, { parent: ch, pos: [0, H, 0], scale: [R, 1.0, R], outline: 0 });
+    ch.add(new THREE.LineSegments(cordG, new THREE.LineBasicMaterial({ color: 0x8a6a55 })));
+    const gl = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX.mote, color: 0xffe9a0, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 }));
+    gl.position.y = 0.9; g.add(gl);
+    const slot = { g, bx, ch, gl, n: null, at: new V3(), landed: false, puff: false };
+    DROP.slots.push(slot);
+    XACTS.push({ at: slot.at, r: 2.6, label: () => '하늘에서 온 선물 열기', can: () => slot.n !== null && slot.landed && !DROP.opened.has(slot.n),
+      run: () => { if (openGift(slot.at, true)) DROP.opened.add(slot.n); } });
+  }
+}
+// where it can come down: the places round the lap where the sleigh is over a village lane (or right beside one), away from the big tree.
+// Only fixed things decide this (the trees and bushes are scattered differently for every visitor), so everyone gets the same list
+DROP.spots = (() => {
+  const out = [];
+  for (let i = 0; i < 360; i++) {
+    const th = i / 360 * Math.PI * 2, s = Math.sin(th), x = PUD.x + SLEIGH.A * s, z = PUD.z + SLEIGH.B * s * Math.cos(th);
+    if (Math.hypot(x - PUD.x, z - PUD.z) < 24 || !walkable(x, z) || terrain(x, z) < SEA_Y + 1 || inCabinRect(x, z, 2) || pathDist(x, z) > 7) continue;
+    out.push(i / 360);
+  }
+  return out;
+})();
+function dropClear(x, z, out) {   // the nearest bit of ground with nothing standing on it (a lamp post, a bush), searching outwards a little
+  const free = (a, b) => walkable(a, b) && !solids.some(o => o.top > terrain(o.x, o.z) + 0.3 && Math.hypot(a - o.x, b - o.z) < o.r + 1.2);
+  for (let r = 0; r <= 8; r += 1) for (let k = 0; k < (r ? 12 : 1); k++) {
+    const a = x + Math.cos(k / 12 * Math.PI * 2) * r, b = z + Math.sin(k / 12 * Math.PI * 2) * r;
+    if (free(a, b)) return out.set(a, baseY(a, b), b);
+  }
+  return out.set(x, baseY(x, z), z);
+}
+function tickDrops(dt, T) {
+  if (THEME !== 'xmas') { for (const sl of DROP.slots) sl.g.visible = false; return; }
+  if (!DROP.spots.length) return;
+  const now = shipNow(), lap = SLEIGH.lap, L = Math.floor(now / lap), used = [false, false];
+  for (let n = L - 2; n <= L; n++) {   // a present stays out less than a lap, so two at most at once, and odd and even laps never overlap
+    const k = n & 1, sl = DROP.slots[k];
+    const ph = DROP.spots[Math.floor(wxHash(n * 41 + 7) * DROP.spots.length)], td = (n + ph) * lap, age = now - td;
+    if (!(age >= 0 && age < DROP.fall + DROP.stay && eveShowK(td * 1000) === 0 && !DROP.opened.has(n))) continue;
+    used[k] = true; sl.g.visible = true;
+    if (sl.n !== n) {   // a new present: where it falls from, where it lands, its wrapping paper
+      sl.n = n; sl.landed = sl.puff = false;
+      const th = ph * Math.PI * 2, s = Math.sin(th), x = PUD.x + SLEIGH.A * s, z = PUD.z + SLEIGH.B * s * Math.cos(th);
+      dropClear(x, z, sl.at); sl.y0 = SLEIGH.H + 9 * s * s + Math.sin(td * 0.8) * 1.2 + 1.5;
+      sl.bx.geometry = DROP.geos[n % DROP.geos.length | 0]; for (const o of sl.bx.children) o.geometry = sl.bx.geometry;
+      sl.g.rotation.set(0, wxHash(n * 13 + 1) * 6.28, 0);
+      if (age < 4 && player && mode === 'play' && DROP.told !== n && Math.hypot(player.pos.x - x, player.pos.z - z) < 170) {
+        DROP.told = n; SLEIGH.laugh = 1.6; toast('산타 썰매에서 선물이 떨어져요! 낙하산을 따라가 봐요', 4200);
+      }
+    }
+    const a = Math.min(1, age / DROP.fall), sway = 1 - smooth(0.75, 1, a), open = smooth(0.4, 1.6, age);
+    const g = sl.g, p = g.position;
+    if (a < 1) {
+      const fall = age < 1 ? 0.5 * 9 * age * age : 4.5 + (age - 1) * ((sl.y0 - sl.at.y - 4.5) / (DROP.fall - 1));   // a short drop, then the chute catches it
+      p.set(sl.at.x + Math.sin(age * 1.1) * 1.3 * sway, Math.max(sl.at.y, sl.y0 - fall), sl.at.z + Math.cos(age * 0.8) * 0.9 * sway);
+      g.rotation.z = Math.sin(age * 1.1) * 0.22 * sway; g.rotation.x = Math.sin(age * 0.8 + 1) * 0.12 * sway;
+      sl.ch.rotation.z = 0; sl.ch.scale.setScalar(open); sl.ch.visible = open > 0.02;
+    } else {
+      p.copy(sl.at); g.rotation.x = g.rotation.z = 0; sl.landed = true;
+      const c = 1 - smooth(0, 1.6, age - DROP.fall);   // the chute keels over onto the snow beside the box and is gone
+      sl.ch.rotation.z = (1 - c) * 1.35; sl.ch.scale.setScalar(0.3 + 0.7 * c); sl.ch.visible = c > 0.02;
+      if (!sl.puff) { sl.puff = true; emit(snowTex, tmpV.copy(sl.at).add(UP1), 14, { size: 0.35, spread: 2.2, up: 2, life: 0.8, g: 8 }); const [k2, pn] = ear(sl.at); if (k2 > 0.05) Snd.splat(k2 * 0.6, pn); }
+      const left = DROP.fall + DROP.stay - age;   // a soft twinkle so it can be found, and it shrinks away at the very end
+      g.scale.setScalar(left < 2 ? Math.max(0.01, left / 2) : 1);
+      sl.gl.material.opacity = 0.35 + 0.35 * Math.sin(T * 3 + k); sl.gl.scale.setScalar(2.2 + 0.4 * Math.sin(T * 3 + k));
+    }
+    if (a < 1) { g.scale.setScalar(1); sl.gl.material.opacity = 0; }
+  }
+  for (let k = 0; k < 2; k++) if (!used[k]) { DROP.slots[k].g.visible = false; DROP.slots[k].n = null; }
 }
 /* ---------------- Christmas snowball fights: Q (or the snowball button) throws one where you are looking. Every client flies every ball itself,
    so a hit is just for fun: a splat, an "으앗!" and a cap of snow on the head for a few seconds. No scores. ---------------- */
@@ -7038,6 +7132,97 @@ function tickBalls(dt) {
 }
 THEME_HOOKS.push(t => { $('bBall').hidden = t !== 'xmas'; if (t !== 'xmas') { for (const b of BALLS.list) scene.remove(b.m); BALLS.list.length = 0; } });
 $('bBall').addEventListener('pointerdown', e => { e.preventDefault(); myThrow(); });
+
+/* ---------------- Christmas snowmen: R (or the snowman button) rolls one up on the snow in front of you, a ball at a time.
+   The server keeps them for the channel (three each, forty in all, gone once everyone has left), so friends who come later see them too.
+   What each one wears (hat, scarf, buttons, a smile) comes from its number, so everyone sees the same snowman ---------------- */
+const SNOWMEN = { list: new Map(), cool: 0, geos: new Map(), told: false };
+SNOWMEN.mat = toon(0xffffff, { vc: true, soft: true, rim: 0.2, snow: false });
+function snowmanGeos(v) {   // three parts that pop up one after the other: the bottom ball; the middle with scarf, buttons and arms; the head with its face and hat
+  if (SNOWMEN.geos.has(v)) return SNOWMEN.geos.get(v);
+  const h = i => wxHash(v * 31 + i), SNOW = 0xfbfdff, COAL = 0x2b2220;
+  const SC = [0xd8353f, 0x3f9d5a, 0x5b8fe0, 0xf6c445, 0xf29bc0, 0x9b7be0], sc = SC[Math.floor(h(1) * SC.length)], hat = Math.floor(h(2) * 5);
+  const A = new Geo(), B = new Geo(), C = new Geo();
+  A.add(SPH_MED, SNOW, [0, 0.7, 0], [0, 0, 0], [0.82, 0.78, 0.82]);
+  B.add(SPH_MED, SNOW, [0, 1.75, 0], [0, 0, 0], 0.56);
+  const nb = 2 + Math.floor(h(3) * 2); for (let b = 0; b < nb; b++) { const y = 1.95 - b * 0.22; B.add(SPH_LO, COAL, [0, y, Math.sqrt(Math.max(0, 0.56 * 0.56 - (y - 1.75) ** 2)) - 0.02], [0, 0, 0], 0.055); }
+  B.add(new THREE.TorusGeometry(0.36, 0.1, 6, 16), sc, [0, 2.17, 0], [Math.PI / 2, 0, 0]);
+  B.add(new THREE.BoxGeometry(0.15, 0.5, 0.06), sc, [0.2, 1.95, 0.33], [0.2, 0, 0.15]);
+  if (h(5) < 0.85) for (const e of [-1, 1]) {   // stick arms, one of them sometimes waving up high
+    const up = e === 1 && h(7) < 0.4 ? 1.6 : 0.9, st = new THREE.CylinderGeometry(0.03, 0.045, 0.95, 5);
+    B.add(st, 0x7a5238, [e * 0.78, 1.95, 0], [0, 0, -e * up]);
+    B.add(new THREE.CylinderGeometry(0.02, 0.025, 0.25, 4), 0x7a5238, [e * (0.78 + Math.sin(up) * 0.33), 1.95 + Math.cos(up) * 0.33, 0], [0, 0, -e * (up - 0.7)]);
+  }
+  C.add(SPH_MED, SNOW, [0, 2.52, 0], [0, 0, 0], 0.42);
+  for (const e of [-1, 1]) C.add(SPH_LO, COAL, [e * 0.14, 2.62, 0.36], [0, 0, 0], 0.05);
+  C.add(new THREE.ConeGeometry(0.07, 0.42, 8), 0xf08a3c, [0, 2.52, 0.58], [Math.PI / 2, 0, 0]);
+  if (h(4) < 0.65) for (let j = -2; j <= 2; j++) C.add(SPH_LO, COAL, [j * 0.075, 2.38 + 0.012 * j * j, 0.375], [0, 0, 0], 0.03);
+  else C.add(SPH_LO, COAL, [0, 2.38, 0.38], [0, 0, 0], [0.06, 0.045, 0.03]);   // a little round "oh!"
+  if (h(6) < 0.5) for (const e of [-1, 1]) C.add(SPH_LO, 0xf6a3b5, [e * 0.25, 2.47, 0.31], [0, 0, 0], [0.07, 0.05, 0.03]);
+  if (hat === 0) { C.add(new THREE.CylinderGeometry(0.27, 0.29, 0.42, 14), COAL, [0, 3.05, 0]); C.add(new THREE.CylinderGeometry(0.43, 0.43, 0.05, 16), COAL, [0, 2.85, 0]); C.add(new THREE.CylinderGeometry(0.295, 0.295, 0.08, 14), sc, [0, 2.92, 0]); }
+  else if (hat === 1) { C.add(new THREE.ConeGeometry(0.33, 0.6, 12), 0xd8353f, [0.04, 3.1, -0.02], [-0.15, 0, -0.2]); C.add(new THREE.TorusGeometry(0.31, 0.08, 6, 16), 0xfffaf2, [0, 2.84, 0], [Math.PI / 2, 0, 0]); C.add(SPH_LO, 0xfffaf2, [0.12, 3.38, -0.07], [0, 0, 0], 0.09); }
+  else if (hat === 2) { C.add(new THREE.CylinderGeometry(0.24, 0.31, 0.38, 12), 0x8a95a5, [0, 2.98, 0], [0.12, 0, 0.18]); C.add(new THREE.TorusGeometry(0.31, 0.025, 4, 14), 0x6a7585, [0.03, 2.81, 0.02], [Math.PI / 2 + 0.12, 0.18, 0]); }
+  else if (hat === 3) { C.add(SPH_LO, sc, [0, 2.76, 0], [0, 0, 0], [0.42, 0.36, 0.42]); C.add(new THREE.TorusGeometry(0.39, 0.07, 6, 16), 0xfffaf2, [0, 2.76, 0], [Math.PI / 2, 0, 0]); C.add(SPH_LO, 0xfffaf2, [0, 3.14, 0], [0, 0, 0], 0.11); }
+  else for (const e of [-1, 1]) C.add(SPH_LO, sc, [e * 0.42, 2.6, 0], [0, 0, 0], [0.07, 0.13, 0.13]);   // ear muffs
+  if (hat === 4) C.add(new THREE.TorusGeometry(0.43, 0.025, 4, 16, Math.PI), sc, [0, 2.6, 0], [0, Math.PI / 2, 0]);
+  const out = [A.build(), B.build(), C.build()]; SNOWMEN.geos.set(v, out); return out;
+}
+function addSnowman(s, grow) {
+  if (!s || SNOWMEN.list.has(s.id) || THEME !== 'xmas') return;
+  const v = s.v | 0, k = 0.85 + wxHash(v * 31 + 9) * 0.3, y = baseY(s.x, s.z);
+  const g = new THREE.Group(); g.position.set(s.x, y - 0.05, s.z); g.rotation.y = s.yaw; g.scale.setScalar(k); scene.add(g);
+  const parts = snowmanGeos(v).map(geo => mk(geo, SNOWMEN.mat, { parent: g, outline: 0.03 }));
+  const so = solid(s.x, s.z, 0.72 * k, y + 2.9 * k);
+  const sm = { id: s.id, g, parts, so, t: grow ? 0 : 9, by: s.by, stage: -1 };
+  for (const p of parts) p.scale.setScalar(grow ? 0.001 : 1);
+  SNOWMEN.list.set(s.id, sm);
+  if (grow && s.by === Net.id && player) {
+    player.talk(pick(['영차영차!', '데굴데굴~', '눈사람 만들자!']), 2);
+    if (!SNOWMEN.told) { SNOWMEN.told = true; setTimeout(() => toast('눈사람이 생겼어요! 한 사람이 3개까지 세울 수 있어요 (더 만들면 처음 것이 녹아요)', 4200), 2400); }
+  }
+}
+function removeSnowman(id) {
+  const sm = SNOWMEN.list.get(id); if (!sm) return;
+  emit(snowTex, tmpV.copy(sm.g.position).add(UP1), 18, { size: 0.4, spread: 2.4, up: 2.4, life: 0.9, g: 8 });
+  scene.remove(sm.g); const i = solids.indexOf(sm.so); if (i >= 0) solids.splice(i, 1);
+  SNOWMEN.list.delete(id);
+}
+function clearSnowmen() { for (const id of [...SNOWMEN.list.keys()]) { const sm = SNOWMEN.list.get(id); scene.remove(sm.g); const i = solids.indexOf(sm.so); if (i >= 0) solids.splice(i, 1); SNOWMEN.list.delete(id); } }
+function snowmanSpot() {   // a bit of open snow just in front of you, or null
+  const x = player.pos.x + Math.sin(player.yaw) * 1.8, z = player.pos.z + Math.cos(player.yaw) * 1.8, y = baseY(x, z);
+  if (player.zone !== 'world' || !player.ground || !walkable(x, z) || Math.abs(y - player.pos.y) > 0.7 || Math.hypot(x - PUD.x, z - PUD.z) < 17) return null;
+  for (const o of solids) { const d = Math.hypot(x - o.x, z - o.z); if ((o.ice || o.water) && d < o.r + 0.5) return null; if (o.top > y + 0.25 && o.bottom < y + 2.5 && d < o.r + 0.75) return null; }
+  for (const r of Net.remotes.values()) if (Math.hypot(x - r.c.pos.x, z - r.c.pos.z) < 1.2) return null;
+  return { x, z };
+}
+function mySnowman() {
+  if (THEME !== 'xmas' || !player || mode !== 'play' || player.sitting || chatOpen || !Net.ws) return;
+  if (SNOWMEN.cool > 0) { toast('눈을 뭉치는 중이에요. 조금만 기다려요', 1800); return; }
+  const at = snowmanSpot();
+  if (!at) { toast('여기는 눈사람을 세울 자리가 없어요. 넓은 눈밭에서 해 봐요', 2600); return; }
+  SNOWMEN.cool = 3; player.squash = 0.4;
+  netSend({ t: 'snowman', x: +at.x.toFixed(2), z: +at.z.toFixed(2), yaw: +(player.yaw + Math.PI).toFixed(2), v: (Math.random() * 1e6) | 0 });
+}
+const _sm = new V3();
+function tickSnowmen(dt) {
+  if (SNOWMEN.cool > 0) SNOWMEN.cool -= dt;
+  for (const sm of SNOWMEN.list.values()) {
+    if (sm.t >= 3) continue;
+    sm.t += dt;
+    for (let i = 0; i < 3; i++) {   // each ball lands with a little bounce, a puff of snow and a soft whump
+      const u = clamp((sm.t - i * 0.8) / 0.55, 0, 1), e = u <= 0 ? 0.001 : u >= 1 ? 1 : 1 + Math.sin(u * Math.PI * 1.5) * (1 - u) * 0.6 - (1 - u) ** 3;
+      sm.parts[i].scale.set(Math.max(0.001, e), Math.max(0.001, i === 0 ? e : e * (0.9 + 0.1 * u)), Math.max(0.001, e));
+      if (sm.t >= i * 0.8 && sm.stage < i) {
+        sm.stage = i; _sm.copy(sm.g.position); _sm.y += [0.5, 1.6, 2.5][i] * sm.g.scale.x;
+        emit(snowTex, _sm, 10, { size: 0.3, spread: 1.8, up: 1.6, life: 0.6, g: 8 });
+        const [k, pn] = ear(_sm); if (k > 0.05) Snd.splat(k * (0.5 + i * 0.15), pn);
+      }
+    }
+    if (sm.t >= 3) for (const p of sm.parts) p.scale.setScalar(1);
+  }
+}
+THEME_HOOKS.push(t => { $('bSnowman').hidden = t !== 'xmas'; if (t !== 'xmas') clearSnowmen(); });
+$('bSnowman').addEventListener('pointerdown', e => { e.preventDefault(); mySnowman(); });
 
 /* ---------------- Christmas candy canes: the star candies become candy canes to hunt (the gold star stays, on top of the tree);
    gather them all and the shower comes with an aurora; shouting 「메리 크리스마스」 calls it again ---------------- */
@@ -7179,7 +7364,7 @@ function connect(where, charId, nick) {
       if (typeof ev.data !== 'string') { if (settled && Net.ws === ws) onSnap(ev.data); return; }
       let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
       if (!settled) {
-        if (m.t === 'welcome') { settled = true; if (m.dev) devSet(m.dev); Object.assign(Net, { ws, id: m.id, nick: m.nick, ch: m.ch, code: m.code || '', xmas: m.xmas || 0, theme: m.theme || '', pub: !m.code, admin: false, made: !!m.made, kickMsg: '', max: m.max, ufo: !!m.ufo, shower: m.shower || 0 }); if (m.now) WX.off = m.now - Date.now(); skyCh = Number.isInteger(m.sky) ? m.sky : Math.max(0, m.ch); setTheme(Net.theme); m.players.forEach(addRemote); if (m.screen) Beam.onScreen(m.screen); resolve(m); }
+        if (m.t === 'welcome') { settled = true; if (m.dev) devSet(m.dev); Object.assign(Net, { ws, id: m.id, nick: m.nick, ch: m.ch, code: m.code || '', xmas: m.xmas || 0, theme: m.theme || '', pub: !m.code, admin: false, made: !!m.made, kickMsg: '', max: m.max, ufo: !!m.ufo, shower: m.shower || 0 }); if (m.now) WX.off = m.now - Date.now(); skyCh = Number.isInteger(m.sky) ? m.sky : Math.max(0, m.ch); setTheme(Net.theme); m.players.forEach(addRemote); clearSnowmen(); (m.snow || []).forEach(sm => addSnowman(sm, false)); if (m.screen) Beam.onScreen(m.screen); resolve(m); }
         else if (m.t === 'full') { settled = true; reject(m.rooms ? 'fullrooms' : 'full'); }
         else if (m.t === 'taken') { settled = true; reject('taken'); }
         else if (m.t === 'nocode') { settled = true; reject(m.slow ? 'slow' : 'nocode'); }
@@ -7225,7 +7410,7 @@ function removeRemote(id) {
   scene.remove(r.c.obj); scene.remove(r.c.blobShadow); r.c.el.remove(); r.tag.remove();
   Net.remotes.delete(id);
 }
-function clearRemotes() { [...Net.remotes.keys()].forEach(removeRemote); }
+function clearRemotes() { [...Net.remotes.keys()].forEach(removeRemote); clearSnowmen(); }
 // positions come as a small binary bundle of the friends who moved: 20 bytes each (see server.js)
 function onSnap(buf) {
   const v = new DataView(buf); if (v.getUint8(0) !== 1) return;
@@ -7245,6 +7430,8 @@ function onNet(m) {
   else if (m.t === 'look') { const r = Net.remotes.get(m.id); if (r) setLook(r.c, m.look); }
   else if (m.t === 'fx') { const r = Net.remotes.get(m.id); if (r && m.k === 'fw') fireworkAt(r.c.pos, true); }
   else if (m.t === 'ball') { const r = Net.remotes.get(m.id); if (r) throwBall(new V3(m.x, m.y, m.z), new V3(m.vx, m.vy, m.vz), r.c); }
+  else if (m.t === 'snowman') addSnowman(m.s, true);
+  else if (m.t === 'snowgone') removeSnowman(m.id);
   else if (m.t === 'admin') { if (!m.ok) toast('알 수 없는 명령이에요', 2200); else if (!Net.admin) { Net.admin = true; Beam.lockUI(); toast('관리자 모드가 켜졌어요', 3000); } }
   else if (m.t === 'report') toast(m.dup ? '이미 신고한 친구예요' : (m.nick || '친구') + '님을 신고했어요', 2600);
   else if (m.t === 'kicked') Net.kickMsg = banText(m.left || 0, true);
@@ -7345,7 +7532,7 @@ function xmasBanner() {   // "Merry Mongle Christmas" and how many days are left
   const kst = new Date(Date.now() + WX.off + 9 * 3600e3), d = kst.getUTCDate(), dec = kst.getUTCMonth() === 11;
   const sub = !dec ? '크리스마스 미리보기' : d < 25 ? '크리스마스까지 D-' + (25 - d) : d === 25 ? '오늘은 크리스마스!' : '즐거운 연말 보내요';
   zoneBanner('메리 크리스마스!'); setTimeout(() => toast(sub, 3200), 2600);
-  setTimeout(() => { if (mode === 'play') toast(IS_TOUCH ? '트리 아래 선물을 열어 보고, 눈덩이 버튼으로 눈싸움해요!' : '트리 아래 선물은 F로 열고, Q로 눈덩이를 던져요!', 4200); }, 6400);
+  setTimeout(() => { if (mode === 'play') toast(IS_TOUCH ? '트리 아래 선물을 열어 보고, 눈덩이로 눈싸움, 눈사람도 만들어요!' : '트리 아래 선물은 F로 열고, Q로 눈덩이를 던지고, R로 눈사람을 만들어요!', 4200); }, 6400);
 }
 function renderChannels() {
   if (mode === 'select') skyCh = selMode === 'xmas' ? 0 : selCh;
@@ -7477,6 +7664,7 @@ addEventListener('keydown', e => {
   if ((e.code === 'BracketLeft' || e.code === 'BracketRight') && !e.repeat && Beam.mine) { Beam.resize(e.code === 'BracketRight' ? 1 : -1); Snd.pop(); }
   if (e.code === 'KeyF' && !e.repeat && promptPortal) promptPortal.run();
   if (e.code === 'KeyQ' && !e.repeat) myThrow();
+  if (e.code === 'KeyR' && !e.repeat) mySnowman();
   if (/^Digit[1-5]$/.test(e.code) && !e.repeat) emote(+e.code.slice(5) - 1);
 });
 addEventListener('keyup', e => { if (KEYMAP[e.code]) keys[KEYMAP[e.code]] = false; });
@@ -7853,8 +8041,10 @@ function frame() {
   tickXmasLamps(dt, T, S);
   tickXmasFire(dt);
   tickSleigh(dt, T, S);
+  tickDrops(dt, T);
   tickFireworks(dt, T);
   tickBalls(dt);
+  tickSnowmen(dt);
   tickAurora(dt);
   tickLostDeer(dt, T);
   tickEve(dt);
