@@ -1,44 +1,42 @@
-# 작업 인계 (2026-11-18)
+# 작업 인계 (2026-11-26)
 
-브랜치: `claude/affectionate-wright-xngnwh` (작업은 전부 main에 머지됨. 다음 세션은 main에서 시작하면 된다)
+브랜치: `claude/affectionate-wright-xngnwh` (작업은 전부 main에 머지됨, #24~#29. 다음 세션은 main에서 시작하면 된다)
 
 ## 목표
-몽글 마을(3D 멀티플레이 산책 게임)에 새 장소와 기능을 하나씩 더하고, 그때마다 PR로 main에 스쿼시 머지한다.
+12월 1일(한국 시간) 크리스마스 채널 오픈 준비. 기능은 다 들어갔고, 남은 큰 일은 서울 서버 이사와 실제 기기 점검.
 
-## 완료한 것 (이번 세션, 모두 main에 머지)
-- #15 반딧불 동굴: 폭포 뒤 숨은 동굴, 폭신 버섯 점프, 박쥐 초롱 (`CAVE`, `tickCave`)
-- #16·#17 별빛 언덕과 천문대: 동쪽 언덕, 망원경 깊은 우주와 별자리 8개, 두더지 두두 (`HILL`, `tickHill`)
-- #18 너른 들판: 반지름 200(`RING`) 안 어디든 걸을 수 있게, 쉼터 3곳 (`SPOTS`: 꽃동산·연잎 연못·모닥불 야영지)
-- #19·#20 화면 공유(빔 프로젝터): WebRTC로 허공에 홀로그램 화면, 크기 60~400% (`Beam`, `tickBeam`)
-- #21·#23 비행선 전광판: 광장 위를 도는 곰돌이 비행선, 전광판은 환영 그림 한 장 (`SHIP`, `tickShip`)
-- #22 렉 수정: 들꽃을 저해상도로, 40m 칸으로 나눠 가까운 칸만 그림 (`flowerGeo`, `FLOWER_SPH`)
-- 맵 후보 기록: `MAP_IDEAS.md`
+## 완료한 것 (모두 main)
+- 비공개 채널(6글자 코드), 관리자 모드(채팅 `/코드`, 해시만 `server.js` `ADMIN_HASHES`), 기기 단위 신고·차단 (`server.js` `report`, `checkDevice`)
+- 접속 몰림 대비: 페이지 br/gzip+ETag, 20바이트 이진 위치 동기화(움직인 사람만, 90m 밖 초당 2번), 상한 2000명·IP당 10, `/api/stats`, `BAN_FILE`
+- 크리스마스 채널 1~6단계 + 광장 전광판: 전체 목록은 `CHRISTMAS_PLAN.md`(체크 완료)와 `README.md`
+- 서울 서버 이사 안내와 스크립트: `DEPLOY.md`, `deploy/setup.sh`, `deploy/update.sh` (실제 Lightsail에선 아직 미실행)
 
 ## 결정한 것
-- 실내 공간은 맵 동쪽 멀리(x>1000)에 따로 둔다: 할아버지 나무 안 (1400,0), 동굴 (1400,400). `player.zone`, `portals`, `baseY`로 연결
-- 앉는 자리는 `seats`에 넣는다. `fp`(1인칭), `up`(하늘 보기), `zoom`(망원경 FOV) 옵션이 있다
-- 화면 공유: 영상은 사람끼리 직접(STUN만, TURN 없음). 서버는 `screen`·`rtc`·`scr` 메시지만 중계
-- 비행선과 전광판은 서버 시계(`shipNow()` = Date.now()+WX.off)로 계산해 모두 같은 위치·같은 장면. 서버에 상태 없음
-- 전광판 내용: `public/airship/playlist.json` (README에 형식). 서버가 `/airship/` 폴더만 안전하게 내보냄
-- 진행(별사탕, 별자리)은 저장하지 않는다(README 방침). 바꾸려면 사용자에게 먼저 물을 것
-- 머지는 스쿼시. 그 뒤 같은 브랜치에 다시 푸시할 땐 `git merge -s ours origin/claude/affectionate-wright-xngnwh`로 기록을 이은 뒤 일반 push (force push 안 씀)
+- 서버: AWS Lightsail 서울 + 가비아 .kr 도메인 + Cloudflare Tunnel (Render는 월 5GB 전송 한도라 비상용)
+- 신고 차단은 IP 대신 서명된 기기 표(브라우저 localStorage `mongle-dev`). 신고자는 IP별 1명으로 셈
+- 회원가입은 안 만듦 (만 14세 미만 보호자 동의 부담). 필요해지면 카카오 로그인 검토
+- 크리스마스: 12월 한 달(KST), 크리스마스 채널 하나(20명 차면 2,3… 자동), 순록 이름 코코·솜이·방울·별이, 인사말은 「메리 크리스마스」(몽글 빼기)
+- 캐롤은 멜로디를 확실히 아는 퍼블릭 도메인 4곡만 (징글벨·덱 더 홀스·우리 모두 즐거운 성탄·고요한 밤)
+- 크리스마스 물체는 `THEME_HOOKS`로 켜고 끔. 하늘 물체 재질은 `{ cloud: false, snow: false }`
+- 머지는 스쿼시. 그 뒤 같은 브랜치에 다시 쓸 땐 `git merge -s ours origin/main`로 기록 잇고 일반 push
 
 ## 남은 일
-1. 사용자가 친구와 화면 공유를 시험해 보고, 다른 집 인터넷끼리 안 되면 TURN 서버 붙이기 (`Beam.ICE`)
-2. 다음 맵: 추천은 구름 섬 (무지개 다리, 폭신 점프 재사용, 비 온 채널에만). 나머지 후보는 `MAP_IDEAS.md`
-3. 지도에 쉼터 3곳 아이콘 추가 (`buildMapBg`)
-4. 휴대폰에서 지도·망원경·비행선 점검
+1. 사용자가 `DEPLOY.md`대로 가비아 도메인 → Lightsail 서울 → Cloudflare Tunnel 진행. 막히면 화면 보고 도와주기
+2. 사용자가 실제 사이트에서 `?xmas=1`, `?xmas=1&eve=60`으로 점검한 피드백 반영 (트리 오르기, 얼음 미끄러짐, 캐롤, 썰매, 선물, 눈싸움, 피날레)
+3. 이사 후 부하 시험(가짜 접속자 500~2000명)으로 상한·전송량 확인
+4. (선택) 눈사람 만들기, 썰매가 선물 떨어뜨리기, 「오 크리스마스 트리」·「기쁘다 구주」(정확한 악보 받으면)
+5. (선택) 산타 웃음소리 녹음 파일 `public/airship/santa-laugh.mp3` 받으면 넣기
 
 ## 주의할 점
-- 성능: 새 물체가 많으면 삼각형 수를 잴 것. 들꽃 하나로 프레임당 830만 개가 생겨 렉이 났었다. 많은 물체는 `grassChunks`에 넣으면 거리·시야 밖에서 안 그려진다
-- 시험 환경: cdnjs가 막혀 있어 three.js r128을 npm(`three@0.128.0`)에서 받아 Playwright로 가로채 넣어야 한다. 헤드리스 swiftshader는 0.2fps로 매우 느리다
-- 로컬 웹소켓 시험엔 `--disable-features=LocalNetworkAccessChecks` 플래그가 필요하다
-- 확인 못 한 것: 실제 GPU·휴대폰 프레임, 화면 공유 소리와 다른 네트워크 연결, 비행선 밤 모습
-- 서버(`server.js`)를 바꾸면 Render 재배포 후에 동작한다고 사용자에게 알릴 것
+- 관리자 코드 원문은 저장소에 없음(사용자가 보관). 코드를 다시 만들면 `ADMIN_HASHES` 갱신
+- 시험 환경: three.js r128을 scratchpad에 `npm i three@0.128.0`로 받아 Playwright가 가로채 넣어야 함. 브라우저 옵션 `--disable-features=LocalNetworkAccessChecks` 필수. 0.2fps라 실시간 연출(불꽃, 반짝이, 소리)은 못 봄 → 시험용 복사본에 `window.__t` 훅을 넣어 확인
+- 시계 기반 효과는 `clock.elapsedTime`(실시간) 기준이라 느린 환경에서 수명이 짧은 입자는 안 보임
+- `server.js`를 바꾸면 Render(또는 이사 후 `deploy/update.sh`) 재배포 필요하다고 사용자에게 알릴 것
+- 성능: 새 물체가 많으면 합치거나 인스턴싱, 삼각형 수 확인. 실제 휴대폰 프레임은 아직 미확인
 
 ## 관련 파일
-- `public/index.html` : 게임 전체(약 6,700줄, 섹션마다 `/* ---- 이름 ---- */` 머리글)
-- `server.js` : 채널·위치·채팅·유성우·UFO·화면 공유 중계·`/airship/` 파일 서빙
-- `public/airship/` : 전광판 재생 목록과 `welcome.png`
-- `MAP_IDEAS.md` : 만든 곳과 다음 맵 후보
-- `README.md` : 사용자용 설명(한국어)
+- `public/index.html` : 게임 전체(약 7,600줄). 크리스마스 관련: `XTREE` `SLEIGH` `animDeer` `SONGS`/`carolStep` `XICE` `XLAMP` `XACTS` `openGift` `BALLS` `LOST` `FW` `tickEve` `BB`/`drawCountdown` `xmasFinale`
+- `server.js` : 채널·비공개·크리스마스 방, 이진 스냅샷, 신고·차단, 관리자, 전광판 공유 권한
+- `CHRISTMAS_PLAN.md` : 크리스마스 기획과 진행 체크
+- `DEPLOY.md`, `deploy/` : 서울 서버 이사 안내와 스크립트
+- `README.md` : 사용자용 설명(설정 환경 변수 표 포함)
