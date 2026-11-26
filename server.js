@@ -49,6 +49,7 @@ const ADMIN_TRIES = 5;     // 접속 한 번에 틀릴 수 있는 횟수
 // - 차단은 기기 단위예요. PC방·학교처럼 IP를 같이 쓰는 곳의 다른 사람은 막히지 않아요
 // - 신고한 사람은 IP로 세요. 한 사람이 창을 여러 개 열어 혼자 3번을 채울 수 없게요
 const REPORTS_TO_KICK = 3, KICK_BAN_MS = 2 * 3600e3, REPORTS_TO_BAN = 9;
+const SNOWMEN_EACH = 3, SNOWMEN_MAX = 40;      // 눈사람: 한 사람이 세울 수 있는 수, 한 채널에 있을 수 있는 수
 const bans = new Map();      // 기기 -> 풀리는 시각 (Infinity = 영구)
 const strikes = new Map();   // 기기 -> 지금까지 받은 신고 수
 const codeMiss = new Map();  // ip -> { n, t }
@@ -118,7 +119,7 @@ const NOUN = ['도토리', '구름', '푸딩', '쿠키', '민들레', '솜사탕
 // 채널(방): 공용 채널 10개는 늘 있고, 비공개 채널은 코드로 만들었다가 아무도 없이 3분이 지나면 사라져요.
 // 방마다 UFO·유성우·화면 공유를 따로 가져요. sky: 하늘과 날씨를 어느 공용 채널 것으로 보여 줄지
 // theme: 'xmas' 면 크리스마스로 꾸민 마을이에요. xmas: 공용 크리스마스 채널 (번호는 idx + 1)
-function makeRoom(pub, idx, code, sky, theme = '') { return { pub, idx, code, sky, theme, xmas: false, players: new Map(), ufo: null, showerEnd: 0, screen: null, tick: 0 }; }
+function makeRoom(pub, idx, code, sky, theme = '') { return { pub, idx, code, sky, theme, xmas: false, players: new Map(), ufo: null, showerEnd: 0, screen: null, tick: 0, snow: [], snowId: 1 }; }
 const publicRooms = Array.from({ length: CHANNELS }, (_, i) => makeRoom(true, i, null, i));
 const privateRooms = new Map();   // code -> room
 const xmasRooms = [];             // 크리스마스 1, 2, 3 … (한번 열리면 비어도 남아 있어요. 비어 있으면 하는 일이 없어 가벼워요)
@@ -344,7 +345,7 @@ wss.on('connection', (ws, req) => {
       me = { id: nextId++, ws, ip, dev, room, char: m.char, nick: want || makeNick(players), s: [6, 0, 22, 0, 0, 1, 0], ver: 1, seen: new Map(), lastChat: 0, admin: false, adminTries: 0, reportedBy: new Set(), hits: 0 };
       if (m.stars === true) me.starsDone = true;   // 다른 채널에서 이미 별사탕을 다 모았어요: 외치기는 되지만 첫 유성우·UFO는 다시 굴리지 않아요
       players.set(me.id, me);
-      send(ws, { t: 'welcome', dev: devTok || undefined, id: me.id, nick: me.nick, ch: room.pub && !room.xmas ? room.idx : -1, code: room.code, xmas: room.xmas ? room.idx + 1 : 0, theme: room.theme, made: made ? 1 : 0, sky: room.sky, max: MAX_PER_CHANNEL, now: Date.now(), ufo: room.ufo ? 1 : 0, shower: Math.max(0, room.showerEnd - SHOWER_GAP_MS - Date.now()), screen: room.screen, players: [...players.values()].filter(p => p !== me).map(info) });
+      send(ws, { t: 'welcome', dev: devTok || undefined, id: me.id, nick: me.nick, ch: room.pub && !room.xmas ? room.idx : -1, code: room.code, xmas: room.xmas ? room.idx + 1 : 0, theme: room.theme, made: made ? 1 : 0, sky: room.sky, max: MAX_PER_CHANNEL, now: Date.now(), ufo: room.ufo ? 1 : 0, shower: Math.max(0, room.showerEnd - SHOWER_GAP_MS - Date.now()), screen: room.screen, snow: room.snow, players: [...players.values()].filter(p => p !== me).map(info) });
       broadcast(players, { t: 'join', ...info(me) }, me);
       console.log(`[${label(room)}] ${me.nick} ${made ? '비공개 채널을 만들고 ' : ''}입장 (${players.size}/${MAX_PER_CHANNEL})`);
       return;
@@ -408,6 +409,15 @@ wss.on('connection', (ws, req) => {
       // 눈덩이: 던진 자리와 빠르기만 같은 채널에 전해요. 0.4초에 한 번까지
       if (room.theme !== 'xmas' || now - (me.lastBall || 0) < 400) return; me.lastBall = now;
       broadcast(room.players, { t: 'ball', id: me.id, x: r2(num(m.x, -2000, 2000)), y: r2(num(m.y, -50, 150)), z: r2(num(m.z, -2000, 2000)), vx: r2(num(m.vx, -40, 40)), vy: r2(num(m.vy, -40, 40)), vz: r2(num(m.vz, -40, 40)) }, me);
+    } else if (m.t === 'snowman') {
+      // 눈사람: 크리스마스 채널에서만, 2.5초에 하나. 한 사람이 3개, 채널에 40개까지 (넘으면 오래된 것부터 녹아요). 채널이 비면 모두 사라져요
+      if (room.theme !== 'xmas' || now - (me.lastSnow || 0) < 2500) return; me.lastSnow = now;
+      const melt = i => { const [g] = room.snow.splice(i, 1); broadcast(room.players, { t: 'snowgone', id: g.id }); };
+      const mine = room.snow.filter(g => g.by === me.id);
+      if (mine.length >= SNOWMEN_EACH) melt(room.snow.indexOf(mine[0]));
+      if (room.snow.length >= SNOWMEN_MAX) melt(0);
+      const sm = { id: room.snowId++, by: me.id, x: r2(num(m.x, -2000, 2000)), z: r2(num(m.z, -2000, 2000)), yaw: r2(num(m.yaw, -50, 50)), v: Math.floor(num(m.v, 0, 1e6)) };
+      room.snow.push(sm); broadcast(room.players, { t: 'snowman', s: sm });
     } else if (m.t === 'ufoBye') {
       // 크리스마스의 길 잃은 순록: 누군가 말을 걸면 썰매로 돌아가요 (모두에게서 사라져요)
       if (room.theme !== 'xmas' || !room.ufo) return;
@@ -434,6 +444,7 @@ wss.on('connection', (ws, req) => {
     endScreen(room, me.id);                                          // 화면을 띄운 사람이 나가면 화면도 꺼져요
     if (players.size === 0) {
       room.ufo = null; room.showerEnd = 0; room.screen = null;       // 채널이 비면 UFO도 유성우도 사라져요
+      room.snow = [];                                                // 눈사람도 녹아요
       if (!room.pub) room.emptyAt = Date.now();                      // 비공개 채널은 아무도 없이 3분이 지나면 없어져요
     }
     broadcast(players, { t: 'leave', id: me.id });
